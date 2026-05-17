@@ -4,7 +4,7 @@
 <template>
   <div class="stats-cards">
     <a-card class="stat-card" v-for="item in cards" :key="item.label">
-      <a-statistic :title="item.label" :value="item.value" :suffix="item.suffix" />
+      <a-statistic :title="item.label" :value="item.value" :suffix="item.suffix" :precision="item.precision" />
     </a-card>
   </div>
 </template>
@@ -20,7 +20,7 @@ const cards = computed(() => {
   if (!s) return []
   return [
     { label: '总评估次数', value: s.total_count, suffix: '' },
-    { label: '平均分数', value: s.avg_score.toFixed(2), suffix: '' },
+    { label: '平均分数', value: s.avg_score, suffix: '', precision: 2 },
     { label: '自动批准 (≥0.8)', value: s.high_count, suffix: '' },
     { label: '人工审核 (0.6~0.8)', value: s.mid_count, suffix: '' },
     { label: '自动拒绝 (<0.6)', value: s.low_count, suffix: '' },

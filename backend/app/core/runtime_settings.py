@@ -60,6 +60,16 @@ class RuntimeSettings:
         result.update(self._cache)
         return result
 
+    def get_cached(self, key: str) -> str:
+        """同步读取缓存值（不触发数据库查询，适用于同步路由函数）"""
+        return self._cache.get(key, _DEFAULTS.get(key, ""))
+
+    def get_cached_float(self, key: str) -> float:
+        return float(self.get_cached(key))
+
+    def get_cached_int(self, key: str) -> int:
+        return int(self.get_cached(key))
+
     async def update_batch(self, updates: dict[str, str]):
         async with get_db() as db:
             for key, value in updates.items():

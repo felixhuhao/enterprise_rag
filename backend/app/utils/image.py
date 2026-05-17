@@ -11,6 +11,38 @@ import mimetypes
 import os
 import re
 
+# 允许读取图片的安全目录白名单（相对于 backend 工作目录的绝对路径）
+_SAFE_DIRS: list[str] | None = None
+
+_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg", ".ico"}
+
+
+def _get_safe_dirs() -> list[str]:
+    """懒加载安全目录白名单，基于配置的 UPLOAD_DIR 和当前工作目录"""
+    global _SAFE_DIRS
+    if _SAFE_DIRS is None:
+        from app.config import settings
+        cwd = os.getcwd()
+        _SAFE_DIRS = [
+            os.path.realpath(os.path.join(cwd, settings.UPLOAD_DIR)),
+            os.path.realpath(os.path.join(cwd, "output")),
+        ]
+    return _SAFE_DIRS
+
+
+def _is_safe_image_path(path: str) -> bool:
+    """检查路径是否在白名单目录内且为合法图片扩展名"""
+    # 检查扩展名
+    _, ext = os.path.splitext(path.lower())
+    if ext not in _IMAGE_EXTENSIONS:
+        return False
+    # 解析真实路径，防止 ../../ 穿越
+    try:
+        real = os.path.realpath(path)
+    except (OSError, ValueError):
+        return False
+    return any(real.startswith(d + os.sep) or real == d for d in _get_safe_dirs())
+
 
 def _local_images_to_data_uri_sync(content) -> str:
     """
@@ -35,7 +67,7 @@ def _local_images_to_data_uri_sync(content) -> str:
 
     def _replace(match):
         path = match.group(1).strip()
-        if os.path.isfile(path):
+        if _is_safe_image_path(path) and os.path.isfile(path):
             mime = mimetypes.guess_type(path)[0] or "image/png"
             with open(path, "rb") as f:
                 b64 = base64.b64encode(f.read()).decode("utf-8")

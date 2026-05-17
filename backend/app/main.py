@@ -27,9 +27,12 @@ async def lifespan(app: FastAPI):
     # 启动时初始化 LangGraph 图和数据库
     from app.core.graph_manager import graph_manager
     from app.core.database import init_db
+    from app.core.runtime_settings import runtime_settings
     await graph_manager.init()
     print("[启动] GraphManager 就绪")
     await init_db()
+    await runtime_settings.get_all()  # 预加载运行时设置到内存缓存
+    print("[启动] RuntimeSettings 已加载")
     yield
     print("[关闭] 服务停止")
 

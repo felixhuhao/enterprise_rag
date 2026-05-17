@@ -54,18 +54,3 @@ async def approval_stream_generator(session_id: str, action: str):
 
         logger.info(f"审批流结束: 共 {chunk_count} 个 chunk, 发送 message_end")
         yield sse_event({"type": "message_end", "data": {}})
-
-        # 保存评估记录（审批后的最终状态）
-        final_state = await graph_manager.get_state(config)
-        score = final_state.values.get("evaluate_score")
-        if score is not None:
-            try:
-                from app.services.evaluate_service import evaluate_service
-                await evaluate_service.save_record(
-                    session_id=session_id,
-                    input_text="",
-                    score=float(score),
-                    from_web_search=bool(final_state.values.get("from_web_search")),
-                )
-            except Exception:
-                pass

@@ -2,12 +2,13 @@ import asyncio
 
 from langchain_core.messages import ToolMessage
 
+from app.core.runtime_settings import runtime_settings
 from graph.my_state import MultiModalRAGState
 from milvus_db.db_retriever import MilvusRetriever
 from utils.embedding_utils import VLEmbeddingClient, embed_for_knowledge_base
 from utils.log_utils import log
 
-m_re = MilvusRetriever(top_k=3)
+m_re = MilvusRetriever(top_k=3)  # 初始值，运行时动态读取
 vl_client = VLEmbeddingClient()
 
 
@@ -63,19 +64,20 @@ class SearchContextToolNode:
 
 def retriever_node(state: MultiModalRAGState):
     """检索 知识库并返回"""
+    top_k = runtime_settings.get_cached_int("retriever_top_k")
     if state.get("input_type") == "only_image":
         log.info(f"开始从知识库中检索图片：{state.get('input_image')}")
         # 纯图片检索，只用 dense search
         embedding = vl_client.embed_text_with_images(
             "", [state.get("input_image")]
         )
-        results = m_re.dense_search(embedding, limit=3)
+        results = m_re.dense_search(embedding, limit=top_k)
     else:
         # 文本检索，用混合检索（dense + BM25）
         input_data = [{"text": state.get("input_text")}]
         ok, embedding, _, _ = embed_for_knowledge_base(input_data)
         if ok:
-            results = m_re.hybrid_search(embedding, state.get("input_text"), limit=3)
+            results = m_re.hybrid_search(embedding, state.get("input_text"), limit=top_k)
         else:
             results = []
 

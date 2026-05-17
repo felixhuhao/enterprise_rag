@@ -93,7 +93,7 @@ export const useChatStore = defineStore('chat', () => {
    * @param event SSE 事件对象
    * @param assistantId 当前 AI 消息的 ID（用于更新占位内容）
    */
-  function handleEvent(event: SSEEvent, assistantId: string) {
+  function handleEvent(event: SSEEvent, assistantId?: string) {
     switch (event.type) {
       case 'tool_call':
         // 工具调用结果：插入为 tool 类型消息（显示为折叠卡片）
@@ -143,9 +143,12 @@ export const useChatStore = defineStore('chat', () => {
     isInterrupted.value = false
     isStreaming.value = true
 
-    // 新增 AI 消息占位（审批后会生成新的回复）
-    const assistantId = crypto.randomUUID()
-    messages.value.push({ id: assistantId, role: 'assistant', content: '' })
+    // reject 时需要 assistant 占位（会生成新的回复），approve 直接结束不需要
+    let assistantId: string | undefined
+    if (action === 'reject') {
+      assistantId = crypto.randomUUID()
+      messages.value.push({ id: assistantId, role: 'assistant', content: '' })
+    }
 
     const path = action === 'approve' ? '/chat/approve' : '/chat/reject'
     abortController = connectSSE(

@@ -1,6 +1,6 @@
 from langgraph.constants import END
 
-from app.config import settings
+from app.core.runtime_settings import runtime_settings
 from graph.my_state import MultiModalRAGState
 from utils.log_utils import log
 
@@ -47,11 +47,13 @@ def route_human_node(state: MultiModalRAGState):
     - < 0.6：自动 reject，进入网络搜索
     """
     score = state.get('evaluate_score', 0)
-    if score >= settings.EVALUATE_THRESHOLD_HIGH:
-        log.info(f"route_human_node: score={score:.4f} >= {settings.EVALUATE_THRESHOLD_HIGH} → END")
+    threshold_high = runtime_settings.get_cached_float("evaluate_threshold_high")
+    threshold_low = runtime_settings.get_cached_float("evaluate_threshold_low")
+    if score >= threshold_high:
+        log.info(f"route_human_node: score={score:.4f} >= {threshold_high} → END")
         return END
-    if score < settings.EVALUATE_THRESHOLD_LOW:
-        log.info(f"route_human_node: score={score:.4f} < {settings.EVALUATE_THRESHOLD_LOW} → auto_reject")
+    if score < threshold_low:
+        log.info(f"route_human_node: score={score:.4f} < {threshold_low} → auto_reject")
         return 'auto_reject'
     log.info(f"route_human_node: score={score:.4f} → human_approval")
     return 'human_approval'

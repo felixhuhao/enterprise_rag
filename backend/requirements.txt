@@ -1,7 +1,33 @@
+# Web framework
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 pydantic-settings>=2.0.0
 sse-starlette>=2.0.0
 aiosqlite>=0.20.0
 python-multipart>=0.0.9
+
+# LangChain / LangGraph
+langchain-core>=0.3.0
+langchain-openai>=0.3.0
+langchain-text-splitters>=0.3.0
+langgraph>=0.3.0
 langgraph-checkpoint-sqlite>=2.0.0
+
+# AI service integrations
+tavily-python>=0.5.0
+zhipuai>=2.0.0
+openai>=1.0.0
+
+# Vector database
+pymilvus>=2.5.0
+
+# RAG evaluation
+ragas>=0.2.0
+instructor>=1.0.0
+
+# Image / document processing
+Pillow>=10.0.0
+PyMuPDF>=1.24.0
+
+# HTTP
+requests>=2.31.0

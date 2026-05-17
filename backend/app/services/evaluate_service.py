@@ -7,8 +7,8 @@
 
 from datetime import datetime
 
-from app.config import settings
 from app.core.database import get_db
+from app.core.runtime_settings import runtime_settings
 
 
 class EvaluateService:
@@ -29,8 +29,8 @@ class EvaluateService:
 
     async def get_stats(self) -> dict:
         """获取聚合统计数据"""
-        high_threshold = settings.EVALUATE_THRESHOLD_HIGH
-        low_threshold = settings.EVALUATE_THRESHOLD_LOW
+        high_threshold = await runtime_settings.get_float("evaluate_threshold_high")
+        low_threshold = await runtime_settings.get_float("evaluate_threshold_low")
         async with get_db() as db:
             async with db.execute(
                 "SELECT COUNT(*) as total, AVG(score) as avg_score FROM evaluate_records"
