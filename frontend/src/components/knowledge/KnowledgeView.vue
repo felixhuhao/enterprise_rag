@@ -7,7 +7,10 @@
   <div class="knowledge-page">
     <!-- 顶部操作栏 -->
     <div class="page-header">
-      <h3>知识库管理</h3>
+      <div>
+        <h3>知识库管理</h3>
+        <p class="page-desc">上传 PDF 文档，OCR 解析后入库供 AI 检索</p>
+      </div>
       <a-upload
         :auto-upload="false"
         :show-file-list="false"
@@ -34,7 +37,8 @@
         <a-table-column title="文件名" data-index="filename" :width="240" />
         <a-table-column title="状态" :width="120">
           <template #cell="{ record }">
-            <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
+            <span :class="['status-dot', record.status]"></span>
+            {{ statusLabel(record.status) }}
           </template>
         </a-table-column>
         <a-table-column title="文档片段" data-index="doc_count" :width="100" />
@@ -64,15 +68,14 @@
     </a-table>
 
     <!-- 错误提示 -->
-    <a-alert
+    <div
       v-for="doc in store.documents.filter((d: any) => d.status === 'failed')"
       :key="'err-' + doc.id"
-      type="error"
-      :title="`${doc.filename} 处理失败`"
-      style="margin-top: 12px"
+      class="error-alert"
     >
-      {{ doc.error_msg }}
-    </a-alert>
+      <div class="error-title">{{ doc.filename }} 处理失败</div>
+      <div class="error-msg">{{ doc.error_msg }}</div>
+    </div>
   </div>
 </template>
 
@@ -97,18 +100,6 @@ function onFileSelect(fileItem: any) {
   store.upload(file)
 }
 
-function statusColor(status: string): string {
-  const map: Record<string, string> = {
-    uploaded: 'arcoblue',
-    parsing: 'orange',
-    parsed: 'cyan',
-    saving: 'orange',
-    completed: 'green',
-    failed: 'red',
-  }
-  return map[status] || 'gray'
-}
-
 function statusLabel(status: string): string {
   const map: Record<string, string> = {
     uploaded: '已上传',
@@ -124,21 +115,74 @@ function statusLabel(status: string): string {
 
 <style scoped>
 .knowledge-page {
-  background: #fff;
-  border-radius: 8px;
-  padding: 20px 24px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
   height: 100%;
   overflow-y: auto;
+  animation: fadeIn 0.3s var(--ease-out);
 }
+
 .page-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
+  align-items: flex-start;
+  margin-bottom: 20px;
 }
+
 .page-header h3 {
   margin: 0;
+  font-family: var(--font-display);
   font-size: 18px;
-  color: #1d2129;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.page-desc {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* Status dot */
+.status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.status-dot.uploaded { background: var(--info); }
+.status-dot.parsing  { background: var(--warning); animation: glowPulse 1.5s ease-in-out infinite; }
+.status-dot.parsed   { background: var(--info); }
+.status-dot.saving   { background: var(--warning); animation: glowPulse 1.5s ease-in-out infinite; }
+.status-dot.completed { background: var(--success); }
+.status-dot.failed   { background: var(--danger); }
+
+@keyframes glowPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; box-shadow: 0 0 6px currentColor; }
+}
+
+/* Error alerts */
+.error-alert {
+  margin-top: 12px;
+  padding: 10px 16px;
+  background: rgba(240, 96, 96, 0.06);
+  border: 1px solid rgba(240, 96, 96, 0.15);
+  border-radius: var(--radius-sm);
+}
+.error-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--danger);
+  font-size: 13px;
+}
+.error-msg {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 4px;
 }
 </style>

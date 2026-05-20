@@ -8,7 +8,10 @@
   <a-layout class="app-layout">
     <!-- 左侧导航栏 -->
     <a-layout-sider :width="220" :collapsible="true" class="sider">
-      <div class="logo">港股交易规则 AI 助手</div>
+      <div class="logo">
+        <span class="logo-icon">◆</span>
+        <span class="logo-text">港股 AI 助手</span>
+      </div>
       <a-menu :selected-keys="[currentRoute]" @menu-item-click="onMenuClick">
         <a-menu-item key="/chat">
           <template #icon><icon-message /></template>
@@ -27,12 +30,12 @@
           系统设置
         </a-menu-item>
       </a-menu>
-      <!-- Token 输入区域（固定在侧边栏底部，无需 API 鉴权） -->
+      <!-- Token 输入区域 -->
       <div class="sider-footer">
         <div class="token-label" @click="showTokenInput = !showTokenInput">
           <icon-lock />
           <span>API Token</span>
-          <icon-tag v-if="tokenSet && !showTokenInput" :style="{ color: '#00b42a' }" />
+          <icon-tag v-if="tokenSet && !showTokenInput" :style="{ color: 'var(--success)' }" />
         </div>
         <div v-if="showTokenInput" class="token-input">
           <a-input-password
@@ -49,6 +52,7 @@
     <a-layout>
       <a-layout-header class="header">
         <span class="header-title">多模态 RAG 知识库</span>
+        <span class="header-badge">Pro</span>
       </a-layout-header>
       <a-layout-content class="content">
         <router-view />
@@ -104,39 +108,59 @@ function saveToken() {
 .app-layout {
   height: 100vh;
 }
+
+/* ---- Sidebar ---- */
 .sider {
-  background: #fff;
-  border-right: 1px solid #e5e6eb;
+  background: linear-gradient(180deg, #0F1318 0%, #0B0E14 100%) !important;
+  border-right: 1px solid var(--border) !important;
   display: flex;
   flex-direction: column;
 }
+
 .logo {
   height: 60px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
-  font-weight: 600;
-  color: #1d2129;
-  border-bottom: 1px solid #e5e6eb;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  animation: fadeIn 0.5s var(--ease-out);
 }
+
+.logo-icon {
+  color: var(--accent);
+  font-size: 18px;
+  filter: drop-shadow(0 0 6px var(--accent-glow));
+}
+
+.logo-text {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+
 .sider-footer {
   margin-top: auto;
-  border-top: 1px solid #e5e6eb;
+  border-top: 1px solid var(--border);
   padding: 12px 16px;
 }
+
 .token-label {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: #86909c;
+  color: var(--text-muted);
   cursor: pointer;
   user-select: none;
+  transition: color 0.2s var(--ease-out);
 }
 .token-label:hover {
-  color: #165DFF;
+  color: var(--accent);
 }
+
 .token-input {
   display: flex;
   gap: 6px;
@@ -145,20 +169,42 @@ function saveToken() {
 .token-input :deep(.arco-input-password) {
   flex: 1;
 }
+
+/* ---- Header ---- */
 .header {
-  background: #fff;
-  border-bottom: 1px solid #e5e6eb;
+  background: var(--bg-surface) !important;
+  border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
+  gap: 10px;
   padding: 0 24px;
-  height: 52px;
+  height: 52px !important;
 }
+
 .header-title {
-  font-size: 15px;
-  color: #86909c;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
 }
+
+.header-badge {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border: 1px solid var(--border-accent);
+  padding: 1px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ---- Content ---- */
 .content {
-  background: #f7f8fa;
+  background: var(--bg-base) !important;
   padding: 16px;
   overflow: hidden;
 }

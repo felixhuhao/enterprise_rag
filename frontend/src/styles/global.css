@@ -1,6 +1,212 @@
+/* ============================================
+   Obsidian Finance — Premium Dark Theme
+   ============================================ */
+
+/* ---- Theme Tokens ---- */
+:root {
+  /* Brand Accent — Amber Gold */
+  --accent: #D4943A;
+  --accent-hover: #E0A448;
+  --accent-active: #C08030;
+  --accent-light: #E8B960;
+  --accent-dim: #8B6540;
+  --accent-glow: rgba(212, 148, 58, 0.15);
+  --accent-subtle: rgba(212, 148, 58, 0.06);
+
+  /* Surfaces */
+  --bg-base: #0B0E14;
+  --bg-surface: #12161E;
+  --bg-elevated: #1A1F2B;
+  --bg-hover: #222838;
+  --bg-active: #2A3040;
+
+  /* Borders */
+  --border: rgba(255, 255, 255, 0.06);
+  --border-hover: rgba(255, 255, 255, 0.12);
+  --border-accent: rgba(212, 148, 58, 0.3);
+
+  /* Text */
+  --text-primary: #E8ECF4;
+  --text-secondary: #8892A6;
+  --text-muted: #505868;
+  --text-accent: #E8B960;
+
+  /* Semantic */
+  --success: #3DD68C;
+  --warning: #E8A838;
+  --danger: #F06060;
+  --info: #5B9CF6;
+
+  /* Typography */
+  --font-display: 'Outfit', sans-serif;
+  --font-body: 'DM Sans', sans-serif;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --shadow-glow: 0 0 20px var(--accent-glow);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ---- Arco Primary Color Override (Blue → Amber) ---- */
+:root {
+  --arcoblue-1:  #1A1508;
+  --arcoblue-2:  #33280F;
+  --arcoblue-3:  #4D3C18;
+  --arcoblue-4:  #6B5425;
+  --arcoblue-5:  #8B6D35;
+  --arcoblue-6:  #D4943A;
+  --arcoblue-7:  #E0A448;
+  --arcoblue-8:  #E8B960;
+  --arcoblue-9:  #F0CA78;
+  --arcoblue-10: #F8DC98;
+}
+
+/* ---- Base ---- */
 html, body, #app {
   margin: 0;
   padding: 0;
   height: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--font-body);
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+
+body {
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ---- Noise Texture ---- */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10000;
+  opacity: 0.018;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 200px 200px;
+}
+
+/* ---- Scrollbar ---- */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* ---- Animations ---- */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Stagger utility */
+.stagger > * {
+  animation: fadeInUp 0.4s var(--ease-out) both;
+}
+.stagger > *:nth-child(1) { animation-delay: 0.02s; }
+.stagger > *:nth-child(2) { animation-delay: 0.06s; }
+.stagger > *:nth-child(3) { animation-delay: 0.10s; }
+.stagger > *:nth-child(4) { animation-delay: 0.14s; }
+.stagger > *:nth-child(5) { animation-delay: 0.18s; }
+.stagger > *:nth-child(6) { animation-delay: 0.22s; }
+
+/* ---- Global Arco Overrides ---- */
+
+/* Card */
+body[arco-theme="dark"] .arco-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+body[arco-theme="dark"] .arco-card-header-title {
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+/* Table */
+body[arco-theme="dark"] .arco-table-th {
+  background: var(--bg-hover) !important;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+body[arco-theme="dark"] .arco-table-tr:hover .arco-table-td {
+  background: var(--bg-hover) !important;
+}
+
+/* Input focus glow */
+body[arco-theme="dark"] .arco-input-wrapper:focus-within,
+body[arco-theme="dark"] .arco-textarea-wrapper:focus-within {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 2px var(--accent-glow) !important;
+}
+
+/* Button primary */
+body[arco-theme="dark"] .arco-btn-primary {
+  font-weight: 600;
+  transition: all 0.2s var(--ease-out);
+}
+body[arco-theme="dark"] .arco-btn-primary:hover {
+  box-shadow: var(--shadow-glow);
+}
+
+/* Statistic */
+body[arco-theme="dark"] .arco-statistic-title {
+  font-size: 11px !important;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-family: var(--font-display) !important;
+}
+body[arco-theme="dark"] .arco-statistic-value {
+  font-family: var(--font-display) !important;
+  font-weight: 700 !important;
+}
+
+/* Collapse */
+body[arco-theme="dark"] .arco-collapse-item-header {
+  font-family: var(--font-display);
+  font-weight: 500;
+}
+
+/* Divider */
+body[arco-theme="dark"] .arco-divider {
+  border-bottom-color: var(--border);
 }

@@ -50,8 +50,10 @@ function onSend({ text, imageBase64 }: { text: string; imageBase64?: string }) {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #fff;
-  border-radius: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   overflow: hidden;
+  animation: fadeIn 0.3s var(--ease-out);
 }
 </style>

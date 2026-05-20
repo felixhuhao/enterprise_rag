@@ -48,10 +48,12 @@ async function onPageChange(page: number) {
 
 <style scoped>
 .evaluate-page {
-  background: #fff;
-  border-radius: 8px;
-  padding: 20px 24px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
   height: 100%;
   overflow-y: auto;
+  animation: fadeIn 0.3s var(--ease-out);
 }
 </style>

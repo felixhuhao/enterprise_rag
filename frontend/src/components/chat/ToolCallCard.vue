@@ -24,13 +24,15 @@ defineProps<{ message: ChatMessage }>()
 .tool-call-card {
   margin-bottom: 12px;
   max-width: 70%;
+  animation: fadeInUp 0.3s var(--ease-out) both;
 }
 .tool-content {
   font-size: 13px;
-  color: #4e5969;
+  color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-all;
   max-height: 200px;
   overflow-y: auto;
+  line-height: 1.6;
 }
 </style>
