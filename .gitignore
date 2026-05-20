@@ -12,3 +12,5 @@ node_modules/
 .vscode/
 data/*.db
 PROJECT_REVIEW.md
+CONTEXT_HANDOFF.md
+FINANCIAL_INGESTION_PLAN.md

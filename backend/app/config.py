@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     # ---- LLM 模型配置 ----
     DASHSCOPE_API_KEY: str = ""
     DASHSCOPE_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    CHAT_MODEL: str = "qwen3.5-plus"
+    CHAT_MODEL: str = "qwen-plus"
     CHAT_TIMEOUT: int = 180
     # 本地模型（vLLM 部署），留空则使用 DashScope 云端模型
     LOCAL_MODEL_URL: str = ""
