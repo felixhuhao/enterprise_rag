@@ -11,6 +11,8 @@ node_modules/
 .claude/
 .vscode/
 data/*.db
+backend/data/
+doc/
 PROJECT_REVIEW.md
 CONTEXT_HANDOFF.md
 FINANCIAL_INGESTION_PLAN.md

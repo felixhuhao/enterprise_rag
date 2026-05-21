@@ -7,7 +7,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:8900',
+        target: 'http://localhost:8010',
         changeOrigin: true,
         // SSE 路径需要禁用缓冲，否则前端收不到流式事件
         configure: (proxy) => {

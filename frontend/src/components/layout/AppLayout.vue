@@ -13,13 +13,17 @@
         <span class="logo-text">港股 AI 助手</span>
       </div>
       <a-menu :selected-keys="[currentRoute]" @menu-item-click="onMenuClick">
+        <a-menu-item key="/query-chat">
+          <template #icon><icon-search /></template>
+          知识查询
+        </a-menu-item>
         <a-menu-item key="/chat">
           <template #icon><icon-message /></template>
           智能对话
         </a-menu-item>
-        <a-menu-item key="/knowledge">
-          <template #icon><icon-book /></template>
-          知识库管理
+        <a-menu-item key="/documents">
+          <template #icon><icon-storage /></template>
+          文档管理
         </a-menu-item>
         <a-menu-item key="/evaluate">
           <template #icon><icon-bar-chart /></template>
@@ -66,11 +70,12 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
   IconMessage,
-  IconBook,
+  IconStorage,
   IconBarChart,
   IconSettings,
   IconLock,
   IconTag,
+  IconSearch,
 } from '@arco-design/web-vue/es/icon'
 
 const router = useRouter()
