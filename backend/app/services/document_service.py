@@ -28,6 +28,7 @@ async def create_document_record(
     source_path: str,
     file_type: str,
     ingestion_mode: str = "text_only",
+    entity_name: str = "",
 ) -> dict:
     """创建通用文档记录。"""
     now = datetime.now().isoformat()
@@ -35,10 +36,10 @@ async def create_document_record(
         await db.execute(
             """
             INSERT INTO general_documents
-                (document_id, filename, source_path, file_type, ingestion_mode, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 'uploaded', ?, ?)
+                (document_id, filename, source_path, file_type, ingestion_mode, entity_name, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'uploaded', ?, ?)
             """,
-            (document_id, filename, source_path, file_type, ingestion_mode, now, now),
+            (document_id, filename, source_path, file_type, ingestion_mode, entity_name, now, now),
         )
         await db.commit()
     doc = await get_document(document_id)
@@ -82,6 +83,17 @@ async def update_document_status(document_id: str, status: str, **kwargs):
             vals,
         )
         await db.commit()
+
+
+async def update_entity_name(document_id: str, entity_name: str) -> bool:
+    """更新 entity_name，仅 uploaded 状态允许。返回是否成功。"""
+    async with get_db() as db:
+        cursor = await db.execute(
+            "UPDATE general_documents SET entity_name = ? WHERE document_id = ? AND status = 'uploaded'",
+            (entity_name, document_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
 
 
 async def mark_interrupted_documents_failed():
@@ -129,6 +141,7 @@ async def process_document(document_id: str):
             image_count=result["image_count"],
             error_msg="",
         )
+        _invalidate_entity_cache()
     except Exception as exc:
         logger.exception("通用文档处理失败 document_id=%s", document_id)
         await update_document_status(document_id, "failed", error_msg=str(exc)[:1000])
@@ -143,7 +156,7 @@ def _sync_process_document(doc: dict) -> dict:
             "status_updater": lambda doc_id, status: _sync_update_status(doc_id, status),
         }
     }
-    return run_ingestion_graph(doc, config=config)
+    return run_ingestion_graph(doc, entity_name=doc.get("entity_name", ""), config=config)
 
 
 def _sync_update_status(document_id: str, status: str, **kwargs):
@@ -172,6 +185,7 @@ async def delete_document(document_id: str) -> bool:
         if os.path.isdir(path):
             shutil.rmtree(path, ignore_errors=True)
 
+    _invalidate_entity_cache()
     return await delete_document_record(document_id)
 
 
@@ -179,3 +193,8 @@ def _sync_delete_from_milvus(document_id: str):
     from app.rag.vectorstores.general_milvus import delete_by_document_id
 
     delete_by_document_id(document_id)
+
+
+def _invalidate_entity_cache():
+    from app.rag.query.entity_cache import invalidate
+    invalidate()

@@ -8,6 +8,7 @@ export interface Document {
   filename: string
   file_type: string
   ingestion_mode: string
+  entity_name: string
   status: string
   chunk_count: number
   image_count: number
@@ -16,10 +17,16 @@ export interface Document {
   updated_at: string
 }
 
-export async function uploadDocument(file: File): Promise<Document> {
+export async function suggestMetadata(filename: string): Promise<{ suggested_entity_name: string }> {
+  const res = await apiClient.get('/documents/suggest-metadata', { params: { filename } })
+  return res.data
+}
+
+export async function uploadDocument(file: File, entityName?: string): Promise<Document> {
   const form = new FormData()
   form.append('file', file)
   form.append('ingestion_mode', 'text_only')
+  form.append('entity_name', entityName ?? '')
   const res = await apiClient.post('/documents/upload', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
@@ -48,5 +55,10 @@ export async function retryDocument(documentId: string): Promise<{ ok: boolean }
 
 export async function deleteDocument(documentId: string): Promise<{ ok: boolean }> {
   const res = await apiClient.delete(`/documents/${documentId}`)
+  return res.data
+}
+
+export async function updateDocumentEntity(documentId: string, entityName: string): Promise<{ ok: boolean }> {
+  const res = await apiClient.patch(`/documents/${documentId}`, { entity_name: entityName })
   return res.data
 }

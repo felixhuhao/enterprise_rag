@@ -20,13 +20,37 @@
           @change="onFileSelect"
         >
           <template #upload-button>
-            <a-button type="primary" :loading="uploading">
+            <a-button type="primary" :disabled="uploading">
               <template #icon><icon-upload /></template>
-              上传文件
+              选择文件
             </a-button>
           </template>
         </a-upload>
         <span class="upload-hint">支持 .pdf .md .markdown</span>
+      </div>
+
+      <!-- 文件预览 + entity 编辑 -->
+      <div v-if="pendingFile" class="upload-preview">
+        <div class="preview-file">
+          <icon-file style="color: var(--accent)" />
+          <span class="preview-filename">{{ pendingFile.name }}</span>
+        </div>
+        <div class="preview-entity">
+          <span class="preview-label">实体名称</span>
+          <a-input
+            v-model="pendingEntityName"
+            placeholder="可选：填写文档所属主体"
+            size="small"
+            allow-clear
+            class="entity-input"
+          />
+        </div>
+        <div class="preview-actions">
+          <a-button type="primary" size="small" :loading="uploading" @click="confirmUpload">
+            确认上传
+          </a-button>
+          <a-button size="small" @click="cancelPending">取消</a-button>
+        </div>
       </div>
 
       <!-- 文档列表 -->
@@ -53,6 +77,20 @@
               <a-tag :color="statusColor(record.status)" size="small">
                 {{ statusLabel(record.status) }}
               </a-tag>
+            </template>
+          </a-table-column>
+
+          <a-table-column title="实体名称" data-index="entity_name" :width="180">
+            <template #cell="{ record }">
+              <a-input
+                v-if="record.status === 'uploaded'"
+                v-model="record.entity_name"
+                placeholder="可选：填写文档所属主体"
+                size="mini"
+                allow-clear
+                @blur="handleEntityBlur(record)"
+              />
+              <span v-else class="entity-text">{{ record.entity_name || '—' }}</span>
             </template>
           </a-table-column>
 
@@ -113,6 +151,7 @@ import {
   IconUpload,
   IconFile,
 } from '@arco-design/web-vue/es/icon'
+import type { FileItem } from '@arco-design/web-vue'
 import type { Document } from '../../api/documents'
 import {
   listDocuments,
@@ -121,10 +160,14 @@ import {
   retryDocument,
   deleteDocument,
   getDocument,
+  suggestMetadata,
+  updateDocumentEntity,
 } from '../../api/documents'
 
 const docs = ref<Document[]>([])
 const uploading = ref(false)
+const pendingFile = ref<File | null>(null)
+const pendingEntityName = ref('')
 const pollingIds = ref<Map<string, number>>(new Map())
 
 const failedDocs = computed(() => docs.value.filter((d) => d.status === 'failed'))
@@ -186,12 +229,30 @@ async function pollDoc(docId: string) {
   }
 }
 
-async function onFileSelect(fileList: File[]) {
-  const file = fileList[0]?.file
-  if (!file) return
+async function onFileSelect(fileList: FileItem[]) {
+  const rawFile = fileList[0]?.file
+  if (!rawFile) return
+  pendingFile.value = rawFile
+  try {
+    const { suggested_entity_name } = await suggestMetadata(rawFile.name)
+    pendingEntityName.value = suggested_entity_name
+  } catch {
+    pendingEntityName.value = ''
+  }
+}
+
+function cancelPending() {
+  pendingFile.value = null
+  pendingEntityName.value = ''
+}
+
+async function confirmUpload() {
+  if (!pendingFile.value) return
   uploading.value = true
   try {
-    await uploadDocument(file)
+    await uploadDocument(pendingFile.value, pendingEntityName.value)
+    pendingFile.value = null
+    pendingEntityName.value = ''
     await refresh()
   } catch (e: any) {
     window.alert(e?.response?.data?.detail ?? '上传失败')
@@ -200,8 +261,16 @@ async function onFileSelect(fileList: File[]) {
   }
 }
 
+function handleEntityBlur(record: Document) {
+  updateDocumentEntity(record.document_id, record.entity_name).catch((e: any) => {
+    window.alert(e?.response?.data?.detail ?? '更新失败')
+  })
+}
+
 async function handleProcess(docId: string) {
   try {
+    const doc = docs.value.find((d) => d.document_id === docId)
+    if (doc) await updateDocumentEntity(docId, doc.entity_name)
     await processDocument(docId)
     await refresh()
   } catch (e: any) {
@@ -266,11 +335,58 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 20px;
+  margin-bottom: 12px;
 }
 .upload-hint {
   font-size: 12px;
   color: var(--text-muted);
+}
+
+.upload-preview {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  background: var(--bg-elevated, rgba(255,255,255,0.03));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+}
+.preview-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.preview-filename {
+  font-size: 13px;
+  color: var(--text-primary);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.preview-entity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+.preview-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.entity-input {
+  flex: 1;
+  min-width: 160px;
+}
+.preview-actions {
+  display: flex;
+  gap: 8px;
+}
+.entity-text {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .doc-table {

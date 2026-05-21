@@ -11,6 +11,7 @@ from langgraph.graph.state import RunnableConfig
 
 from app.config import settings
 from app.rag.query.config import get_query_config
+from app.rag.query.scoring_utils import cliff_detect
 from app.rag.query.state import QueryState
 
 logger = logging.getLogger(__name__)
@@ -47,27 +48,45 @@ def rerank_node(state: QueryState, config: RunnableConfig) -> dict:
     query = state.get("rewritten_query") or state["query"]
 
     if not results:
-        return {"search_results": []}
+        return {"search_results": [], "rerank_debug": []}
 
     # 1. LLM batch 打分
     llm_scores = _batch_rerank(query, results, cfg)
 
-    # 2. Score fusion
+    # 2. Score fusion + rerank 字段
     max_rrf = max((r["score"] for r in results), default=1) or 1
     for i, doc in enumerate(results):
         llm_s = llm_scores[i] if i < len(llm_scores) else cfg.rerank_fallback_score
         rrf_normalized = doc["score"] / max_rrf
-        doc["final_score"] = cfg.rerank_llm_weight * llm_s + cfg.rerank_rrf_weight * rrf_normalized
+        final_score = cfg.rerank_llm_weight * llm_s + cfg.rerank_rrf_weight * rrf_normalized
+        doc["rerank"] = {
+            "llm_score": round(llm_s, 3),
+            "rrf_score": round(rrf_normalized, 3),
+            "final_score": round(final_score, 3),
+        }
+        doc["score"] = final_score
 
     # 3. 排序
-    results.sort(key=lambda x: x["final_score"], reverse=True)
+    results.sort(key=lambda x: x["score"], reverse=True)
 
     # 4. 动态 Top-K (cliff detection)
-    top_k = _cliff_detect(results, cfg)
+    top_k = cliff_detect(results, cfg)
     results = results[:top_k]
 
+    # 5. rerank_debug（无 content，只保留摘要）
+    rerank_debug = [
+        {
+            "index": i + 1,
+            "file_title": doc.get("file_title", ""),
+            "section_title": doc.get("section_title", ""),
+            "source_type": doc.get("source_type", ""),
+            **doc["rerank"],
+        }
+        for i, doc in enumerate(results[:10])
+    ]
+
     logger.debug("Rerank: %d → %d results", len(llm_scores), len(results))
-    return {"search_results": results}
+    return {"search_results": results, "rerank_debug": rerank_debug}
 
 
 def _batch_rerank(query: str, results: list[dict], cfg) -> list[float]:
@@ -97,17 +116,3 @@ def _batch_rerank(query: str, results: list[dict], cfg) -> list[float]:
             all_scores.extend([cfg.rerank_fallback_score] * len(batch))
 
     return all_scores
-
-
-def _cliff_detect(results: list[dict], cfg) -> int:
-    """分数断崖检测。"""
-    n = min(len(results), cfg.rerank_max_top_k)
-    if n <= cfg.rerank_min_top_k:
-        return n
-
-    for i in range(cfg.rerank_min_top_k, n):
-        drop = results[i - 1]["final_score"] - results[i]["final_score"]
-        if drop > cfg.rerank_cliff_threshold:
-            return i
-
-    return n

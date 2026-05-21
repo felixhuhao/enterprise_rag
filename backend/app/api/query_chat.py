@@ -99,6 +99,32 @@ async def _stream_generator(session_id: str, query: str, query_config):
         state.update(rrf_fusion_node(state, run_config))
         state.update(table_expand_node(state, run_config))
         state.update(rerank_node(state, run_config))
+
+        # Post-rerank fallback: 如果 rerank 最高分低于阈值且有 entity filter，且搜索阶段没 fallback 过，去掉 filter 重搜
+        entity_filter = state.get("entity_filter")
+        already_fell_back = (
+            "fallback" in state.get("search_mode", "")
+            or "fallback" in state.get("search_mode_hyde", "")
+        )
+        results = state.get("search_results", [])
+        if entity_filter and not already_fell_back and results:
+            top_score = results[0].get("score", 0)
+            if top_score < query_config.entity_filter_rerank_min_score:
+                logger.info(
+                    "Post-rerank fallback: top_score=%.3f < %.3f, retrying unfiltered",
+                    top_score, query_config.entity_filter_rerank_min_score,
+                )
+                state["entity_filter"] = ""
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    f1 = pool.submit(search_node, state, run_config)
+                    f2 = pool.submit(hyde_search_node, state, run_config)
+                    state.update(f1.result())
+                    state.update(f2.result())
+                state.update(rrf_fusion_node(state, run_config))
+                state.update(table_expand_node(state, run_config))
+                state.update(rerank_node(state, run_config))
+                state["search_mode"] = state.get("search_mode", "") + "_post_rerank_fallback"
+
         state.update(build_prompt_node(state, run_config))
         return state
 
@@ -112,7 +138,14 @@ async def _stream_generator(session_id: str, query: str, query_config):
         "results_count": count,
         "entity": entity,
         "rewritten_query": rewritten,
+        "search_mode": state.get("search_mode", ""),
+        "search_mode_hyde": state.get("search_mode_hyde", ""),
     })
+
+    # rerank debug（rerank 关闭时不发）
+    rerank_debug = state.get("rerank_debug")
+    if rerank_debug:
+        yield sse_event({"type": "rerank", "results": rerank_debug})
 
     # Phase 2: LLM 流式生成（带对话历史）
     from langchain_core.messages import AIMessage

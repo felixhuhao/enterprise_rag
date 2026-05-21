@@ -31,6 +31,19 @@ export interface RetrievalInfo {
   results_count: number
   entity: string
   rewritten_query: string
+  search_mode: string
+  search_mode_hyde: string
+}
+
+/** rerank debug 条目 */
+export interface RerankItem {
+  index: number
+  file_title: string
+  section_title: string
+  source_type: string
+  llm_score: number
+  rrf_score: number
+  final_score: number
 }
 
 export const useQueryChatStore = defineStore('queryChat', () => {
@@ -47,6 +60,9 @@ export const useQueryChatStore = defineStore('queryChat', () => {
 
   /** 当前检索步骤信息 */
   const retrievalInfo = ref<RetrievalInfo | null>(null)
+
+  /** rerank debug 信息 */
+  const rerankDebug = ref<RerankItem[]>([])
 
   /** 错误信息 */
   const error = ref<string | null>(null)
@@ -106,6 +122,7 @@ export const useQueryChatStore = defineStore('queryChat', () => {
     switch (event.type) {
       case 'message_start':
         retrievalInfo.value = null
+        rerankDebug.value = []
         break
 
       case 'retrieval_step':
@@ -113,6 +130,8 @@ export const useQueryChatStore = defineStore('queryChat', () => {
           results_count: (event as any).results_count ?? 0,
           entity: (event as any).entity ?? '',
           rewritten_query: (event as any).rewritten_query ?? '',
+          search_mode: (event as any).search_mode ?? '',
+          search_mode_hyde: (event as any).search_mode_hyde ?? '',
         }
         break
 
@@ -123,6 +142,10 @@ export const useQueryChatStore = defineStore('queryChat', () => {
             msg.content += (event as any).content ?? ''
           }
         }
+        break
+
+      case 'rerank':
+        rerankDebug.value = (event as any).results ?? []
         break
 
       case 'citations':
@@ -156,6 +179,7 @@ export const useQueryChatStore = defineStore('queryChat', () => {
     messages.value = []
     sessionId.value = ''
     retrievalInfo.value = null
+    rerankDebug.value = []
     error.value = null
   }
 
@@ -164,6 +188,7 @@ export const useQueryChatStore = defineStore('queryChat', () => {
     messages,
     isStreaming,
     retrievalInfo,
+    rerankDebug,
     error,
     sendMessage,
     stopStreaming,

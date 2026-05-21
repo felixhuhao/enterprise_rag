@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS general_documents (
     source_path    TEXT NOT NULL,
     file_type      TEXT NOT NULL,
     ingestion_mode TEXT NOT NULL DEFAULT 'text_only',
+    entity_name    TEXT DEFAULT '',
     status         TEXT NOT NULL DEFAULT 'uploaded',
     chunk_count    INTEGER DEFAULT 0,
     image_count    INTEGER DEFAULT 0,
@@ -95,5 +96,10 @@ async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript(_SCHEMA)
         await db.executescript(_DEFAULTS_SETTINGS)
+        # migration: 旧库可能没有 entity_name 列
+        try:
+            await db.execute("ALTER TABLE general_documents ADD COLUMN entity_name TEXT DEFAULT ''")
+        except aiosqlite.OperationalError:
+            pass  # 列已存在
         await db.commit()
     print(f"[启动] 数据库初始化完成: {DB_PATH}")

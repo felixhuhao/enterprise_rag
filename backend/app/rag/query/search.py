@@ -9,6 +9,7 @@ from langgraph.graph.state import RunnableConfig
 
 from app.rag.embeddings.text_embedding_v4 import _text_embedding
 from app.rag.query.config import QueryConfig, get_query_config
+from app.rag.query.scoring_utils import need_fallback
 from app.rag.query.state import QueryState
 from app.rag.vectorstores.general_milvus import COLLECTION_NAME, client
 
@@ -30,7 +31,9 @@ OUTPUT_FIELDS = [
 
 
 def search_node(state: QueryState, config: RunnableConfig) -> dict:
-    """Hybrid search with fallback: hybrid → dense_only → error."""
+    """Hybrid search with fallback: hybrid → dense_only → error.
+    Entity filter fallback: filtered → unfiltered if results are scarce.
+    """
     cfg = get_query_config(config)
     query = state.get("rewritten_query") or state["query"]
     entity_filter = state.get("entity_filter") or None
@@ -43,16 +46,28 @@ def search_node(state: QueryState, config: RunnableConfig) -> dict:
     # 尝试 hybrid (dense + BM25)
     try:
         results = _hybrid_search(query_dense, query, entity_filter, cfg)
-        logger.debug("Search mode: hybrid")
-        return {"search_results": results}
+        if need_fallback(results, entity_filter, cfg):
+            logger.info("Filtered hybrid: %d results, max_score=%.3f, retrying unfiltered", len(results), max((r["score"] for r in results), default=0))
+            results = _hybrid_search(query_dense, query, None, cfg)
+            mode = "hybrid_filtered_fallback_unfiltered"
+        else:
+            mode = "hybrid_filtered" if entity_filter else "hybrid"
+        logger.debug("Search mode: %s (%d results)", mode, len(results))
+        return {"search_results": results, "search_mode": mode}
     except Exception as e:
         logger.warning("Hybrid search failed: %s, falling back to dense_only", e)
 
     # fallback: dense only
     try:
         results = _dense_only_search(query_dense, entity_filter, cfg)
-        logger.debug("Search mode: dense_only (fallback)")
-        return {"search_results": results}
+        if need_fallback(results, entity_filter, cfg):
+            logger.info("Filtered dense: %d results, max_score=%.3f, retrying unfiltered", len(results), max((r["score"] for r in results), default=0))
+            results = _dense_only_search(query_dense, None, cfg)
+            mode = "dense_filtered_fallback_unfiltered"
+        else:
+            mode = "dense_filtered" if entity_filter else "dense"
+        logger.debug("Search mode: %s (%d results)", mode, len(results))
+        return {"search_results": results, "search_mode": mode}
     except Exception as e:
         logger.error("Dense search also failed: %s", e)
         raise RuntimeError(f"搜索失败: {e}") from e

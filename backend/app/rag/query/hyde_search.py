@@ -70,7 +70,7 @@ def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
         logger.warning("HyDE embedding failed, returning empty", exc_info=True)
         return {"search_results_hyde": []}
 
-    # 3. 纯 dense search
+    # 3. 纯 dense search（带 entity filter fallback）
     try:
         results = client.search(
             collection_name=COLLECTION_NAME,
@@ -81,14 +81,41 @@ def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
             filter=entity_filter,
             output_fields=OUTPUT_FIELDS,
         )
+        hits = _parse_hits(results[0])
+        mode = "hyde_filtered" if entity_filter else "hyde"
+        need_fb = entity_filter and (
+            len(hits) < cfg.entity_filter_min_results
+            or max((h["score"] for h in hits), default=0) < cfg.entity_filter_min_score
+        )
+        if need_fb:
+            logger.info(
+                "HyDE filtered: %d results, max_score=%.3f, retrying unfiltered",
+                len(hits), max((h["score"] for h in hits), default=0),
+            )
+            results = client.search(
+                collection_name=COLLECTION_NAME,
+                data=[hyde_dense],
+                anns_field="dense",
+                search_params={"metric_type": "COSINE"},
+                limit=cfg.hyde_limit,
+                filter=None,
+                output_fields=OUTPUT_FIELDS,
+            )
+            hits = _parse_hits(results[0])
+            mode = "hyde_filtered_fallback_unfiltered"
     except Exception:
         logger.warning("HyDE Milvus search failed, returning empty", exc_info=True)
-        return {"search_results_hyde": []}
+        return {"search_results_hyde": [], "search_mode_hyde": "hyde_failed"}
 
-    hits = []
-    for hit in results[0]:
+    logger.debug("HyDE search mode: %s (%d hits)", mode, len(hits))
+    return {"search_results_hyde": hits, "search_mode_hyde": mode}
+
+
+def _parse_hits(hits) -> list[dict]:
+    out = []
+    for hit in hits:
         entity = hit["entity"]
-        hits.append({
+        out.append({
             "chunk_id": hit.get("id") or hit.get("chunk_id") or entity.get("chunk_id"),
             "document_id": entity.get("document_id", ""),
             "file_title": entity.get("file_title", ""),
@@ -102,6 +129,4 @@ def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
             "part": entity.get("part"),
             "score": hit["distance"],
         })
-
-    logger.debug("HyDE search returned %d hits", len(hits))
-    return {"search_results_hyde": hits}
+    return out

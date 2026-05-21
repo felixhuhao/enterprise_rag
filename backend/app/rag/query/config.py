@@ -9,17 +9,20 @@ from langgraph.graph.state import RunnableConfig
 
 @dataclass
 class QueryConfig:
-    # Feature toggles (opt-in，默认只跑 Step 1 基础管线)
-    use_entity_confirm: bool = False
+    # Feature toggles
+    use_entity_confirm: bool = True
     use_rewrite: bool = True
-    use_hyde: bool = False
-    use_table_expand: bool = False
-    use_rerank: bool = False
+    use_hyde: bool = True
+    use_table_expand: bool = True
+    use_rerank: bool = True
 
     # Search
     search_limit: int = 10
     dense_weight: float = 0.8
     sparse_weight: float = 0.2
+    entity_filter_min_results: int = 3
+    entity_filter_min_score: float = 0.6
+    entity_filter_rerank_min_score: float = 0.5
 
     # HyDE
     hyde_limit: int = 10

@@ -29,7 +29,7 @@
         <div class="bubble-body">
           <div class="role-label">AI 助手</div>
           <!-- 检索步骤信息 -->
-          <RetrievalInfo v-if="retrievalInfo && isLastAssistant(msg.id)" :info="retrievalInfo" />
+          <RetrievalInfo v-if="retrievalInfo && isLastAssistant(msg.id)" :info="retrievalInfo" :rerank-items="rerankItems" />
           <div class="content" v-html="renderMarkdown(msg.content)"></div>
           <!-- 引用卡片 -->
           <CitationCard v-if="msg.citations?.length" :citations="msg.citations" />
@@ -43,13 +43,14 @@
 import { ref, nextTick, watch } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import type { QueryChatMessage, RetrievalInfo as RetrievalInfoType } from '../../stores/queryChat'
+import type { QueryChatMessage, RetrievalInfo as RetrievalInfoType, RerankItem } from '../../stores/queryChat'
 import RetrievalInfo from './RetrievalInfo.vue'
 import CitationCard from './CitationCard.vue'
 
 const props = defineProps<{
   messages: QueryChatMessage[]
   retrievalInfo: RetrievalInfoType | null
+  rerankItems?: RerankItem[]
 }>()
 
 const listRef = ref<HTMLElement | null>(null)

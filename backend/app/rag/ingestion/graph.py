@@ -81,7 +81,8 @@ def entry(state: IngestionState, config: RunnableConfig) -> dict:
         os.path.join(settings.GENERAL_PARSED_DIR, document_id)
     )
     _reset_parsed_dir(parsed_dir)
-    entity_name = extract_entity_name(state["filename"])
+    # 优先级：用户指定 > 文件名提取 > 空字符串
+    entity_name = state.get("entity_name") or extract_entity_name(state["filename"])
 
     updater = _get_updater(config)
     if updater:
@@ -226,7 +227,7 @@ ingestion_graph = _builder.compile()
 # ---------------------------------------------------------------------------
 
 
-def run_ingestion_graph(doc: dict, config: RunnableConfig | None = None) -> dict:
+def run_ingestion_graph(doc: dict, entity_name: str = "", config: RunnableConfig | None = None) -> dict:
     """入口函数，供 document_service 调用。"""
     result = ingestion_graph.invoke(
         {
@@ -234,6 +235,7 @@ def run_ingestion_graph(doc: dict, config: RunnableConfig | None = None) -> dict
             "filename": doc["filename"],
             "file_type": doc["file_type"],
             "source_path": doc["source_path"],
+            "entity_name": entity_name,
         },
         config=config,
     )

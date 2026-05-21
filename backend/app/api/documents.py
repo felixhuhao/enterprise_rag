@@ -4,9 +4,11 @@ import os
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from pydantic import BaseModel
 
 from app.config import settings
 from app.deps import verify_token
+from app.rag.ingestion.service import extract_entity_name
 from app.services import document_service
 
 router = APIRouter()
@@ -18,10 +20,21 @@ SUPPORTED_EXTENSIONS = {
 }
 
 
+class UpdateDocumentRequest(BaseModel):
+    entity_name: str = ""
+
+
+@router.get("/documents/suggest-metadata")
+async def suggest_metadata(filename: str, _: None = Depends(verify_token)):
+    """根据文件名建议 entity_name。"""
+    return {"suggested_entity_name": extract_entity_name(filename)}
+
+
 @router.post("/documents/upload")
 async def upload_document(
     file: UploadFile = File(...),
     ingestion_mode: str = Form("text_only"),
+    entity_name: str = Form(""),
     _: None = Depends(verify_token),
 ):
     """上传 PDF/Markdown，创建通用文档记录，不立即处理。"""
@@ -52,6 +65,7 @@ async def upload_document(
         source_path=source_path,
         file_type=file_type,
         ingestion_mode=ingestion_mode,
+        entity_name=entity_name,
     )
 
 
@@ -68,6 +82,22 @@ async def get_document(document_id: str, _: None = Depends(verify_token)):
     if not doc:
         raise HTTPException(status_code=404, detail="文档不存在")
     return doc
+
+
+@router.patch("/documents/{document_id}")
+async def update_document(
+    document_id: str,
+    body: UpdateDocumentRequest,
+    _: None = Depends(verify_token),
+):
+    """更新文档元数据（仅 uploaded 状态可修改）。"""
+    ok = await document_service.update_entity_name(document_id, body.entity_name)
+    if not ok:
+        doc = await document_service.get_document(document_id)
+        if not doc:
+            raise HTTPException(status_code=404, detail="文档不存在")
+        raise HTTPException(status_code=409, detail=f"文档状态为 {doc['status']}，无法修改")
+    return {"ok": True}
 
 
 @router.post("/documents/{document_id}/process")

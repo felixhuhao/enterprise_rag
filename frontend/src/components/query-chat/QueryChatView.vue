@@ -10,6 +10,7 @@
     <QueryMessageList
       :messages="store.messages"
       :retrieval-info="store.retrievalInfo"
+      :rerank-items="store.rerankDebug"
     />
 
     <!-- 底部输入框 -->

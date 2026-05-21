@@ -17,6 +17,9 @@ class QueryState(TypedDict, total=False):
     # 搜索结果
     search_results: list[dict]
     search_results_hyde: list[dict]
+    search_mode: str
+    search_mode_hyde: str
+    rerank_debug: list[dict]
     context_map: dict[str, dict]  # "C1" -> {document_id, file_title, ...}
 
     # 生成
