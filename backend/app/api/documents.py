@@ -1,0 +1,112 @@
+"""通用文档导入 API。"""
+
+import os
+import uuid
+
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+
+from app.config import settings
+from app.deps import verify_token
+from app.services import document_service
+
+router = APIRouter()
+
+SUPPORTED_EXTENSIONS = {
+    ".pdf": "pdf",
+    ".md": "md",
+    ".markdown": "md",
+}
+
+
+@router.post("/documents/upload")
+async def upload_document(
+    file: UploadFile = File(...),
+    ingestion_mode: str = Form("text_only"),
+    _: None = Depends(verify_token),
+):
+    """上传 PDF/Markdown，创建通用文档记录，不立即处理。"""
+    if ingestion_mode != "text_only":
+        raise HTTPException(status_code=400, detail="当前仅支持 text_only ingestion_mode")
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="文件名不能为空")
+
+    ext = os.path.splitext(file.filename)[1].lower()
+    file_type = SUPPORTED_EXTENSIONS.get(ext)
+    if not file_type:
+        raise HTTPException(status_code=400, detail="仅支持 PDF、MD、Markdown 文件")
+
+    document_id = uuid.uuid4().hex
+    upload_dir = os.path.join(settings.GENERAL_UPLOAD_DIR, document_id)
+    os.makedirs(upload_dir, exist_ok=True)
+
+    original_name = "original.pdf" if file_type == "pdf" else "original.md"
+    source_path = os.path.abspath(os.path.join(upload_dir, original_name))
+    content = await file.read()
+    with open(source_path, "wb") as f:
+        f.write(content)
+
+    return await document_service.create_document_record(
+        document_id=document_id,
+        filename=file.filename,
+        source_path=source_path,
+        file_type=file_type,
+        ingestion_mode=ingestion_mode,
+    )
+
+
+@router.get("/documents")
+async def list_documents(_: None = Depends(verify_token)):
+    """列出通用文档记录。"""
+    return await document_service.list_documents()
+
+
+@router.get("/documents/{document_id}")
+async def get_document(document_id: str, _: None = Depends(verify_token)):
+    """获取单个通用文档状态。"""
+    doc = await document_service.get_document(document_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    return doc
+
+
+@router.post("/documents/{document_id}/process")
+async def process_document(
+    document_id: str,
+    background_tasks: BackgroundTasks,
+    _: None = Depends(verify_token),
+):
+    """启动后台导入任务。"""
+    doc = await document_service.get_document(document_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    if doc["status"] not in ("uploaded", "failed"):
+        raise HTTPException(status_code=400, detail=f"文档状态为 {doc['status']}，无法处理")
+
+    background_tasks.add_task(document_service.process_document, document_id)
+    return {"ok": True, "message": "Document processing started"}
+
+
+@router.post("/documents/{document_id}/retry")
+async def retry_document(
+    document_id: str,
+    background_tasks: BackgroundTasks,
+    _: None = Depends(verify_token),
+):
+    """重试 failed 状态的通用文档。"""
+    doc = await document_service.get_document(document_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    if doc["status"] != "failed":
+        raise HTTPException(status_code=400, detail=f"文档状态为 {doc['status']}，无法 retry")
+
+    background_tasks.add_task(document_service.process_document, document_id)
+    return {"ok": True, "message": "Document retry started"}
+
+
+@router.delete("/documents/{document_id}")
+async def delete_document(document_id: str, _: None = Depends(verify_token)):
+    """删除通用文档。"""
+    if not await document_service.delete_document(document_id):
+        raise HTTPException(status_code=404, detail="文档不存在")
+    return {"ok": True}

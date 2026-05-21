@@ -1,6 +1,5 @@
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from tavily import TavilyClient
-from zhipuai import ZhipuAI
 
 from app.config import settings
 
@@ -39,5 +38,4 @@ text_embedding = OpenAIEmbeddings(
     check_embedding_ctx_length=False,
 )
 
-zhipuai_client = ZhipuAI(api_key=settings.ZHIPU_API_KEY, base_url=settings.ZHIPU_BASE_URL)
-tavily_client = TavilyClient(api_key=settings.TAVILY_API_KEY)
+tavily_client = TavilyClient(api_key=settings.TAVILY_API_KEY) if settings.TAVILY_API_KEY else None

@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     API_TOKEN: str = "rag-pro-secret-token"
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:4173"]
     UPLOAD_DIR: str = "./uploads"
+    GENERAL_UPLOAD_DIR: str = "./data/general_uploads"
+    GENERAL_PARSED_DIR: str = "./data/general_parsed"
     DATABASE_PATH: str = "./data/app.db"
 
     # ---- LLM 模型配置 ----
@@ -36,10 +38,13 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "text-embedding-v4"
     EMBEDDING_DIM: int = 1024
     VL_EMBEDDING_DIM: int = 2560
-
-    # ---- 智谱 AI ----
-    ZHIPU_API_KEY: str = ""
-    ZHIPU_BASE_URL: str = "https://open.bigmodel.cn/api/paas/v4/"
+    MINERU_BASE_URL: str = "https://mineru.net/api/v4"
+    MINERU_API_TOKEN: str = ""
+    MINERU_MODEL_VERSION: str = "vlm"
+    MINERU_POLL_INTERVAL: int = 3
+    MINERU_POLL_TIMEOUT: int = 1800
+    MINERU_UPLOAD_TIMEOUT: int = 300
+    MINERU_DOWNLOAD_TIMEOUT: int = 300
 
     # ---- Tavily 网络搜索 ----
     TAVILY_API_KEY: str = ""

@@ -44,16 +44,19 @@ CREATE TABLE IF NOT EXISTS evaluate_records (
     FOREIGN KEY (session_id) REFERENCES sessions(session_id)
 );
 
-CREATE TABLE IF NOT EXISTS knowledge_documents (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    filename    TEXT NOT NULL,
-    source      TEXT NOT NULL UNIQUE,
-    status      TEXT NOT NULL DEFAULT 'uploaded',
-    doc_count   INTEGER DEFAULT 0,
-    image_count INTEGER DEFAULT 0,
-    error_msg   TEXT DEFAULT '',
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
+CREATE TABLE IF NOT EXISTS general_documents (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id    TEXT NOT NULL UNIQUE,
+    filename       TEXT NOT NULL,
+    source_path    TEXT NOT NULL,
+    file_type      TEXT NOT NULL,
+    ingestion_mode TEXT NOT NULL DEFAULT 'text_only',
+    status         TEXT NOT NULL DEFAULT 'uploaded',
+    chunk_count    INTEGER DEFAULT 0,
+    image_count    INTEGER DEFAULT 0,
+    error_msg      TEXT DEFAULT '',
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -61,9 +64,20 @@ CREATE TABLE IF NOT EXISTS settings (
     value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS query_chat_messages (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL,
+    role        TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    citations   TEXT DEFAULT '[]',
+    created_at  TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_evaluate_session ON evaluate_records(session_id);
 CREATE INDEX IF NOT EXISTS idx_evaluate_created ON evaluate_records(created_at);
-CREATE INDEX IF NOT EXISTS idx_knowledge_status ON knowledge_documents(status);
+CREATE INDEX IF NOT EXISTS idx_general_documents_status ON general_documents(status);
+CREATE INDEX IF NOT EXISTS idx_general_documents_created ON general_documents(created_at);
+CREATE INDEX IF NOT EXISTS idx_qchat_session ON query_chat_messages(session_id);
 """
 
 _DEFAULTS_SETTINGS = """

@@ -85,6 +85,22 @@ class KnowledgeDocumentInfo(BaseModel):
     updated_at: str
 
 
+class GeneralDocumentInfo(BaseModel):
+    """通用导入文档信息响应"""
+    id: int
+    document_id: str
+    filename: str
+    source_path: str
+    file_type: str
+    ingestion_mode: str = "text_only"
+    status: str
+    chunk_count: int = 0
+    image_count: int = 0
+    error_msg: str = ""
+    created_at: str
+    updated_at: str
+
+
 # ---- 评估相关 ----
 
 class EvaluateStats(BaseModel):

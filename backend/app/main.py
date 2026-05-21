@@ -24,13 +24,12 @@ async def lifespan(app: FastAPI):
     启动阶段：初始化 LangGraph 图和数据库。
     关闭阶段：执行资源清理。
     """
-    # 启动时初始化 LangGraph 图和数据库
-    from app.core.graph_manager import graph_manager
+    # 启动时初始化数据库
     from app.core.database import init_db
     from app.core.runtime_settings import runtime_settings
-    await graph_manager.init()
-    print("[启动] GraphManager 就绪")
+    from app.services.document_service import mark_interrupted_documents_failed
     await init_db()
+    await mark_interrupted_documents_failed()
     await runtime_settings.get_all()  # 预加载运行时设置到内存缓存
     print("[启动] RuntimeSettings 已加载")
     yield
