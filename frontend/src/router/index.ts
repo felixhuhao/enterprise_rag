@@ -1,7 +1,5 @@
 /**
  * Vue Router 路由配置
- *
- * 路由列表：聊天页、评估看板、设置页
  */
 import { createRouter, createWebHistory } from 'vue-router'
 
@@ -16,11 +14,6 @@ const router = createRouter({
       path: '/query-chat',
       name: 'QueryChat',
       component: () => import('../components/query-chat/QueryChatView.vue'),
-    },
-    {
-      path: '/chat',
-      name: 'Chat',
-      component: () => import('../components/chat/ChatView.vue'),
     },
     {
       path: '/evaluate',

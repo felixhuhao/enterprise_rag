@@ -8,12 +8,20 @@
 from app.core.database import get_db
 
 # 默认值（与 database.py 中的 seed 数据一致）
-_DEFAULTS = {
-    "evaluate_threshold_high": "0.8",
-    "evaluate_threshold_low": "0.6",
-    "retriever_top_k": "3",
-    "default_user_name": "ZS",
-}
+_DEFAULTS: dict[str, str] = {}
+
+
+def _build_query_defaults() -> dict[str, str]:
+    """从 QueryConfig dataclass 生成 query.* 默认值（懒加载避免循环 import）。"""
+    from app.rag.query.config import QueryConfig
+
+    defaults = {}
+    for name, field in QueryConfig.__dataclass_fields__.items():
+        defaults[f"query.{name}"] = str(field.default)
+    return defaults
+
+
+_DEFAULTS.update(_build_query_defaults())
 
 
 class RuntimeSettings:
@@ -63,6 +71,12 @@ class RuntimeSettings:
     def get_cached(self, key: str) -> str:
         """同步读取缓存值（不触发数据库查询，适用于同步路由函数）"""
         return self._cache.get(key, _DEFAULTS.get(key, ""))
+
+    def get_all_cached(self) -> dict[str, str]:
+        """同步读取所有缓存值（合并默认值）。"""
+        result = dict(_DEFAULTS)
+        result.update(self._cache)
+        return result
 
     def get_cached_float(self, key: str) -> float:
         return float(self.get_cached(key))

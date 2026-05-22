@@ -1,5 +1,5 @@
 <!--
-  查询消息列表 — 自动滚动，复用 MessageBubble 渲染
+  查询消息列表 — 自动滚动，每条 assistant 消息绑定自己的 retrievalInfo
 -->
 <template>
   <div ref="listRef" class="message-list">
@@ -28,8 +28,13 @@
         </div>
         <div class="bubble-body">
           <div class="role-label">AI 助手</div>
-          <!-- 检索步骤信息 -->
-          <RetrievalInfo v-if="retrievalInfo && isLastAssistant(msg.id)" :info="retrievalInfo" :rerank-items="rerankItems" />
+          <!-- 检索链路面板 -->
+          <RetrievalInfo
+            v-if="msg.retrievalInfo"
+            :info="msg.retrievalInfo"
+            :rerank-items="msg.rerankItems"
+            :trace="msg.trace"
+          />
           <div class="content" v-html="renderMarkdown(msg.content)"></div>
           <!-- 引用卡片 -->
           <CitationCard v-if="msg.citations?.length" :citations="msg.citations" />
@@ -43,23 +48,15 @@
 import { ref, nextTick, watch } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import type { QueryChatMessage, RetrievalInfo as RetrievalInfoType, RerankItem } from '../../stores/queryChat'
+import type { QueryChatMessage } from '../../stores/queryChat'
 import RetrievalInfo from './RetrievalInfo.vue'
 import CitationCard from './CitationCard.vue'
 
 const props = defineProps<{
   messages: QueryChatMessage[]
-  retrievalInfo: RetrievalInfoType | null
-  rerankItems?: RerankItem[]
 }>()
 
 const listRef = ref<HTMLElement | null>(null)
-
-/** 判断是否是最后一条 assistant 消息（用于显示 retrieval info） */
-function isLastAssistant(id: string) {
-  const lastAssistant = [...props.messages].reverse().find((m) => m.role === 'assistant')
-  return lastAssistant?.id === id
-}
 
 /** Markdown 渲染 */
 function renderMarkdown(content: string) {

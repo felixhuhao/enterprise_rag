@@ -8,7 +8,7 @@ from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 
 from app.rag.query.build_prompt import build_prompt_node
-from app.rag.query.config import QueryConfig
+from app.rag.query.config import QueryConfig, get_default_query_config
 from app.rag.query.entity_confirm import entity_confirm_node
 from app.rag.query.generate import generate_answer_node
 from app.rag.query.hyde_search import hyde_search_node
@@ -53,7 +53,7 @@ query_graph = _builder.compile()
 
 def run_query_graph(query: str, query_config: QueryConfig | None = None) -> dict:
     """入口函数。"""
-    config = {"configurable": {"query_config": query_config or QueryConfig()}}
+    config = {"configurable": {"query_config": query_config or get_default_query_config()}}
     result = query_graph.invoke({"query": query}, config=config)
     return {
         "answer": result.get("answer", ""),

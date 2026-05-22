@@ -36,7 +36,7 @@
           <span class="preview-filename">{{ pendingFile.name }}</span>
         </div>
         <div class="preview-entity">
-          <span class="preview-label">实体名称</span>
+          <span class="preview-label">文档主体</span>
           <a-input
             v-model="pendingEntityName"
             placeholder="可选：填写文档所属主体"
@@ -62,7 +62,7 @@
         class="doc-table"
       >
         <template #columns>
-          <a-table-column title="文件名" data-index="filename" :width="240">
+          <a-table-column title="文件名" data-index="filename">
             <template #cell="{ record }">
               <span class="doc-name">
                 <icon-file v-if="record.file_type === 'pdf'" style="color: var(--error)" />
@@ -72,7 +72,7 @@
             </template>
           </a-table-column>
 
-          <a-table-column title="状态" data-index="status" :width="140" align="center">
+          <a-table-column title="状态" data-index="status" :width="100" align="center">
             <template #cell="{ record }">
               <a-tag :color="statusColor(record.status)" size="small">
                 {{ statusLabel(record.status) }}
@@ -80,7 +80,7 @@
             </template>
           </a-table-column>
 
-          <a-table-column title="实体名称" data-index="entity_name" :width="180">
+          <a-table-column title="文档主体" data-index="entity_name" :width="180">
             <template #cell="{ record }">
               <a-input
                 v-if="record.status === 'uploaded'"
@@ -103,7 +103,7 @@
             </template>
           </a-table-column>
 
-          <a-table-column title="操作" :width="200" align="center">
+          <a-table-column title="操作" :width="180" align="center">
             <template #cell="{ record }">
               <a-space>
                 <a-button
@@ -138,7 +138,11 @@
           :key="doc.document_id"
           :header="`${doc.filename} — 失败原因`"
         >
-          <div class="error-msg">{{ doc.error_msg }}</div>
+          <div class="error-msg">
+            <span v-if="doc.error_code" class="error-code">{{ doc.error_code }}</span>
+            <span v-if="errorHint(doc)">{{ errorHint(doc) }}</span>
+            <span v-else>{{ doc.error_msg }}</span>
+          </div>
         </a-collapse-item>
       </a-collapse>
     </div>
@@ -153,6 +157,7 @@ import {
 } from '@arco-design/web-vue/es/icon'
 import type { FileItem } from '@arco-design/web-vue'
 import type { Document } from '../../api/documents'
+import { ERROR_HINTS } from '../../utils/errorHints'
 import {
   listDocuments,
   uploadDocument,
@@ -171,6 +176,10 @@ const pendingEntityName = ref('')
 const pollingIds = ref<Map<string, number>>(new Map())
 
 const failedDocs = computed(() => docs.value.filter((d) => d.status === 'failed'))
+
+function errorHint(doc: Document): string | undefined {
+  return doc.error_code ? ERROR_HINTS[doc.error_code] : undefined
+}
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
   uploaded: { label: '已上传', color: 'arcoblue' },
@@ -303,8 +312,8 @@ onMounted(() => {
 
 <style scoped>
 .documents-page {
-  max-width: 960px;
-  margin: 0 auto;
+  height: 100%;
+  overflow-y: auto;
   animation: fadeIn 0.3s var(--ease-out);
 }
 
@@ -312,7 +321,8 @@ onMounted(() => {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 28px;
+  padding: 24px;
+  overflow: hidden;
 }
 
 .documents-header {
@@ -405,8 +415,12 @@ onMounted(() => {
 .error-msg {
   font-size: 12px;
   color: var(--error, #f53f3f);
-  font-family: monospace;
   white-space: pre-wrap;
   word-break: break-all;
+}
+.error-code {
+  font-family: var(--font-display);
+  font-weight: 600;
+  margin-right: 8px;
 }
 </style>

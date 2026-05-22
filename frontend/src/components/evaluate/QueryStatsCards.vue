@@ -1,5 +1,5 @@
 <!--
-  统计卡片行
+  检索统计卡片行
 -->
 <template>
   <div class="stats-cards stagger">
@@ -13,20 +13,19 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { EvaluateStats } from '../../api/evaluate'
+import type { QueryStats } from '../../api/queryStats'
 
-const props = defineProps<{ stats: EvaluateStats | null }>()
+const props = defineProps<{ stats: QueryStats | null }>()
 
 const cards = computed(() => {
   const s = props.stats
   if (!s) return []
   return [
-    { label: '总评估次数', value: s.total_count, precision: 0, glow: 'rgba(212, 148, 58, 0.06)' },
-    { label: '平均分数', value: s.avg_score, precision: 2, glow: 'rgba(91, 156, 246, 0.06)' },
-    { label: '自动批准 ≥0.8', value: s.high_count, precision: 0, glow: 'rgba(61, 214, 140, 0.06)' },
-    { label: '人工审核 0.6~0.8', value: s.mid_count, precision: 0, glow: 'rgba(232, 168, 56, 0.06)' },
-    { label: '自动拒绝 <0.6', value: s.low_count, precision: 0, glow: 'rgba(240, 96, 96, 0.06)' },
-    { label: '网络搜索', value: s.web_search_count, precision: 0, glow: 'rgba(91, 156, 246, 0.06)' },
+    { label: '总查询数', value: s.total_queries, precision: 0, glow: 'rgba(212, 148, 58, 0.06)' },
+    { label: '平均 Rerank 分', value: s.avg_rerank_score, precision: 3, glow: 'rgba(91, 156, 246, 0.06)' },
+    { label: '平均结果数', value: s.avg_result_count, precision: 1, glow: 'rgba(61, 214, 140, 0.06)' },
+    { label: 'Fallback 次数', value: s.fallback_count, precision: 0, glow: 'rgba(240, 96, 96, 0.06)' },
+    { label: 'Fallback 比例', value: s.fallback_ratio, precision: 3, glow: 'rgba(232, 168, 56, 0.06)' },
   ]
 })
 

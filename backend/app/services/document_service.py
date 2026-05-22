@@ -144,7 +144,9 @@ async def process_document(document_id: str):
         _invalidate_entity_cache()
     except Exception as exc:
         logger.exception("通用文档处理失败 document_id=%s", document_id)
-        await update_document_status(document_id, "failed", error_msg=str(exc)[:1000])
+        from app.errors import classify_error
+        code = classify_error(exc)
+        await update_document_status(document_id, "failed", error_msg=str(exc)[:1000], error_code=code.value)
 
 
 def _sync_process_document(doc: dict) -> dict:

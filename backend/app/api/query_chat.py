@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 import uuid
 
 from fastapi import APIRouter, Depends
@@ -25,10 +26,10 @@ class QueryChatRequest(BaseModel):
 
 def _build_config(req: QueryChatRequest):
     """从请求构建 QueryConfig。"""
-    from app.rag.query.config import QueryConfig
+    from app.rag.query.config import QueryConfig, get_default_query_config
 
     if not req.config:
-        return QueryConfig()
+        return get_default_query_config()
     valid = {k: v for k, v in req.config.items() if hasattr(QueryConfig, k)}
     return QueryConfig(**valid)
 
@@ -65,6 +66,11 @@ async def query_chat_stream(req: QueryChatRequest, _: None = Depends(verify_toke
     )
 
 
+def _tick_ms(t0: float) -> int:
+    """返回从 t0 到现在的毫秒数。"""
+    return round((time.monotonic() - t0) * 1000)
+
+
 async def _stream_generator(session_id: str, query: str, query_config):
     """两阶段 SSE 生成器。"""
     from app.rag.query.entity_confirm import entity_confirm_node
@@ -87,20 +93,40 @@ async def _stream_generator(session_id: str, query: str, query_config):
 
     # Phase 1: 搜索管线（同步，线程内执行）
     def run_search():
+        trace = {}
+        t0 = time.monotonic()
         state = {"query": query}
+
+        t = time.monotonic()
         state.update(entity_confirm_node(state, run_config))
+        trace["entity_confirm_ms"] = _tick_ms(t)
+
+        t = time.monotonic()
         state.update(rewrite_query_node(state, run_config))
-        # 并行 search + hyde
+        trace["rewrite_ms"] = _tick_ms(t)
+
+        # 并行 search + hyde，wall time
+        t = time.monotonic()
         with ThreadPoolExecutor(max_workers=2) as pool:
             f1 = pool.submit(search_node, state, run_config)
             f2 = pool.submit(hyde_search_node, state, run_config)
             state.update(f1.result())
             state.update(f2.result())
-        state.update(rrf_fusion_node(state, run_config))
-        state.update(table_expand_node(state, run_config))
-        state.update(rerank_node(state, run_config))
+        trace["search_hyde_ms"] = _tick_ms(t)
 
-        # Post-rerank fallback: 如果 rerank 最高分低于阈值且有 entity filter，且搜索阶段没 fallback 过，去掉 filter 重搜
+        t = time.monotonic()
+        state.update(rrf_fusion_node(state, run_config))
+        trace["rrf_fusion_ms"] = _tick_ms(t)
+
+        t = time.monotonic()
+        state.update(table_expand_node(state, run_config))
+        trace["table_expand_ms"] = _tick_ms(t)
+
+        t = time.monotonic()
+        state.update(rerank_node(state, run_config))
+        trace["rerank_ms"] = _tick_ms(t)
+
+        # Post-rerank fallback
         entity_filter = state.get("entity_filter")
         already_fell_back = (
             "fallback" in state.get("search_mode", "")
@@ -114,6 +140,7 @@ async def _stream_generator(session_id: str, query: str, query_config):
                     "Post-rerank fallback: top_score=%.3f < %.3f, retrying unfiltered",
                     top_score, query_config.entity_filter_rerank_min_score,
                 )
+                t_fb = time.monotonic()
                 state["entity_filter"] = ""
                 with ThreadPoolExecutor(max_workers=2) as pool:
                     f1 = pool.submit(search_node, state, run_config)
@@ -124,11 +151,24 @@ async def _stream_generator(session_id: str, query: str, query_config):
                 state.update(table_expand_node(state, run_config))
                 state.update(rerank_node(state, run_config))
                 state["search_mode"] = state.get("search_mode", "") + "_post_rerank_fallback"
+                trace["post_rerank_fallback_ms"] = _tick_ms(t_fb)
 
+        t = time.monotonic()
         state.update(build_prompt_node(state, run_config))
+        trace["build_prompt_ms"] = _tick_ms(t)
+
+        trace["retrieval_wall_ms"] = _tick_ms(t0)
+        state["trace"] = trace
         return state
 
-    state = await asyncio.to_thread(run_search)
+    try:
+        state = await asyncio.to_thread(run_search)
+    except Exception as exc:
+        logger.exception("检索管线失败: %s", exc)
+        from app.errors import classify_error
+        yield sse_event({"type": "error", "code": classify_error(exc).value, "message": str(exc)[:500]})
+        yield sse_event({"type": "message_end"})
+        return
 
     count = len(state.get("search_results", []))
     entity = state.get("confirmed_entity", "")
@@ -147,6 +187,9 @@ async def _stream_generator(session_id: str, query: str, query_config):
     if rerank_debug:
         yield sse_event({"type": "rerank", "results": rerank_debug})
 
+    # Trace 第一阶段：检索耗时
+    yield sse_event({"type": "trace", "trace": state.get("trace", {})})
+
     # Phase 2: LLM 流式生成（带对话历史）
     from langchain_core.messages import AIMessage
 
@@ -160,16 +203,24 @@ async def _stream_generator(session_id: str, query: str, query_config):
     messages.append(HumanMessage(content=state.get("query", "")))
 
     answer = ""
+    llm_failed = False
     loop = asyncio.get_event_loop()
-    queue: asyncio.Queue[str | None] = asyncio.Queue()
+    queue: asyncio.Queue[str | None | tuple] = asyncio.Queue()
+
+    gen_t0 = time.monotonic()
+    first_token_ts = None
 
     def _llm_producer():
-        nonlocal answer
+        nonlocal answer, first_token_ts
         try:
             for chunk in _chat_llm.stream(messages):
                 if chunk.content:
+                    if first_token_ts is None:
+                        first_token_ts = time.monotonic()
                     answer += chunk.content
                     loop.call_soon_threadsafe(queue.put_nowait, chunk.content)
+        except Exception as exc:
+            loop.call_soon_threadsafe(queue.put_nowait, ("error", str(exc)[:500]))
         finally:
             loop.call_soon_threadsafe(queue.put_nowait, None)
 
@@ -178,12 +229,31 @@ async def _stream_generator(session_id: str, query: str, query_config):
     t.start()
 
     while True:
-        token = await queue.get()
-        if token is None:
+        item = await queue.get()
+        if item is None:
             break
-        yield sse_event({"type": "delta", "content": token})
+        if isinstance(item, tuple) and item[0] == "error":
+            from app.errors import classify_error, AppErrorCode
+            code = classify_error(Exception(item[1]))
+            yield sse_event({"type": "error", "code": code.value, "message": item[1]})
+            llm_failed = True
+            break
+        yield sse_event({"type": "delta", "content": item})
 
     t.join()
+
+    if llm_failed:
+        yield sse_event({"type": "message_end"})
+        return
+
+    # Trace 第二阶段：生成耗时
+    gen_trace = {}
+    if first_token_ts is not None:
+        gen_trace["first_token_ms"] = round((first_token_ts - gen_t0) * 1000)
+    gen_trace["generate_ms"] = round((time.monotonic() - gen_t0) * 1000)
+    retrieval_wall = state.get("trace", {}).get("retrieval_wall_ms", 0)
+    gen_trace["total_ms"] = retrieval_wall + gen_trace["generate_ms"]
+    yield sse_event({"type": "trace", "trace": gen_trace})
 
     # Phase 3: 校验引用
     state["answer"] = answer
@@ -199,12 +269,24 @@ async def _stream_generator(session_id: str, query: str, query_config):
     except Exception:
         logger.warning("保存聊天历史失败", exc_info=True)
 
-
-@router.get("/query/chat/history")
-async def query_chat_history(
-    session_id: str,
-    _: None = Depends(verify_token),
-):
-    """获取指定 session 的聊天历史。"""
-    messages = await load_history(session_id)
-    return {"session_id": session_id, "messages": messages}
+    # 保存检索统计（失败不影响回答）
+    try:
+        from app.services.query_stats_service import query_stats_service
+        rerank_debug = state.get("rerank_debug", [])
+        rerank_avg = (
+            sum(r["final_score"] for r in rerank_debug) / len(rerank_debug)
+            if rerank_debug else 0
+        )
+        rerank_top = rerank_debug[0]["final_score"] if rerank_debug else 0
+        result_count = len(state.get("search_results", []))
+        await query_stats_service.save(
+            session_id, query,
+            state.get("search_mode", ""), state.get("search_mode_hyde", ""),
+            result_count, rerank_avg, rerank_top,
+            retrieval_wall_ms=state.get("trace", {}).get("retrieval_wall_ms", 0),
+            first_token_ms=gen_trace.get("first_token_ms", 0),
+            generate_ms=gen_trace.get("generate_ms", 0),
+            total_ms=gen_trace.get("total_ms", 0),
+        )
+    except Exception:
+        logger.warning("保存检索统计失败", exc_info=True)

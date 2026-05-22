@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+from typing import Any
 
 from langgraph.graph.state import RunnableConfig
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -53,10 +57,45 @@ def get_query_config(config: RunnableConfig) -> QueryConfig:
     """从 RunnableConfig 中提取 QueryConfig，无则返回默认值。"""
     cfg = config.get("configurable", {}).get("query_config")
     if cfg is None:
-        return QueryConfig()
+        return get_default_query_config()
     if isinstance(cfg, QueryConfig):
         return cfg
     if isinstance(cfg, dict):
         valid = {k: v for k, v in cfg.items() if hasattr(QueryConfig, k)}
         return QueryConfig(**valid)
-    return QueryConfig()
+    return get_default_query_config()
+
+
+def get_default_query_config() -> QueryConfig:
+    """从 runtime_settings 构建默认 QueryConfig。"""
+    from app.core.runtime_settings import runtime_settings
+
+    cfg = QueryConfig()
+    all_settings = runtime_settings.get_all_cached()
+    for name, field in cfg.__dataclass_fields__.items():
+        raw = all_settings.get(f"query.{name}")
+        if not raw:
+            continue
+        val = _cast_field(name, raw, field.type)
+        if val is not None:
+            setattr(cfg, name, val)
+    return cfg
+
+
+def _cast_field(name: str, raw: str, type_hint) -> Any:
+    """将字符串值转为目标类型，非法值返回 None。"""
+    try:
+        if type_hint is bool:
+            lowered = raw.lower()
+            if lowered in ("true", "1", "yes", "on"):
+                return True
+            if lowered in ("false", "0", "no", "off"):
+                return False
+            return None
+        if type_hint is int:
+            return int(raw)
+        if type_hint is float:
+            return float(raw)
+    except (ValueError, TypeError):
+        logger.warning("Invalid settings value for query.%s: %r", name, raw)
+    return None

@@ -2,7 +2,7 @@
  * 知识查询聊天状态管理 (Pinia Store)
  *
  * 管理 query chat 的会话、消息列表、SSE 流式状态
- * 后端 SSE 事件: message_start | retrieval_step | delta | citations | message_end
+ * 后端 SSE 事件: message_start | retrieval_step | rerank | trace | delta | citations | message_end
  */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
@@ -16,14 +16,6 @@ export interface Citation {
   section_title?: string
   table_id?: string
   source_type?: string
-}
-
-/** 聊天消息 */
-export interface QueryChatMessage {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  citations?: Citation[]
 }
 
 /** 检索步骤信息 */
@@ -46,6 +38,43 @@ export interface RerankItem {
   final_score: number
 }
 
+/** 检索链路耗时 */
+export interface TraceData {
+  entity_confirm_ms?: number
+  rewrite_ms?: number
+  search_hyde_ms?: number
+  rrf_fusion_ms?: number
+  table_expand_ms?: number
+  rerank_ms?: number
+  post_rerank_fallback_ms?: number
+  build_prompt_ms?: number
+  retrieval_wall_ms?: number
+  first_token_ms?: number | null
+  generate_ms?: number
+  total_ms?: number
+}
+
+/** 聊天消息 */
+export interface QueryChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  citations?: Citation[]
+  retrievalInfo?: RetrievalInfo
+  rerankItems?: RerankItem[]
+  trace?: TraceData
+}
+
+/** 结构化错误 */
+export interface AppError {
+  code: string
+  message: string
+  hint?: string
+}
+
+/** 中文建议 */
+import { ERROR_HINTS } from '../utils/errorHints'
+
 export const useQueryChatStore = defineStore('queryChat', () => {
   // ---- 响应式状态 ----
 
@@ -58,14 +87,8 @@ export const useQueryChatStore = defineStore('queryChat', () => {
   /** 是否正在流式接收 */
   const isStreaming = ref(false)
 
-  /** 当前检索步骤信息 */
-  const retrievalInfo = ref<RetrievalInfo | null>(null)
-
-  /** rerank debug 信息 */
-  const rerankDebug = ref<RerankItem[]>([])
-
   /** 错误信息 */
-  const error = ref<string | null>(null)
+  const error = ref<AppError | null>(null)
 
   /** 当前 SSE 连接的 AbortController */
   let abortController: AbortController | null = null
@@ -79,6 +102,14 @@ export const useQueryChatStore = defineStore('queryChat', () => {
   function ensureSession() {
     if (!sessionId.value) {
       sessionId.value = crypto.randomUUID()
+    }
+  }
+
+  /** 找到当前 assistant 消息并更新 */
+  function updateAssistant(patch: Partial<QueryChatMessage>) {
+    const msg = messages.value.find((m) => m.id === currentAssistantId)
+    if (msg) {
+      Object.assign(msg, patch)
     }
   }
 
@@ -96,7 +127,6 @@ export const useQueryChatStore = defineStore('queryChat', () => {
 
     isStreaming.value = true
     error.value = null
-    retrievalInfo.value = null
 
     // 添加 AI 占位消息
     currentAssistantId = crypto.randomUUID()
@@ -109,7 +139,7 @@ export const useQueryChatStore = defineStore('queryChat', () => {
       (event: SSEEvent) => handleEvent(event),
       (err: any) => {
         isStreaming.value = false
-        error.value = err.message || '连接失败'
+        error.value = { code: 'UNKNOWN_ERROR', message: err.message || '连接失败', hint: '网络连接异常，请稍后重试' }
       },
       () => {
         isStreaming.value = false
@@ -117,21 +147,36 @@ export const useQueryChatStore = defineStore('queryChat', () => {
     )
   }
 
-  /** 处理 SSE 事件（扁平结构，直接访问 event 属性） */
+  /** 处理 SSE 事件 */
   function handleEvent(event: SSEEvent) {
     switch (event.type) {
       case 'message_start':
-        retrievalInfo.value = null
-        rerankDebug.value = []
         break
 
       case 'retrieval_step':
-        retrievalInfo.value = {
-          results_count: (event as any).results_count ?? 0,
-          entity: (event as any).entity ?? '',
-          rewritten_query: (event as any).rewritten_query ?? '',
-          search_mode: (event as any).search_mode ?? '',
-          search_mode_hyde: (event as any).search_mode_hyde ?? '',
+        updateAssistant({
+          retrievalInfo: {
+            results_count: (event as any).results_count ?? 0,
+            entity: (event as any).entity ?? '',
+            rewritten_query: (event as any).rewritten_query ?? '',
+            search_mode: (event as any).search_mode ?? '',
+            search_mode_hyde: (event as any).search_mode_hyde ?? '',
+          },
+        })
+        break
+
+      case 'rerank':
+        updateAssistant({
+          rerankItems: (event as any).results ?? [],
+        })
+        break
+
+      case 'trace':
+        {
+          const msg = messages.value.find((m) => m.id === currentAssistantId)
+          if (msg) {
+            msg.trace = { ...msg.trace, ...(event as any).trace }
+          }
         }
         break
 
@@ -144,17 +189,10 @@ export const useQueryChatStore = defineStore('queryChat', () => {
         }
         break
 
-      case 'rerank':
-        rerankDebug.value = (event as any).results ?? []
-        break
-
       case 'citations':
-        {
-          const msg = messages.value.find((m) => m.id === currentAssistantId)
-          if (msg) {
-            msg.citations = (event as any).citations ?? []
-          }
-        }
+        updateAssistant({
+          citations: (event as any).citations ?? [],
+        })
         break
 
       case 'message_end':
@@ -162,7 +200,14 @@ export const useQueryChatStore = defineStore('queryChat', () => {
         break
 
       case 'error':
-        error.value = (event as any).message ?? '未知错误'
+        {
+          const code = (event as any).code ?? 'UNKNOWN_ERROR'
+          error.value = {
+            code,
+            message: (event as any).message ?? '未知错误',
+            hint: ERROR_HINTS[code] ?? '未知错误，请稍后重试',
+          }
+        }
         isStreaming.value = false
         break
     }
@@ -178,8 +223,6 @@ export const useQueryChatStore = defineStore('queryChat', () => {
   function clearMessages() {
     messages.value = []
     sessionId.value = ''
-    retrievalInfo.value = null
-    rerankDebug.value = []
     error.value = null
   }
 
@@ -187,8 +230,6 @@ export const useQueryChatStore = defineStore('queryChat', () => {
     sessionId,
     messages,
     isStreaming,
-    retrievalInfo,
-    rerankDebug,
     error,
     sendMessage,
     stopStreaming,

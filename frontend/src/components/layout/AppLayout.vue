@@ -17,10 +17,6 @@
           <template #icon><icon-search /></template>
           知识查询
         </a-menu-item>
-        <a-menu-item key="/chat">
-          <template #icon><icon-message /></template>
-          智能对话
-        </a-menu-item>
         <a-menu-item key="/documents">
           <template #icon><icon-storage /></template>
           文档管理
@@ -69,7 +65,6 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
-  IconMessage,
   IconStorage,
   IconBarChart,
   IconSettings,
@@ -212,5 +207,12 @@ function saveToken() {
   background: var(--bg-base) !important;
   padding: 16px;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.content > :deep(*) {
+  flex: 1;
+  min-height: 0;
 }
 </style>

@@ -26,24 +26,6 @@ async def get_db():
         await db.close()
 
 _SCHEMA = """
-CREATE TABLE IF NOT EXISTS sessions (
-    session_id  TEXT PRIMARY KEY,
-    user_name   TEXT NOT NULL DEFAULT 'ZS',
-    created_at  TEXT NOT NULL,
-    status      TEXT NOT NULL DEFAULT 'active',
-    title       TEXT DEFAULT ''
-);
-
-CREATE TABLE IF NOT EXISTS evaluate_records (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id      TEXT NOT NULL,
-    input_text      TEXT DEFAULT '',
-    score           REAL NOT NULL,
-    from_web_search INTEGER DEFAULT 0,
-    created_at      TEXT NOT NULL,
-    FOREIGN KEY (session_id) REFERENCES sessions(session_id)
-);
-
 CREATE TABLE IF NOT EXISTS general_documents (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     document_id    TEXT NOT NULL UNIQUE,
@@ -56,6 +38,7 @@ CREATE TABLE IF NOT EXISTS general_documents (
     chunk_count    INTEGER DEFAULT 0,
     image_count    INTEGER DEFAULT 0,
     error_msg      TEXT DEFAULT '',
+    error_code     TEXT DEFAULT '',
     created_at     TEXT NOT NULL,
     updated_at     TEXT NOT NULL
 );
@@ -74,19 +57,27 @@ CREATE TABLE IF NOT EXISTS query_chat_messages (
     created_at  TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_evaluate_session ON evaluate_records(session_id);
-CREATE INDEX IF NOT EXISTS idx_evaluate_created ON evaluate_records(created_at);
 CREATE INDEX IF NOT EXISTS idx_general_documents_status ON general_documents(status);
 CREATE INDEX IF NOT EXISTS idx_general_documents_created ON general_documents(created_at);
 CREATE INDEX IF NOT EXISTS idx_qchat_session ON query_chat_messages(session_id);
-"""
 
-_DEFAULTS_SETTINGS = """
-INSERT OR IGNORE INTO settings (key, value) VALUES
-    ('evaluate_threshold_high', '0.8'),
-    ('evaluate_threshold_low', '0.6'),
-    ('retriever_top_k', '3'),
-    ('default_user_name', 'ZS');
+CREATE TABLE IF NOT EXISTS query_run_stats (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id       TEXT,
+    query            TEXT,
+    search_mode      TEXT DEFAULT '',
+    search_mode_hyde TEXT DEFAULT '',
+    result_count     INTEGER DEFAULT 0,
+    rerank_avg_score REAL DEFAULT 0,
+    rerank_top_score REAL DEFAULT 0,
+    retrieval_wall_ms INTEGER DEFAULT 0,
+    first_token_ms    INTEGER DEFAULT 0,
+    generate_ms       INTEGER DEFAULT 0,
+    total_ms          INTEGER DEFAULT 0,
+    created_at       TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_qrunstats_created ON query_run_stats(created_at);
 """
 
 
@@ -95,11 +86,29 @@ async def init_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript(_SCHEMA)
-        await db.executescript(_DEFAULTS_SETTINGS)
         # migration: 旧库可能没有 entity_name 列
         try:
             await db.execute("ALTER TABLE general_documents ADD COLUMN entity_name TEXT DEFAULT ''")
         except aiosqlite.OperationalError:
             pass  # 列已存在
+        # migration: error_code 列
+        try:
+            await db.execute("ALTER TABLE general_documents ADD COLUMN error_code TEXT DEFAULT ''")
+        except aiosqlite.OperationalError:
+            pass
+        # migration: query_run_stats 耗时字段
+        for col in ("retrieval_wall_ms", "first_token_ms", "generate_ms", "total_ms"):
+            try:
+                await db.execute(f"ALTER TABLE query_run_stats ADD COLUMN {col} INTEGER DEFAULT 0")
+            except aiosqlite.OperationalError:
+                pass
+        # migration: QueryConfig 默认值 seed
+        from app.core.runtime_settings import _DEFAULTS
+        for key, value in _DEFAULTS.items():
+            if key.startswith("query."):
+                await db.execute(
+                    "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+                    (key, value),
+                )
         await db.commit()
     print(f"[启动] 数据库初始化完成: {DB_PATH}")

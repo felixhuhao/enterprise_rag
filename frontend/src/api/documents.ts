@@ -13,6 +13,7 @@ export interface Document {
   chunk_count: number
   image_count: number
   error_msg: string
+  error_code: string
   created_at: string
   updated_at: string
 }

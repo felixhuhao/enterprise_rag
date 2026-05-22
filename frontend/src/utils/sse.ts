@@ -8,9 +8,9 @@
  * 解决方案：用 fetch + ReadableStream 手动解析 SSE 协议
  */
 
-/** SSE 事件结构（与后端 chat_service.py 输出格式对应） */
+/** SSE 事件结构（与后端 SSE 输出格式对应） */
 export interface SSEEvent {
-  type: string       // message_start | tool_call | assistant_chunk | interrupt | message_end | error
+  type: string       // message_start | retrieval_step | rerank | trace | delta | citations | message_end | error
   data?: any
 }
 
@@ -19,7 +19,7 @@ const API_BASE = '/api'
 /**
  * 建立 SSE 连接并监听事件流
  *
- * @param path API 路径，如 '/chat'、'/chat/approve'
+ * @param path API 路径，如 '/query/chat/stream'
  * @param body POST 请求体
  * @param onEvent 收到 SSE 事件的回调
  * @param onError 连接错误的回调

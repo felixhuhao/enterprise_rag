@@ -1,24 +1,13 @@
 <!--
-  评估看板主页面
-
-  组合：统计卡片 + 图表（分布 + 趋势） + 记录表格
+  评估看板 — 检索统计
 -->
 <template>
   <div class="evaluate-page">
-    <a-spin :loading="store.loading" style="width: 100%">
-      <!-- 统计卡片 -->
-      <StatsCards :stats="store.stats" />
-
-      <!-- 图表 -->
-      <ScoreChart
-        :distribution="store.distribution"
-        :trend="store.trend"
-      />
-
-      <!-- 记录表格 -->
-      <RecordsTable
-        :records="store.records"
-        :total="store.recordsTotal"
+    <a-spin :loading="queryStatsStore.loading" style="width: 100%">
+      <QueryStatsCards :stats="queryStatsStore.stats" />
+      <QueryStatsRecords
+        :records="queryStatsStore.records"
+        :total="queryStatsStore.recordsTotal"
         :current-page="currentPage"
         @page-change="onPageChange"
       />
@@ -28,21 +17,20 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useEvaluateStore } from '../../stores/evaluate'
-import StatsCards from './StatsCards.vue'
-import ScoreChart from './ScoreChart.vue'
-import RecordsTable from './RecordsTable.vue'
+import { useQueryStatsStore } from '../../stores/queryStats'
+import QueryStatsCards from './QueryStatsCards.vue'
+import QueryStatsRecords from './QueryStatsRecords.vue'
 
-const store = useEvaluateStore()
+const queryStatsStore = useQueryStatsStore()
 const currentPage = ref(1)
 
 onMounted(() => {
-  store.fetchAll()
+  queryStatsStore.fetchAll()
 })
 
 async function onPageChange(page: number) {
   currentPage.value = page
-  await store.fetchRecords(page)
+  await queryStatsStore.fetchRecords(page)
 }
 </script>
 
