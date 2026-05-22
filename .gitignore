@@ -43,6 +43,7 @@ backend/.ruff_cache/
 .DS_Store
 .claude/
 .vscode/
+**/.vscode/
 
 # Local planning docs
 docs/
