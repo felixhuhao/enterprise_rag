@@ -38,8 +38,8 @@ async def lifespan(app: FastAPI):
 
 # 创建 FastAPI 应用实例
 app = FastAPI(
-    title="Multimodal RAG Pro API",
-    description="企业级多模态 RAG 系统后端",
+    title="Enterprise RAG Platform API",
+    description="Enterprise document RAG backend with text-first multimodal ingestion",
     version="0.1.0",
     lifespan=lifespan,
 )

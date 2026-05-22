@@ -10,7 +10,7 @@
     <a-layout-sider :width="220" :collapsible="true" class="sider">
       <div class="logo">
         <span class="logo-icon">◆</span>
-        <span class="logo-text">港股 AI 助手</span>
+        <span class="logo-text">Enterprise RAG</span>
       </div>
       <a-menu :selected-keys="[currentRoute]" @menu-item-click="onMenuClick">
         <a-menu-item key="/query-chat">
@@ -51,7 +51,7 @@
     <!-- 右侧主区域 -->
     <a-layout>
       <a-layout-header class="header">
-        <span class="header-title">多模态 RAG 知识库</span>
+        <span class="header-title">Enterprise RAG Platform</span>
         <span class="header-badge">Pro</span>
       </a-layout-header>
       <a-layout-content class="content">

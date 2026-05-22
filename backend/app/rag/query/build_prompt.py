@@ -8,7 +8,7 @@ from app.rag.query.config import QueryConfig, get_query_config
 from app.rag.query.state import QueryState
 
 ANSWER_PROMPT = """\
-你是金融文档分析助手。基于以下检索到的上下文回答用户问题。
+你是企业文档知识库助手。基于以下检索到的上下文回答用户问题。
 
 要求：
 1. 回答必须基于上下文，不要编造信息
