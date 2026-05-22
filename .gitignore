@@ -47,3 +47,6 @@ backend/.ruff_cache/
 
 # Local planning docs
 docs/
+
+# Evaluation artifacts
+pdf_extract_output.txt

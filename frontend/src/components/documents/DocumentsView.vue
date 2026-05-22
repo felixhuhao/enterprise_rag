@@ -14,6 +14,7 @@
       <!-- 上传区域 -->
       <div class="upload-area">
         <a-upload
+          ref="uploadRef"
           :auto-upload="false"
           :show-file-list="false"
           accept=".pdf,.md,.markdown"
@@ -150,7 +151,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import {
   IconUpload,
   IconFile,
@@ -174,6 +175,9 @@ const uploading = ref(false)
 const pendingFile = ref<File | null>(null)
 const pendingEntityName = ref('')
 const pollingIds = ref<Map<string, number>>(new Map())
+const uploadRef = ref<any>(null)
+
+const BUSY_STATUSES = ['processing', 'parsing', 'reading', 'normalizing', 'chunking', 'embedding', 'saving']
 
 const failedDocs = computed(() => docs.value.filter((d) => d.status === 'failed'))
 
@@ -212,11 +216,19 @@ async function refresh() {
 
 function startPolling() {
   for (const doc of docs.value) {
-    const busy = ['processing', 'parsing', 'reading', 'normalizing', 'chunking', 'embedding', 'saving'].includes(doc.status)
+    const busy = BUSY_STATUSES.includes(doc.status)
     if (busy && !pollingIds.value.has(doc.document_id)) {
       const id = window.setInterval(() => pollDoc(doc.document_id), 3000)
       pollingIds.value.set(doc.document_id, id)
     }
+  }
+}
+
+function stopPolling(docId: string) {
+  const tid = pollingIds.value.get(docId)
+  if (tid) {
+    clearInterval(tid)
+    pollingIds.value.delete(docId)
   }
 }
 
@@ -225,21 +237,26 @@ async function pollDoc(docId: string) {
     const updated = await getDocument(docId)
     const idx = docs.value.findIndex((d) => d.document_id === docId)
     if (idx >= 0) docs.value[idx] = updated
-    const busy = ['processing', 'parsing', 'reading', 'normalizing', 'chunking', 'embedding', 'saving'].includes(updated.status)
+    const busy = BUSY_STATUSES.includes(updated.status)
     if (!busy) {
-      const tid = pollingIds.value.get(docId)
-      if (tid) {
-        clearInterval(tid)
-        pollingIds.value.delete(docId)
-      }
+      stopPolling(docId)
     }
   } catch {
-    // ignore polling errors
+    // 404 等错误说明文档已删除或不可达，停止轮询
+    stopPolling(docId)
   }
 }
 
+function clearAllPolling() {
+  for (const tid of pollingIds.value.values()) {
+    clearInterval(tid)
+  }
+  pollingIds.value.clear()
+}
+
 async function onFileSelect(fileList: FileItem[]) {
-  const rawFile = fileList[0]?.file
+  const lastItem = fileList[fileList.length - 1]
+  const rawFile = lastItem?.file
   if (!rawFile) return
   pendingFile.value = rawFile
   try {
@@ -262,6 +279,8 @@ async function confirmUpload() {
     await uploadDocument(pendingFile.value, pendingEntityName.value)
     pendingFile.value = null
     pendingEntityName.value = ''
+    // 清除 a-upload 内部累积的文件列表
+    try { uploadRef.value?.clearFiles?.() } catch { /* ignore */ }
     await refresh()
   } catch (e: any) {
     window.alert(e?.response?.data?.detail ?? '上传失败')
@@ -299,6 +318,7 @@ async function handleRetry(docId: string) {
 async function handleDelete(docId: string) {
   try {
     await deleteDocument(docId)
+    stopPolling(docId)
     docs.value = docs.value.filter((d) => d.document_id !== docId)
   } catch (e: any) {
     window.alert(e?.response?.data?.detail ?? '删除失败')
@@ -307,6 +327,10 @@ async function handleDelete(docId: string) {
 
 onMounted(() => {
   refresh()
+})
+
+onUnmounted(() => {
+  clearAllPolling()
 })
 </script>
 

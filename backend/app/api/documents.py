@@ -1,5 +1,6 @@
 """通用文档导入 API。"""
 
+import asyncio
 import os
 import uuid
 
@@ -113,6 +114,8 @@ async def process_document(
     if doc["status"] not in ("uploaded", "failed"):
         raise HTTPException(status_code=400, detail=f"文档状态为 {doc['status']}，无法处理")
 
+    # 先原子改状态，防止连点重复提交
+    await document_service.update_document_status(document_id, "processing")
     background_tasks.add_task(document_service.process_document, document_id)
     return {"ok": True, "message": "Document processing started"}
 
@@ -130,6 +133,13 @@ async def retry_document(
     if doc["status"] != "failed":
         raise HTTPException(status_code=400, detail=f"文档状态为 {doc['status']}，无法 retry")
 
+    # 重试前清理 Milvus 中可能残留的旧向量
+    try:
+        await asyncio.to_thread(document_service._sync_delete_from_milvus, document_id)
+    except Exception:
+        pass
+
+    await document_service.update_document_status(document_id, "processing")
     background_tasks.add_task(document_service.process_document, document_id)
     return {"ok": True, "message": "Document retry started"}
 
@@ -137,6 +147,12 @@ async def retry_document(
 @router.delete("/documents/{document_id}")
 async def delete_document(document_id: str, _: None = Depends(verify_token)):
     """删除通用文档。"""
+    doc = await document_service.get_document(document_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    if doc["status"] in document_service.PROCESSING_STATUSES:
+        raise HTTPException(status_code=409, detail="文档正在处理中，无法删除，请等待处理完成")
+
     if not await document_service.delete_document(document_id):
         raise HTTPException(status_code=404, detail="文档不存在")
     return {"ok": True}
