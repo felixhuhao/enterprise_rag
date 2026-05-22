@@ -16,6 +16,7 @@ ANSWER_PROMPT = """\
 3. 数值类回答必须标注来源编号
 4. 如果上下文中没有相关信息，直接说明
 5. 使用 Markdown 格式
+6. 上下文中可能包含 [图片描述：...] 标记，这是对原始文档中图表/图片的文字转述，可以像普通文本一样引用
 
 上下文：
 {context}
@@ -37,6 +38,7 @@ def build_prompt_node(state: QueryState, config: RunnableConfig) -> dict:
             "section_title": result.get("section_title", ""),
             "table_id": result.get("table_id", ""),
             "source_type": result.get("source_type", ""),
+            "image_paths": result.get("image_paths", []),
         }
         header = _build_header(result, cid, cfg)
         context_parts.append(f"{header}\n{result.get('content', '')}")

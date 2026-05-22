@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html.parser
 import json
+import logging
 import os
 import re
 import tiktoken
@@ -12,6 +13,8 @@ from pathlib import Path
 from typing import Iterable
 
 from app.rag.ingestion.config import IngestionConfig
+
+logger = logging.getLogger(__name__)
 
 _enc = tiktoken.get_encoding("o200k_base")
 
@@ -50,12 +53,14 @@ def split_markdown_document(
     source_path: str,
     parsed_dir: str,
     entity_name: str = "",
+    image_descriptions: dict[str, dict] | None = None,
     cfg: IngestionConfig | None = None,
 ) -> tuple[list[dict], int]:
     """Split Markdown into text and table chunks."""
     cfg = cfg or IngestionConfig()
     tables_dir = os.path.join(parsed_dir, "tables")
     os.makedirs(tables_dir, exist_ok=True)
+    image_descriptions = image_descriptions or {}
 
     chunks: list[dict] = []
     heading = HeadingState()
@@ -71,7 +76,8 @@ def split_markdown_document(
         text_lines = []
         if not text:
             return
-        for part, chunk_text in enumerate(_split_text(text, cfg), start=1):
+        enriched_text, image_paths = _enrich_images_in_text(text, image_descriptions)
+        for part, chunk_text in enumerate(_split_text(enriched_text, cfg), start=1):
             chunks.append(_base_chunk(
                 content=chunk_text,
                 document_id=document_id,
@@ -81,6 +87,7 @@ def split_markdown_document(
                 part=part,
                 source_type="text",
                 entity_name=entity_name,
+                image_paths=image_paths if image_paths else [],
             ))
 
     while i < len(lines):
@@ -155,6 +162,7 @@ def _base_chunk(
     raw_table_path: str = "",
     table_tokens: int = 0,
     entity_name: str = "",
+    image_paths: list[str] | None = None,
 ) -> dict:
     return {
         "content": content,
@@ -172,7 +180,7 @@ def _base_chunk(
         "raw_table_path": raw_table_path,
         "table_tokens": table_tokens,
         "entity_name": entity_name,
-        "image_paths": [],
+        "image_paths": image_paths or [],
     }
 
 
@@ -341,6 +349,53 @@ def _table_row_groups(
 
     emit(len(data))
     return groups
+
+
+# ---------------------------------------------------------------------------
+# Image enrichment
+# ---------------------------------------------------------------------------
+
+_IMG_REF_RE = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
+
+
+def _enrich_images_in_text(
+    text: str,
+    image_descriptions: dict[str, dict],
+) -> tuple[str, list[str]]:
+    """Replace Markdown image refs with VL descriptions.
+
+    Returns (enriched_text, image_paths).
+    Matching: full ref path first, then basename fallback.
+    """
+    if not image_descriptions:
+        return text, []
+
+    matched_paths: list[str] = []
+    replacements: list[tuple[re.Match, str, str]] = []
+
+    for m in _IMG_REF_RE.finditer(text):
+        ref_path = m.group(1).lstrip("./")
+        # Level 1: full ref path match
+        desc_entry = image_descriptions.get(ref_path)
+        # Level 2: basename fallback
+        if desc_entry is None:
+            basename = os.path.basename(ref_path)
+            for key, entry in image_descriptions.items():
+                if os.path.basename(key) == basename:
+                    desc_entry = entry
+                    break
+        if desc_entry and desc_entry.get("description") and desc_entry.get("status") == "ok":
+            description = desc_entry["description"]
+            image_path = desc_entry.get("image_path", ref_path)
+            replacements.append((m, description, image_path))
+            matched_paths.append(image_path)
+
+    # Replace in reverse order to preserve positions
+    enriched = text
+    for m, description, _ in reversed(replacements):
+        enriched = enriched[: m.start()] + f"[图片描述：{description}]" + enriched[m.end() :]
+
+    return enriched, matched_paths
 
 
 def _split_text(text: str, cfg: IngestionConfig | None = None) -> Iterable[str]:

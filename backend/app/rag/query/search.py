@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 
 from pymilvus import AnnSearchRequest, WeightedRanker
@@ -27,6 +28,7 @@ OUTPUT_FIELDS = [
     "file_title",
     "entity_name",
     "part",
+    "image_paths",
 ]
 
 
@@ -127,6 +129,7 @@ def _parse_hits(hits) -> list[dict]:
             "raw_table_path": entity.get("raw_table_path", ""),
             "content": entity.get("content", ""),
             "part": entity.get("part"),
+            "image_paths": json.loads(entity.get("image_paths") or "[]"),
             "score": hit["distance"],
         })
     return out

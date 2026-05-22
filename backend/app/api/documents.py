@@ -3,8 +3,10 @@
 import asyncio
 import os
 import uuid
+from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.config import settings
@@ -156,3 +158,47 @@ async def delete_document(document_id: str, _: None = Depends(verify_token)):
     if not await document_service.delete_document(document_id):
         raise HTTPException(status_code=404, detail="文档不存在")
     return {"ok": True}
+
+
+ALLOWED_ASSET_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+
+
+def _verify_asset_token(token: str | None, authorization: str | None):
+    """Asset 接口鉴权：支持 query param token 或 Bearer header。"""
+    import hmac
+    expected = settings.API_TOKEN
+    if token and hmac.compare_digest(token, expected):
+        return
+    if authorization:
+        expected_header = f"Bearer {expected}"
+        if hmac.compare_digest(authorization, expected_header):
+            return
+    raise HTTPException(status_code=401, detail="Invalid token")
+
+
+@router.get("/documents/{document_id}/assets/{asset_path:path}")
+async def get_document_asset(
+    document_id: str,
+    asset_path: str,
+    token: str | None = None,
+    authorization: str | None = Header(None),
+):
+    """安全提供文档解析产物（图片等）。支持 ?token=xxx 或 Authorization header。"""
+    _verify_asset_token(token, authorization)
+
+    base_dir = (Path(settings.GENERAL_PARSED_DIR).resolve() / document_id).resolve()
+    target = (base_dir / asset_path).resolve()
+
+    # 路径穿越检查
+    try:
+        target.relative_to(base_dir)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Invalid asset path")
+
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    if target.suffix.lower() not in ALLOWED_ASSET_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Unsupported asset type")
+
+    return FileResponse(str(target))

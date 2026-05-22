@@ -16,6 +16,7 @@ export interface Citation {
   section_title?: string
   table_id?: string
   source_type?: string
+  image_paths?: string[]
 }
 
 /** 检索步骤信息 */

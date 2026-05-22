@@ -35,6 +35,8 @@ class IngestionState(TypedDict, total=False):
     parsed_dir: str
     markdown: str
     image_count: int
+    images_dir: str
+    image_descriptions: dict
     chunks: list[dict]
     embedded_chunks: list[dict]
 
@@ -109,6 +111,7 @@ def parse_pdf(state: IngestionState, config: RunnableConfig) -> dict:
     return {
         "markdown": result.markdown_content,
         "image_count": _count_images(result.images_dir),
+        "images_dir": result.images_dir,
         "status": "parsing",
     }
 
@@ -138,6 +141,32 @@ def normalize(state: IngestionState, config: RunnableConfig) -> dict:
     return {"markdown": normalized, "status": "normalizing"}
 
 
+def describe_images(state: IngestionState, config: RunnableConfig) -> dict:
+    """调用 VL 模型生成图片描述（仅 PDF 路径且开关开启时）。"""
+    if not settings.IMAGE_DESCRIPTION_ENABLED:
+        return {"image_descriptions": {}}
+
+    images_dir = state.get("images_dir")
+    if not images_dir or not os.path.isdir(images_dir):
+        return {"image_descriptions": {}}
+
+    from app.rag.parsing.image_describer import batch_describe_images
+
+    descriptions = batch_describe_images(images_dir)
+
+    # 将绝对路径转为相对 parsed_dir 的路径，方便 asset 接口服务
+    parsed_dir = os.path.normpath(state["parsed_dir"])
+    for key, entry in descriptions.items():
+        abs_path = entry.get("image_path", "")
+        if abs_path and os.path.isabs(abs_path):
+            try:
+                entry["image_path"] = os.path.relpath(abs_path, parsed_dir).replace(os.sep, "/")
+            except ValueError:
+                pass  # 不同盘符，保持原样
+
+    return {"image_descriptions": descriptions}
+
+
 def chunk(state: IngestionState, config: RunnableConfig) -> dict:
     """分块。"""
     from app.rag.chunking.markdown_chunker import split_markdown_document
@@ -155,6 +184,7 @@ def chunk(state: IngestionState, config: RunnableConfig) -> dict:
         source_path=state["source_path"],
         parsed_dir=state["parsed_dir"],
         entity_name=state["entity_name"],
+        image_descriptions=state.get("image_descriptions"),
         cfg=cfg,
     )
     return {"chunks": chunks, "status": "chunking"}
@@ -203,6 +233,7 @@ _builder = StateGraph(IngestionState)
 _builder.add_node("entry", entry)
 _builder.add_node("parse_pdf", parse_pdf)
 _builder.add_node("read_markdown", read_markdown_file)
+_builder.add_node("describe_images", describe_images)
 _builder.add_node("normalize", normalize)
 _builder.add_node("chunk", chunk)
 _builder.add_node("embed_and_save", embed_and_save)
@@ -213,8 +244,9 @@ _builder.add_conditional_edges(
     route_by_file_type,
     {"parse_pdf": "parse_pdf", "read_markdown": "read_markdown"},
 )
-_builder.add_edge("parse_pdf", "normalize")
+_builder.add_edge("parse_pdf", "describe_images")
 _builder.add_edge("read_markdown", "normalize")
+_builder.add_edge("describe_images", "normalize")
 _builder.add_edge("normalize", "chunk")
 _builder.add_edge("chunk", "embed_and_save")
 _builder.add_edge("embed_and_save", END)

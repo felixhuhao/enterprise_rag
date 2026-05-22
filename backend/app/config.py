@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     # ---- Milvus 向量数据库 ----
     MILVUS_URI: str = "http://localhost:19530"
 
+    # ---- 图片描述配置 ----
+    IMAGE_DESCRIPTION_ENABLED: bool = True
+    IMAGE_DESCRIPTION_MODEL: str = "qwen3-vl-flash"
+    IMAGE_DESCRIPTION_CONCURRENCY: int = 3
+    IMAGE_DESCRIPTION_TIMEOUT: int = 30
+    IMAGE_DESCRIPTION_MAX_SIZE_MB: int = 10
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
