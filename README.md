@@ -184,7 +184,7 @@ The runner is mainly a regression tool. It should be run after changes to chunki
 The current local demo uses 6 stock research report PDFs from:
 
 ```text
-D:\CodeProjects\multimodel_rag_pro\data\stock reports
+D:\CodeProjects\enterprise_rag\data\stock reports
 ```
 
 In the repository workspace this is the relative path:
@@ -240,7 +240,7 @@ This baseline is used as a regression check. After changes to ingestion, retriev
 ## Project Structure
 
 ```text
-multimodel_rag_pro/
+enterprise_rag/
   backend/
     app/
       api/                  # documents, query chat, query stats, settings
