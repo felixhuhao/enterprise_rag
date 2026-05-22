@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     # ---- Milvus 向量数据库 ----
     MILVUS_URI: str = "http://localhost:19530"
 
+    # ---- Markdown Zip 配置 ----
+    MD_ZIP_MAX_SIZE_MB: int = 50
+
     # ---- 图片描述配置 ----
     IMAGE_DESCRIPTION_ENABLED: bool = True
     IMAGE_DESCRIPTION_MODEL: str = "qwen3-vl-flash"

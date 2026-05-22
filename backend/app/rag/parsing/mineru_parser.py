@@ -7,6 +7,7 @@ Replaces the previous local CLI-based approach.
 import io
 import logging
 import os
+import shutil
 import time
 import uuid
 import zipfile
@@ -241,3 +242,105 @@ def _safe_extractall(zf: zipfile.ZipFile, dest: str):
                 f"zip-slip detected: '{info.filename}' escapes target directory"
             )
     zf.extractall(dest)
+
+
+# ---------------------------------------------------------------------------
+# Markdown Zip parser
+# ---------------------------------------------------------------------------
+
+_MAX_ZIP_FILES = 500
+_MAX_SINGLE_FILE_MB = 50
+
+
+def parse_md_zip(zip_path: str, output_dir: str) -> MinerUParseResult:
+    """Parse a Markdown zip (document.md + images/) into standard parsed structure.
+
+    Recommended zip layout::
+
+        upload.zip
+          document.md
+          images/
+
+    Entry md resolution priority: root ``document.md`` > root single ``.md`` > first ``.md`` found.
+    Images lookup: ``zip_root/images/`` or ``selected_md.parent/images/``.
+    All files are **copied** (not moved) to preserve ``zip_raw/`` for debugging.
+    """
+    max_bytes = settings.MD_ZIP_MAX_SIZE_MB * 1024 * 1024
+
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        # --- pre-extraction safety checks ---
+        total_uncompressed = 0
+        for info in zf.infolist():
+            if info.is_dir():
+                continue
+            total_uncompressed += info.file_size
+            if info.file_size > _MAX_SINGLE_FILE_MB * 1024 * 1024:
+                raise RuntimeError(
+                    f"ZIP entry '{info.filename}' exceeds {_MAX_SINGLE_FILE_MB}MB single-file limit"
+                )
+        if total_uncompressed > max_bytes:
+            raise RuntimeError(
+                f"ZIP uncompressed size ({total_uncompressed / 1024 / 1024:.1f}MB) "
+                f"exceeds {settings.MD_ZIP_MAX_SIZE_MB}MB limit"
+            )
+        if len(zf.infolist()) > _MAX_ZIP_FILES:
+            raise RuntimeError(
+                f"ZIP contains {len(zf.infolist())} entries, exceeds {_MAX_ZIP_FILES} file limit"
+            )
+
+        # --- extract to zip_raw/ ---
+        raw_dir = os.path.join(output_dir, "zip_raw")
+        os.makedirs(raw_dir, exist_ok=True)
+        _safe_extractall(zf, raw_dir)
+
+    # --- find entry markdown ---
+    raw_root = Path(raw_dir)
+    selected_md = _select_zip_entry_md(raw_root)
+    if selected_md is None:
+        raise RuntimeError("ZIP contains no markdown file")
+
+    # --- find images directory ---
+    images_src = _find_zip_images_dir(raw_root, selected_md)
+
+    # --- copy to standard structure ---
+    canonical_md = Path(output_dir) / "document.md"
+    shutil.copy2(selected_md, canonical_md)
+
+    if images_src:
+        dst_images = Path(output_dir) / "images"
+        shutil.copytree(images_src, dst_images, dirs_exist_ok=True)
+
+    return collect_mineru_result(output_dir)
+
+
+def _select_zip_entry_md(raw_root: Path) -> Path | None:
+    """Select the best markdown file from extracted zip.
+
+    Priority: root ``document.md`` > root single ``.md`` > first ``.md`` found.
+    """
+    # root document.md
+    candidate = raw_root / "document.md"
+    if candidate.is_file():
+        return candidate
+
+    # root .md files
+    root_mds = [p for p in raw_root.iterdir() if p.is_file() and p.suffix.lower() == ".md"]
+    if len(root_mds) == 1:
+        return root_mds[0]
+    if root_mds:
+        return root_mds[0]
+
+    # fallback: first .md anywhere
+    all_mds = sorted(raw_root.rglob("*.md"))
+    return all_mds[0] if all_mds else None
+
+
+def _find_zip_images_dir(raw_root: Path, md_path: Path) -> Path | None:
+    """Find images directory: zip_root/images/ or md's parent/images/."""
+    root_images = raw_root / "images"
+    if root_images.is_dir():
+        return root_images
+    md_sibling_images = md_path.parent / "images"
+    if md_sibling_images.is_dir():
+        return md_sibling_images
+    return None

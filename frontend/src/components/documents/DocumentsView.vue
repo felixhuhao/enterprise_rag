@@ -17,7 +17,7 @@
           ref="uploadRef"
           :auto-upload="false"
           :show-file-list="false"
-          accept=".pdf,.md,.markdown"
+          accept=".pdf,.md,.markdown,.zip"
           @change="onFileSelect"
         >
           <template #upload-button>
@@ -27,7 +27,7 @@
             </a-button>
           </template>
         </a-upload>
-        <span class="upload-hint">支持 .pdf .md .markdown</span>
+        <span class="upload-hint">支持 .pdf .md .markdown .zip</span>
       </div>
 
       <!-- 文件预览 + entity 编辑 -->

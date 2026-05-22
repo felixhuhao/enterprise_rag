@@ -128,6 +128,23 @@ def read_markdown_file(state: IngestionState, config: RunnableConfig) -> dict:
     return {"markdown": markdown, "status": "reading"}
 
 
+def parse_md_zip(state: IngestionState, config: RunnableConfig) -> dict:
+    """解压 Markdown zip 到标准 parsed_dir 结构。"""
+    from app.rag.parsing.mineru_parser import parse_md_zip as _parse_md_zip
+
+    updater = _get_updater(config)
+    if updater:
+        updater(state["document_id"], "parsing")
+
+    result = _parse_md_zip(state["source_path"], state["parsed_dir"])
+    return {
+        "markdown": result.markdown_content,
+        "image_count": _count_images(result.images_dir),
+        "images_dir": result.images_dir,
+        "status": "parsing",
+    }
+
+
 def normalize(state: IngestionState, config: RunnableConfig) -> dict:
     """标准化 markdown 并写入 parsed_dir。"""
     from app.rag.parsing.markdown_loader import normalize_markdown, write_markdown
@@ -221,6 +238,8 @@ def embed_and_save(state: IngestionState, config: RunnableConfig) -> dict:
 def route_by_file_type(state: IngestionState) -> str:
     if state["file_type"] == "pdf":
         return "parse_pdf"
+    if state["file_type"] == "md_zip":
+        return "parse_md_zip"
     return "read_markdown"
 
 
@@ -232,6 +251,7 @@ _builder = StateGraph(IngestionState)
 
 _builder.add_node("entry", entry)
 _builder.add_node("parse_pdf", parse_pdf)
+_builder.add_node("parse_md_zip", parse_md_zip)
 _builder.add_node("read_markdown", read_markdown_file)
 _builder.add_node("describe_images", describe_images)
 _builder.add_node("normalize", normalize)
@@ -242,9 +262,10 @@ _builder.add_edge(START, "entry")
 _builder.add_conditional_edges(
     "entry",
     route_by_file_type,
-    {"parse_pdf": "parse_pdf", "read_markdown": "read_markdown"},
+    {"parse_pdf": "parse_pdf", "parse_md_zip": "parse_md_zip", "read_markdown": "read_markdown"},
 )
 _builder.add_edge("parse_pdf", "describe_images")
+_builder.add_edge("parse_md_zip", "describe_images")
 _builder.add_edge("read_markdown", "normalize")
 _builder.add_edge("describe_images", "normalize")
 _builder.add_edge("normalize", "chunk")

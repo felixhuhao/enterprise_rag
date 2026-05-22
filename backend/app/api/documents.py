@@ -20,6 +20,7 @@ SUPPORTED_EXTENSIONS = {
     ".pdf": "pdf",
     ".md": "md",
     ".markdown": "md",
+    ".zip": "md_zip",
 }
 
 
@@ -50,15 +51,22 @@ async def upload_document(
     ext = os.path.splitext(file.filename)[1].lower()
     file_type = SUPPORTED_EXTENSIONS.get(ext)
     if not file_type:
-        raise HTTPException(status_code=400, detail="仅支持 PDF、MD、Markdown 文件")
+        raise HTTPException(status_code=400, detail="仅支持 PDF、MD、Markdown、ZIP 文件")
 
     document_id = uuid.uuid4().hex
     upload_dir = os.path.join(settings.GENERAL_UPLOAD_DIR, document_id)
     os.makedirs(upload_dir, exist_ok=True)
 
     original_name = "original.pdf" if file_type == "pdf" else "original.md"
+    if file_type == "md_zip":
+        original_name = "original.zip"
     source_path = os.path.abspath(os.path.join(upload_dir, original_name))
     content = await file.read()
+    if file_type == "md_zip" and len(content) > settings.MD_ZIP_MAX_SIZE_MB * 1024 * 1024:
+        raise HTTPException(
+            status_code=400,
+            detail=f"ZIP 文件超过 {settings.MD_ZIP_MAX_SIZE_MB}MB 限制",
+        )
     with open(source_path, "wb") as f:
         f.write(content)
 
