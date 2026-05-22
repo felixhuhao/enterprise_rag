@@ -109,15 +109,15 @@ The Evaluate page focuses on query run statistics rather than subjective answer 
 
 ### Golden Set Evaluation
 
-The backend includes a standalone runner:
+`backend/scripts/eval_golden_set.py` is a standalone runner that calls the running query API, consumes the SSE stream, and writes evaluation artifacts without changing backend or frontend behavior.
 
 ```powershell
 cd backend
 python scripts/eval_golden_set.py `
-  --golden-set ../data/stock_reports_v2.jsonl `
+  --golden-set <golden_set.jsonl> `
   --api-base http://127.0.0.1:8010/api `
   --judge `
-  --output ../data/stock_reports_v2_results.jsonl
+  --output <output_results.jsonl>
 ```
 
 The runner records actual answers, citations, trace data, rerank debug data, and summary scores. It supports:
@@ -126,21 +126,6 @@ The runner records actual answers, citations, trace data, rerank debug data, and
 - citation/source recall
 - no-answer refusal checks
 - optional LLM judge for complex reasoning questions
-
-### Evaluation Runner
-
-`backend/scripts/eval_golden_set.py` is intentionally independent from the application runtime. It calls the running query API, consumes the SSE stream, and writes evaluation artifacts without changing backend or frontend behavior.
-
-Typical command:
-
-```powershell
-cd backend
-python scripts/eval_golden_set.py `
-  --golden-set ../data/stock_reports_v2.jsonl `
-  --api-base http://127.0.0.1:8010/api `
-  --judge `
-  --output ../data/stock_reports_v2_results.jsonl
-```
 
 Inputs:
 
@@ -181,18 +166,12 @@ The runner is mainly a regression tool. It should be run after changes to chunki
 
 ## Demo Dataset
 
-The current local demo uses 6 stock research report PDFs from:
-
-```text
-D:\CodeProjects\enterprise_rag\data\stock reports
-```
-
-In the repository workspace this is the relative path:
+The repository includes a sample dataset for local testing and regression checks. Stock research reports are used purely as an example corpus — the platform is not limited to financial documents.
 
 ```text
 data/
-  stock reports/              # 6 PDF reports used as the demo knowledge base
-  stock_reports_v2.jsonl      # 17-question golden set
+  stock reports/              # 6 sample PDF reports (demo corpus, not a product definition)
+  stock_reports_v2.jsonl      # 17-question golden set for regression testing
   stock_reports_v2_results.jsonl
   stock_reports_v2_summary.json
 ```
@@ -205,16 +184,7 @@ The raw demo documents and evaluation outputs are local runtime data and are not
 2. Upload all PDFs in `data/stock reports/` from the Documents page.
 3. Set the document subject when needed, then process each document.
 4. Confirm every document reaches `completed`.
-5. Run the golden set:
-
-```powershell
-cd backend
-python scripts/eval_golden_set.py `
-  --golden-set ../data/stock_reports_v2.jsonl `
-  --api-base http://127.0.0.1:8010/api `
-  --judge `
-  --output ../data/stock_reports_v2_results.jsonl
-```
+5. Run the golden set with the evaluation command shown above, using `../data/stock_reports_v2.jsonl` as input.
 
 ### Current Baseline
 
@@ -224,10 +194,10 @@ Latest local run:
 Questions: 17
 Types: rule=10, llm_judge=5, no_answer=2
 
-Overall:   avg=0.960, pass_rate=100.0%
-Rule:      avg=0.968, pass_rate=100.0%
-LLM judge: avg=0.928, pass_rate=100.0%
-No-answer: avg=1.000, pass_rate=100.0%
+Overall:   avg=0.874, pass_rate=88.2%
+Rule:      avg=0.973, pass_rate=100.0%
+LLM judge: avg=0.828, pass_rate=80.0%
+No-answer: avg=0.500, pass_rate=50.0%
 ```
 
 This baseline is used as a regression check. After changes to ingestion, retrieval, rerank, image-to-text, or prompt construction, rerun the same golden set and compare:
@@ -274,7 +244,7 @@ enterprise_rag/
 Create `backend/.env`:
 
 ```env
-API_TOKEN=rag-pro-secret-token
+API_TOKEN=enterprise-rag-dev-token
 DASHSCOPE_API_KEY=your_dashscope_key
 DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 CHAT_MODEL=qwen-plus
@@ -337,16 +307,7 @@ cd frontend
 npm run build
 ```
 
-Golden set:
-
-```powershell
-cd backend
-python scripts/eval_golden_set.py `
-  --golden-set ../data/stock_reports_v2.jsonl `
-  --api-base http://127.0.0.1:8010/api `
-  --judge `
-  --output ../data/stock_reports_v2_results.jsonl
-```
+Golden set: run the evaluation command from the [Golden Set Evaluation](#golden-set-evaluation) section above.
 
 ## Current Scope
 
