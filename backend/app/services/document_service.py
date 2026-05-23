@@ -160,7 +160,12 @@ async def process_document(document_id: str):
     if not doc:
         return
     if not os.path.isfile(doc["source_path"]):
-        await update_document_status(document_id, "failed", error_msg="文件不存在")
+        await update_document_status(
+            document_id, "failed",
+            error_msg="文件不存在", error_code="UNKNOWN_ERROR",
+            last_failed_stage="pre_check",
+        )
+        await append_error_event(document_id, "pre_check", "UNKNOWN_ERROR", "文件不存在")
         return
 
     try:
