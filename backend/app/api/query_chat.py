@@ -6,7 +6,7 @@ import time
 import uuid
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from app.deps import verify_token
@@ -20,7 +20,7 @@ router = APIRouter()
 
 class QueryChatRequest(BaseModel):
     session_id: str = ""
-    query: str
+    query: str = Field(..., max_length=4000)
     config: dict | None = None
 
 

@@ -68,8 +68,21 @@ async def list_documents() -> list[dict]:
             return [dict(row) for row in rows]
 
 
+_ALLOWED_STATUS_FIELDS = frozenset({
+    "chunk_count", "image_count",
+    "error_msg", "error_code",
+    "retry_count", "last_failed_stage",
+    "cleanup_status",
+    "entity_name",
+})
+
+
 async def update_document_status(document_id: str, status: str, **kwargs):
-    """统一更新文档状态，避免节点散落 SQL。"""
+    """统一更新文档状态，仅允许白名单字段。"""
+    bad = set(kwargs) - _ALLOWED_STATUS_FIELDS
+    if bad:
+        raise ValueError(f"update_document_status: 不允许的字段 {bad}")
+
     now = datetime.now().isoformat()
     async with get_db() as db:
         sets = ["status = ?", "updated_at = ?"]

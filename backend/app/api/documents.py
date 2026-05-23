@@ -61,14 +61,26 @@ async def upload_document(
     if file_type == "md_zip":
         original_name = "original.zip"
     source_path = os.path.abspath(os.path.join(upload_dir, original_name))
-    content = await file.read()
-    if file_type == "md_zip" and len(content) > settings.MD_ZIP_MAX_SIZE_MB * 1024 * 1024:
-        raise HTTPException(
-            status_code=400,
-            detail=f"ZIP 文件超过 {settings.MD_ZIP_MAX_SIZE_MB}MB 限制",
-        )
+
+    # Streaming write + size limit
+    max_bytes = settings.UPLOAD_MAX_SIZE_MB * 1024 * 1024
+    total = 0
     with open(source_path, "wb") as f:
-        f.write(content)
+        while True:
+            chunk = await file.read(1024 * 1024)  # 1 MB chunks
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                # 清理已写入的文件
+                f.close()
+                os.remove(source_path)
+                os.rmdir(upload_dir)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"文件超过 {settings.UPLOAD_MAX_SIZE_MB}MB 限制",
+                )
+            f.write(chunk)
 
     return await document_service.create_document_record(
         document_id=document_id,

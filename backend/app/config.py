@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # ---- Markdown Zip 配置 ----
     MD_ZIP_MAX_SIZE_MB: int = 50
 
+    # ---- 通用上传限制 ----
+    UPLOAD_MAX_SIZE_MB: int = 100
+
     # ---- 图片描述配置 ----
     IMAGE_DESCRIPTION_ENABLED: bool = True
     IMAGE_DESCRIPTION_MODEL: str = "qwen3-vl-flash"
