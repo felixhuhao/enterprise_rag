@@ -60,7 +60,7 @@ function onSubmit() {
 
 <style scoped>
 .chat-input {
-  padding: 14px 20px;
+  padding: 14px 18px;
   border-top: 1px solid var(--border);
   background: var(--bg-surface);
 }
@@ -69,7 +69,7 @@ function onSubmit() {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  background: var(--bg-elevated);
+  background: #f8fafc;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 6px 8px;
@@ -103,7 +103,8 @@ function onSubmit() {
   width: 34px;
   height: 34px;
   border: none;
-  background: var(--bg-hover);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
   color: var(--text-muted);
   border-radius: var(--radius-sm);
   cursor: pointer;
@@ -112,10 +113,11 @@ function onSubmit() {
 }
 .send-btn.active {
   background: var(--accent);
-  color: #0B0E14;
-  box-shadow: var(--shadow-glow);
+  border-color: var(--accent);
+  color: #fff;
+  box-shadow: none;
 }
 .send-btn.active:hover {
-  transform: scale(1.05);
+  background: var(--accent-hover);
 }
 </style>

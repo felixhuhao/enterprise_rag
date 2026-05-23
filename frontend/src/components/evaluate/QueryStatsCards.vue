@@ -6,7 +6,6 @@
     <div class="stat-card" v-for="item in cards" :key="item.label">
       <div class="stat-value">{{ formatValue(item) }}</div>
       <div class="stat-label">{{ item.label }}</div>
-      <div class="stat-glow" :style="{ background: item.glow }"></div>
     </div>
   </div>
 </template>
@@ -21,12 +20,12 @@ const cards = computed(() => {
   const s = props.stats
   if (!s) return []
   return [
-    { label: '总查询数', value: s.total_queries, precision: 0, glow: 'rgba(212, 148, 58, 0.06)' },
-    { label: '未完成率', value: formatPercent(s.failure_rate), glow: 'rgba(240, 96, 96, 0.06)' },
-    { label: '平均 Rerank 分', value: s.avg_rerank_score, precision: 3, glow: 'rgba(91, 156, 246, 0.06)' },
-    { label: '平均结果数', value: s.avg_result_count, precision: 1, glow: 'rgba(61, 214, 140, 0.06)' },
-    { label: 'Fallback 次数', value: s.fallback_count, precision: 0, glow: 'rgba(240, 96, 96, 0.06)' },
-    { label: 'Fallback 比例', value: s.fallback_ratio, precision: 3, glow: 'rgba(232, 168, 56, 0.06)' },
+    { label: '总查询数', value: s.total_queries, precision: 0 },
+    { label: '未完成率', value: formatPercent(s.failure_rate) },
+    { label: '平均 Rerank 分', value: s.avg_rerank_score, precision: 3 },
+    { label: '平均结果数', value: s.avg_result_count, precision: 1 },
+    { label: 'Fallback 次数', value: s.fallback_count, precision: 0 },
+    { label: 'Fallback 比例', value: s.fallback_ratio, precision: 3 },
   ]
 })
 
@@ -52,36 +51,20 @@ function formatValue(item: { value: number | string; precision?: number }) {
 .stat-card {
   position: relative;
   overflow: hidden;
-  background: var(--bg-elevated);
+  background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 16px 18px;
-  transition: border-color 0.2s var(--ease-out), transform 0.2s var(--ease-out);
+  padding: 14px 16px;
+  transition: border-color 0.15s var(--ease-out), background 0.15s var(--ease-out);
 }
 .stat-card:hover {
   border-color: var(--border-hover);
-  transform: translateY(-1px);
-}
-
-.stat-glow {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-  filter: blur(20px);
-  opacity: 0;
-  transition: opacity 0.3s var(--ease-out);
-  pointer-events: none;
-}
-.stat-card:hover .stat-glow {
-  opacity: 1;
+  background: #f8fafc;
 }
 
 .stat-value {
   font-family: var(--font-display);
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 700;
   color: var(--text-primary);
   line-height: 1.2;
@@ -89,11 +72,9 @@ function formatValue(item: { value: number | string; precision?: number }) {
 
 .stat-label {
   font-family: var(--font-display);
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
   margin-top: 6px;
 }
 </style>

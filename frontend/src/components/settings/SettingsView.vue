@@ -8,12 +8,17 @@
     <div class="settings-card">
       <!-- API Token -->
       <section class="settings-section">
-        <div class="section-title">API Token</div>
-        <div class="section-hint">更新后立即生效，同时写入 .env 持久化</div>
+        <div class="section-heading">
+          <div>
+            <div class="section-title">访问令牌</div>
+            <div class="section-hint">更新后立即生效，同时写入 .env 持久化</div>
+          </div>
+          <span class="section-kicker">安全</span>
+        </div>
         <div class="token-row">
           <a-input-password
             v-model="form.token"
-            placeholder="输入新的 API Token"
+            placeholder="输入新的访问令牌"
             allow-clear
           />
           <a-button type="primary" :loading="tokenSaving" @click="saveToken">
@@ -26,8 +31,13 @@
 
       <!-- 查询模式 -->
       <section class="settings-section">
-        <div class="section-title">查询模式</div>
-        <div class="section-hint">选择经过验证的查询策略，避免随机组合</div>
+        <div class="section-heading">
+          <div>
+            <div class="section-title">查询模式</div>
+            <div class="section-hint">选择经过验证的查询策略，避免随机组合</div>
+          </div>
+          <span class="section-kicker">流水线</span>
+        </div>
         <div class="mode-selector">
           <div
             v-for="p in presets"
@@ -54,8 +64,13 @@
 
       <!-- 候选结果数 -->
       <section class="settings-section">
-        <div class="section-title">候选结果数</div>
-        <div class="section-hint">数值越大召回越充分，但延迟可能增加</div>
+        <div class="section-heading">
+          <div>
+            <div class="section-title">候选结果数</div>
+            <div class="section-hint">数值越大召回越充分，但延迟可能增加</div>
+          </div>
+          <span class="section-kicker">检索</span>
+        </div>
         <div class="limit-row">
           <a-slider
             v-model="form.searchLimit"
@@ -217,18 +232,27 @@ onMounted(() => {
 .settings-page {
   height: 100%;
   overflow-y: auto;
-  animation: fadeIn 0.3s var(--ease-out);
+  animation: fadeIn 0.22s var(--ease-out);
 }
 
 .settings-card {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 24px;
+  padding: 20px;
+  max-width: 1120px;
 }
 
 .settings-section {
   margin-bottom: 4px;
+}
+
+.section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
 }
 
 .section-title {
@@ -240,9 +264,18 @@ onMounted(() => {
 
 .section-hint {
   margin-top: 4px;
-  margin-bottom: 12px;
   font-size: 12px;
   color: var(--text-muted);
+}
+
+.section-kicker {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  font-size: 11px;
 }
 
 .token-row {
@@ -265,10 +298,12 @@ onMounted(() => {
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
   user-select: none;
+  background: var(--bg-surface);
 }
 
 .mode-card:hover {
-  border-color: var(--text-muted);
+  border-color: var(--border-hover);
+  background: #f8fafc;
 }
 
 .mode-card.active {
@@ -302,7 +337,7 @@ onMounted(() => {
 
 .mode-badge {
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: 999px;
   font-size: 10px;
   color: var(--accent);
   border: 1px solid var(--border-accent);
@@ -320,7 +355,7 @@ onMounted(() => {
 .feature-dot {
   font-size: 10px;
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: 999px;
   background: var(--bg-hover);
   color: var(--text-muted);
   border: 1px solid var(--border);
@@ -347,10 +382,6 @@ onMounted(() => {
 }
 
 @media (max-width: 768px) {
-  .settings-page {
-    padding: 16px;
-  }
-
   .settings-card {
     padding: 16px;
   }

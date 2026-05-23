@@ -7,8 +7,24 @@
   <div class="documents-page">
     <div class="documents-card">
       <div class="documents-header">
-        <h3>文档管理</h3>
-        <p class="documents-desc">上传 PDF 或 Markdown 文档，解析后写入向量知识库</p>
+        <div>
+          <h3>文档管理</h3>
+          <p class="documents-desc">上传 PDF 或 Markdown 文档，解析后写入向量知识库</p>
+        </div>
+      </div>
+
+      <div class="summary-row">
+        <button
+          v-for="item in summaryItems"
+          :key="item.key"
+          class="summary-item"
+          :class="{ active: statusFilter === item.key }"
+          type="button"
+          @click="statusFilter = item.key"
+        >
+          <span class="summary-value">{{ item.value }}</span>
+          <span class="summary-label">{{ item.label }}</span>
+        </button>
       </div>
 
       <!-- 上传区域 -->
@@ -56,7 +72,7 @@
 
       <!-- 文档列表 -->
       <a-table
-        :data="docs"
+        :data="filteredDocs"
         :pagination="{ pageSize: 20 }"
         :bordered="false"
         row-key="document_id"
@@ -66,9 +82,8 @@
           <a-table-column title="文件名" data-index="filename">
             <template #cell="{ record }">
               <span class="doc-name">
-                <icon-file v-if="record.file_type === 'pdf'" style="color: var(--error)" />
-                <icon-file v-else style="color: var(--accent)" />
-                {{ record.filename }}
+                <icon-file class="doc-icon" :style="{ color: record.file_type === 'pdf' ? 'var(--error)' : 'var(--accent)' }" />
+                <span class="doc-filename" :title="record.filename">{{ record.filename }}</span>
               </span>
             </template>
           </a-table-column>
@@ -188,10 +203,30 @@ const pendingFile = ref<File | null>(null)
 const pendingEntityName = ref('')
 const pollingIds = ref<Map<string, number>>(new Map())
 const uploadRef = ref<any>(null)
+const statusFilter = ref('all')
 
 const BUSY_STATUSES = ['processing', 'parsing', 'reading', 'normalizing', 'chunking', 'embedding', 'saving']
 
 const failedDocs = computed(() => docs.value.filter((d) => d.status === 'failed'))
+const pendingCleanupDocs = computed(() => docs.value.filter((d) => d.cleanup_status === 'milvus_delete_failed'))
+const processingDocs = computed(() => docs.value.filter((d) => BUSY_STATUSES.includes(d.status)))
+const completedDocs = computed(() => docs.value.filter((d) => d.status === 'completed'))
+
+const summaryItems = computed(() => [
+  { key: 'all', label: '全部', value: docs.value.length },
+  { key: 'completed', label: '已完成', value: completedDocs.value.length },
+  { key: 'processing', label: '处理中', value: processingDocs.value.length },
+  { key: 'failed', label: '失败', value: failedDocs.value.length },
+  { key: 'cleanup', label: '待清理', value: pendingCleanupDocs.value.length },
+])
+
+const filteredDocs = computed(() => {
+  if (statusFilter.value === 'completed') return completedDocs.value
+  if (statusFilter.value === 'processing') return processingDocs.value
+  if (statusFilter.value === 'failed') return failedDocs.value
+  if (statusFilter.value === 'cleanup') return pendingCleanupDocs.value
+  return docs.value
+})
 
 function errorHint(doc: Document): string | undefined {
   return doc.error_code ? ERROR_HINTS[doc.error_code] : undefined
@@ -378,24 +413,28 @@ onUnmounted(() => {
 .documents-page {
   height: 100%;
   overflow-y: auto;
-  animation: fadeIn 0.3s var(--ease-out);
+  animation: fadeIn 0.22s var(--ease-out);
 }
 
 .documents-card {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 24px;
+  padding: 20px;
   overflow: hidden;
 }
 
 .documents-header {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
 }
 .documents-header h3 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
   color: var(--text-primary);
 }
@@ -405,11 +444,50 @@ onUnmounted(() => {
   color: var(--text-muted);
 }
 
+.summary-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.summary-item {
+  text-align: left;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color 0.15s var(--ease-out), background 0.15s var(--ease-out);
+}
+.summary-item:hover,
+.summary-item.active {
+  border-color: var(--border-accent);
+  background: var(--accent-subtle);
+}
+.summary-value {
+  display: block;
+  font-size: 20px;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.summary-label {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 .upload-area {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #f8fafc;
 }
 .upload-hint {
   font-size: 12px;
@@ -422,7 +500,7 @@ onUnmounted(() => {
   gap: 16px;
   padding: 12px 16px;
   margin-bottom: 20px;
-  background: var(--bg-elevated, rgba(255,255,255,0.03));
+  background: #f8fafc;
   border: 1px solid var(--border);
   border-radius: var(--radius-md, 8px);
 }
@@ -471,6 +549,18 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   font-size: 13px;
+  max-width: 520px;
+  min-width: 0;
+}
+.doc-icon {
+  flex: 0 0 auto;
+}
+.doc-filename {
+  display: inline-block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .error-collapse {
@@ -486,5 +576,20 @@ onUnmounted(() => {
   font-family: var(--font-display);
   font-weight: 600;
   margin-right: 8px;
+}
+
+@media (max-width: 980px) {
+  .summary-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .upload-preview {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .preview-actions {
+    justify-content: flex-end;
+  }
 }
 </style>

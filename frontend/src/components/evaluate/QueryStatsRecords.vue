@@ -120,7 +120,7 @@ function statusClass(status: string): string {
 
 <style scoped>
 .records-card {
-  background: var(--bg-elevated);
+  background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 16px 18px;
@@ -129,11 +129,9 @@ function statusClass(status: string): string {
 .records-title {
   font-family: var(--font-display);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-secondary);
   margin-bottom: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .time-cell {

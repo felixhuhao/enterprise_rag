@@ -5,14 +5,20 @@
   <div ref="listRef" class="message-list">
     <div v-if="messages.length === 0" class="empty-hint">
       <div class="hint-icon">?</div>
-      <p>输入问题查询知识库</p>
+      <div class="hint-title">从知识库提问</div>
+      <p>答案会附带检索链路、引用来源和耗时 trace。</p>
+      <div class="sample-list">
+        <span>对比不同报告对中芯国际的观点</span>
+        <span>哪些报告提到了产能利用率？</span>
+        <span>2025Q1 营收变化的主要原因是什么？</span>
+      </div>
     </div>
     <template v-for="msg in messages" :key="msg.id">
       <!-- user 消息直接渲染 -->
       <div v-if="msg.role === 'user'" :class="['message-bubble', 'user']">
         <div class="avatar"><div class="avatar-user">U</div></div>
         <div class="bubble-body">
-          <div class="role-label">你</div>
+          <div class="role-label">问题</div>
           <div class="content">{{ msg.content }}</div>
         </div>
       </div>
@@ -27,7 +33,7 @@
           </div>
         </div>
         <div class="bubble-body">
-          <div class="role-label">AI 助手</div>
+          <div class="role-label">回答</div>
           <!-- 检索链路面板 -->
           <RetrievalInfo
             v-if="msg.retrievalInfo"
@@ -80,7 +86,8 @@ watch(() => props.messages, scrollToBottom, { deep: true })
 .message-list {
   flex: 1;
   overflow-y: auto;
-  padding: 20px;
+  padding: 22px 24px;
+  background: #fbfcfe;
 }
 
 .empty-hint {
@@ -90,12 +97,13 @@ watch(() => props.messages, scrollToBottom, { deep: true })
   justify-content: center;
   height: 100%;
   color: var(--text-muted);
-  gap: 12px;
+  gap: 10px;
+  text-align: center;
 }
 .hint-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-lg);
   background: var(--accent-subtle);
   border: 1px solid var(--border-accent);
   display: flex;
@@ -104,16 +112,38 @@ watch(() => props.messages, scrollToBottom, { deep: true })
   font-size: 22px;
   color: var(--accent);
 }
+.hint-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
 .empty-hint p {
-  font-size: 14px;
+  margin: 0;
+  font-size: 13px;
+}
+.sample-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  max-width: 680px;
+  margin-top: 8px;
+}
+.sample-list span {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 /* 消息气泡 */
 .message-bubble {
   display: flex;
   gap: 12px;
-  margin-bottom: 20px;
-  animation: fadeInUp 0.35s var(--ease-out) both;
+  margin-bottom: 18px;
+  animation: fadeInUp 0.22s var(--ease-out) both;
 }
 .message-bubble.user {
   flex-direction: row-reverse;
@@ -132,55 +162,52 @@ watch(() => props.messages, scrollToBottom, { deep: true })
   flex-shrink: 0;
 }
 .avatar-user {
-  background: var(--accent-subtle);
-  border: 1px solid var(--border-accent);
-  color: var(--accent);
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  color: #4338ca;
 }
 .avatar-ai {
-  background: var(--bg-hover);
+  background: var(--bg-surface);
   border: 1px solid var(--border);
   color: var(--info);
 }
 
 .bubble-body {
-  max-width: 75%;
+  max-width: min(860px, 82%);
 }
 .role-label {
   font-family: var(--font-display);
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 700;
   color: var(--text-muted);
   margin-bottom: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
 }
 .user .role-label {
   text-align: right;
 }
 
 .content {
-  padding: 12px 16px;
-  border-radius: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-lg);
   font-size: 14px;
   line-height: 1.7;
   word-break: break-word;
 }
 .message-bubble.user .content {
-  background: linear-gradient(135deg, rgba(212, 148, 58, 0.14) 0%, rgba(212, 148, 58, 0.08) 100%);
-  border: 1px solid var(--border-accent);
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
   color: var(--text-primary);
-  border-top-right-radius: 4px;
 }
 .message-bubble.assistant .content {
-  background: var(--bg-elevated);
+  background: var(--bg-surface);
   border: 1px solid var(--border);
   color: var(--text-primary);
-  border-top-left-radius: 4px;
+  box-shadow: var(--shadow-sm);
 }
 
 /* Markdown 样式 */
 .content :deep(pre) {
-  background: #0A0D12;
+  background: #0f172a;
   border: 1px solid var(--border);
   color: #C8D0E0;
   padding: 14px;
@@ -228,5 +255,20 @@ watch(() => props.messages, scrollToBottom, { deep: true })
   color: var(--text-muted);
   font-style: italic;
   animation: fadeIn 0.5s ease-in-out infinite alternate;
+}
+
+@media (max-width: 840px) {
+  .message-list {
+    padding: 16px;
+  }
+
+  .bubble-body {
+    max-width: calc(100% - 44px);
+  }
+
+  .sample-list {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 </style>

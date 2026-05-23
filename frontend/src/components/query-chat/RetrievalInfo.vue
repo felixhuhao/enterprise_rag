@@ -134,18 +134,17 @@ const traceRows = computed<TraceRow[]>(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 
 .tag {
   font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: var(--bg-hover);
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--bg-surface);
   border: 1px solid var(--border);
   color: var(--text-muted);
   font-family: var(--font-display);
-  letter-spacing: 0.02em;
 }
 .tag.accent {
   color: var(--accent);
@@ -153,16 +152,18 @@ const traceRows = computed<TraceRow[]>(() => {
   background: var(--accent-subtle);
 }
 .tag.warn {
-  color: var(--warning, #faad14);
-  border-color: var(--warning, #faad14);
-  background: rgba(250, 173, 20, 0.08);
+  color: var(--warning);
+  border-color: #fed7aa;
+  background: #fff7ed;
 }
 .tag.clickable {
   cursor: pointer;
   user-select: none;
 }
 .tag.clickable:hover {
-  background: var(--bg-active);
+  color: var(--accent);
+  border-color: var(--border-accent);
+  background: var(--accent-subtle);
 }
 
 /* Trace panel */
@@ -170,7 +171,7 @@ const traceRows = computed<TraceRow[]>(() => {
   width: 100%;
   margin-top: 4px;
   padding: 8px 12px;
-  background: var(--bg-elevated);
+  background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }

@@ -61,20 +61,21 @@ function assetUrl(documentId: string, imagePath: string): string {
 
 <style scoped>
 .citation-card {
-  margin-top: 8px;
+  margin-top: 10px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   overflow: hidden;
+  background: var(--bg-surface);
 }
 
 .citation-header {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
-  background: var(--bg-hover);
+  padding: 8px 10px;
+  background: #f8fafc;
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   cursor: pointer;
   user-select: none;
   transition: color 0.2s;
@@ -87,31 +88,39 @@ function assetUrl(documentId: string, imagePath: string): string {
 }
 .citation-header span {
   font-family: var(--font-display);
-  letter-spacing: 0.02em;
+  font-weight: 700;
 }
 
 .citation-list {
-  padding: 6px 10px;
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--border);
 }
 
 .citation-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 3px 0;
+  padding: 5px 0;
   font-size: 12px;
   color: var(--text-secondary);
 }
 
 .citation-id {
   font-weight: 600;
-  color: var(--info);
+  color: var(--accent);
   font-family: var(--font-display);
   font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-subtle);
+  border: 1px solid var(--border-accent);
 }
 
 .citation-field {
-  color: var(--text-muted);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .citation-image-badge {
@@ -119,8 +128,8 @@ function assetUrl(documentId: string, imagePath: string): string {
   align-items: center;
   gap: 3px;
   font-size: 11px;
-  color: var(--accent);
-  opacity: 0.8;
+  color: var(--info);
+  margin-left: auto;
 }
 
 .citation-images {
@@ -133,13 +142,12 @@ function assetUrl(documentId: string, imagePath: string): string {
   width: 80px;
   height: 60px;
   object-fit: cover;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   cursor: pointer;
   transition: transform 0.15s, border-color 0.15s;
 }
 .citation-thumb:hover {
-  transform: scale(1.05);
   border-color: var(--accent);
 }
 

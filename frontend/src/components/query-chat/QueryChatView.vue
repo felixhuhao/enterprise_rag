@@ -5,7 +5,17 @@
 -->
 <template>
   <div class="chat-container">
-    <!-- 消息列表 -->
+    <div class="chat-toolbar">
+      <div>
+        <div class="toolbar-title">知识库问答工作台</div>
+        <div class="toolbar-subtitle">回答会附带引用来源、检索链路和耗时追踪。</div>
+      </div>
+      <div class="toolbar-pill">
+        <span class="dot" :class="{ active: store.isStreaming }"></span>
+        {{ store.isStreaming ? '生成中' : '就绪' }}
+      </div>
+    </div>
+
     <QueryMessageList :messages="store.messages" />
 
     <!-- 错误提示 -->
@@ -47,11 +57,11 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .error-bar {
-  margin: 0 16px 8px;
+  margin: 0 18px 10px;
   padding: 8px 12px;
-  background: rgba(240, 96, 96, 0.08);
-  border: 1px solid rgba(240, 96, 96, 0.2);
-  border-radius: 8px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius-md);
   font-family: var(--font-display);
   font-size: 12px;
 }
@@ -89,6 +99,59 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  animation: fadeIn 0.3s var(--ease-out);
+  animation: fadeIn 0.22s var(--ease-out);
+}
+
+.chat-toolbar {
+  min-height: 58px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--bg-surface);
+}
+.toolbar-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.toolbar-subtitle {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.toolbar-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+}
+.dot.active {
+  background: var(--info);
+}
+
+@media (max-width: 760px) {
+  .chat-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .toolbar-pill {
+    align-self: flex-start;
+  }
 }
 </style>

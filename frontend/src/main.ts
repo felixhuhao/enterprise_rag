@@ -11,8 +11,6 @@ import App from './App.vue'
 import router from './router'
 import './styles/global.css'
 
-document.body.setAttribute('arco-theme', 'dark')
-
 const app = createApp(App)
 app.use(createPinia())  // 状态管理
 app.use(router)         // 路由
