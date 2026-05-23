@@ -217,6 +217,7 @@ export const useQueryChatStore = defineStore('queryChat', () => {
   /** 中止当前流式连接 */
   function stopStreaming() {
     abortController?.abort()
+    abortController = null
     isStreaming.value = false
   }
 

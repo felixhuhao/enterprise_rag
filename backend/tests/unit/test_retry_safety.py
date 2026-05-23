@@ -1,13 +1,13 @@
-"""Unit tests for P1 retry safety: retry_count, error events, Milvus delete blocking.
+"""Unit tests for P1 retry safety + P1.5 delete consistency.
 
-Tests real service-layer functions (update_document_status, append_error_event,
-mark_interrupted_documents_failed) against an in-memory SQLite via monkeypatch.
+Tests real service-layer functions against an in-memory SQLite via monkeypatch.
 """
 
 import asyncio
 import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime
+from unittest.mock import patch
 
 import pytest
 
@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS general_documents (
     image_count    INTEGER DEFAULT 0,
     retry_count    INTEGER DEFAULT 0,
     last_failed_stage TEXT DEFAULT '',
+    cleanup_status TEXT DEFAULT '',
     error_msg      TEXT DEFAULT '',
     error_code     TEXT DEFAULT '',
     created_at     TEXT NOT NULL,
@@ -114,17 +115,18 @@ def db(monkeypatch):
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)
     now = datetime.now().isoformat()
-    for doc_id, status, retry_count in [
-        ("doc-1", "failed", 0),
-        ("doc-2", "failed", 2),
-        ("doc-3", "failed", 3),
-        ("doc-4", "uploaded", 0),
-        ("doc-5", "parsing", 0),
-        ("doc-6", "embedding", 0),
+    for doc_id, status, retry_count, cleanup_status in [
+        ("doc-1", "failed", 0, ""),
+        ("doc-2", "failed", 2, ""),
+        ("doc-3", "failed", 3, ""),
+        ("doc-4", "uploaded", 0, ""),
+        ("doc-5", "parsing", 0, ""),
+        ("doc-6", "embedding", 0, ""),
+        ("doc-7", "completed", 0, "milvus_delete_failed"),
     ]:
         conn.execute(
-            "INSERT INTO general_documents (document_id, filename, source_path, file_type, status, retry_count, created_at, updated_at) VALUES (?, 'test.pdf', '/tmp/test.pdf', 'pdf', ?, ?, ?, ?)",
-            (doc_id, status, retry_count, now, now),
+            "INSERT INTO general_documents (document_id, filename, source_path, file_type, status, retry_count, cleanup_status, created_at, updated_at) VALUES (?, 'test.pdf', '/tmp/test.pdf', 'pdf', ?, ?, ?, ?, ?)",
+            (doc_id, status, retry_count, cleanup_status, now, now),
         )
     conn.commit()
 
@@ -224,3 +226,77 @@ class TestMarkInterruptedDocumentsFailed:
         for doc_id in ("doc-1", "doc-2", "doc-3", "doc-4"):
             row = db.execute("SELECT status FROM general_documents WHERE document_id = ?", (doc_id,)).fetchone()
             assert row["status"] in ("failed", "uploaded")
+
+
+# ---------------------------------------------------------------------------
+# Tests: delete_document — P1.5 delete consistency
+# ---------------------------------------------------------------------------
+
+class TestDeleteDocument:
+
+    def test_fully_deleted(self, db):
+        """Milvus 成功 → 返回 deleted，DB 记录消失。"""
+        with patch("app.services.document_service._sync_delete_from_milvus"), \
+             patch("app.services.document_service._delete_local_artifacts"), \
+             patch("app.services.document_service._invalidate_entity_cache"):
+            result = asyncio.run(svc.delete_document("doc-4"))
+        assert result == "deleted"
+        row = db.execute("SELECT * FROM general_documents WHERE document_id = 'doc-4'").fetchone()
+        assert row is None
+
+    def test_milvus_failure_returns_partial(self, db):
+        """Milvus 失败 → 返回 partial，DB 保留 + cleanup_status 标记 + error event。"""
+        with patch("app.services.document_service._sync_delete_from_milvus", side_effect=RuntimeError("milvus down")), \
+             patch("app.services.document_service._delete_local_artifacts"), \
+             patch("app.services.document_service._invalidate_entity_cache"):
+            result = asyncio.run(svc.delete_document("doc-4"))
+        assert result == "partial"
+        # DB 记录保留
+        row = db.execute("SELECT cleanup_status, status FROM general_documents WHERE document_id = 'doc-4'").fetchone()
+        assert row["cleanup_status"] == "milvus_delete_failed"
+        assert row["status"] == "uploaded"
+        # error event 写入
+        events = db.execute("SELECT * FROM document_error_events WHERE document_id = 'doc-4' AND stage = 'delete_cleanup'").fetchall()
+        assert len(events) == 1
+        assert events[0]["error_code"] == "MILVUS_ERROR"
+
+    def test_not_found(self, db):
+        """文档不存在 → 返回 not_found。"""
+        with patch("app.services.document_service._sync_delete_from_milvus"), \
+             patch("app.services.document_service._invalidate_entity_cache"):
+            result = asyncio.run(svc.delete_document("nonexistent"))
+        assert result == "not_found"
+
+
+class TestRepairDeleteDocument:
+
+    def test_repair_success(self, db):
+        """repair 成功 → DB 记录删除。"""
+        with patch("app.services.document_service._sync_delete_from_milvus"), \
+             patch("app.services.document_service._delete_local_artifacts"), \
+             patch("app.services.document_service._invalidate_entity_cache"):
+            result = asyncio.run(svc.repair_delete_document("doc-7"))
+        assert result == "deleted"
+        row = db.execute("SELECT * FROM general_documents WHERE document_id = 'doc-7'").fetchone()
+        assert row is None
+
+    def test_repair_rejects_non_cleanup(self, db):
+        """非 milvus_delete_failed 状态 → raise ValueError。"""
+        with patch("app.services.document_service._sync_delete_from_milvus"):
+            with pytest.raises(ValueError, match="不处于可修复删除状态"):
+                asyncio.run(svc.repair_delete_document("doc-4"))
+
+    def test_repair_rejects_nonexistent(self, db):
+        """文档不存在 → raise ValueError。"""
+        with patch("app.services.document_service._sync_delete_from_milvus"):
+            with pytest.raises(ValueError, match="不处于可修复删除状态"):
+                asyncio.run(svc.repair_delete_document("nonexistent"))
+
+    def test_repair_milvus_failure_propagates(self, db):
+        """Milvus 仍然失败 → 异常传播（API 层会转 503）。"""
+        with patch("app.services.document_service._sync_delete_from_milvus", side_effect=RuntimeError("still down")):
+            with pytest.raises(RuntimeError, match="still down"):
+                asyncio.run(svc.repair_delete_document("doc-7"))
+        # DB 记录保留
+        row = db.execute("SELECT cleanup_status FROM general_documents WHERE document_id = 'doc-7'").fetchone()
+        assert row["cleanup_status"] == "milvus_delete_failed"

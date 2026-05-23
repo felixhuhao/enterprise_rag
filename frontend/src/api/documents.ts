@@ -14,6 +14,9 @@ export interface Document {
   image_count: number
   error_msg: string
   error_code: string
+  retry_count?: number
+  last_failed_stage?: string
+  cleanup_status?: string
   created_at: string
   updated_at: string
 }
@@ -54,12 +57,17 @@ export async function retryDocument(documentId: string): Promise<{ ok: boolean }
   return res.data
 }
 
-export async function deleteDocument(documentId: string): Promise<{ ok: boolean }> {
+export async function deleteDocument(documentId: string): Promise<{ ok: boolean; status?: 'deleted' | 'partial'; detail?: string }> {
   const res = await apiClient.delete(`/documents/${documentId}`)
   return res.data
 }
 
 export async function updateDocumentEntity(documentId: string, entityName: string): Promise<{ ok: boolean }> {
   const res = await apiClient.patch(`/documents/${documentId}`, { entity_name: entityName })
+  return res.data
+}
+
+export async function repairDeleteDocument(documentId: string): Promise<{ ok: boolean }> {
+  const res = await apiClient.post(`/documents/${documentId}/repair-delete`)
   return res.data
 }

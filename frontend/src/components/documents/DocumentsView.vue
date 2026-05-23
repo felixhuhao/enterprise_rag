@@ -75,7 +75,10 @@
 
           <a-table-column title="状态" data-index="status" :width="100" align="center">
             <template #cell="{ record }">
-              <a-tag :color="statusColor(record.status)" size="small">
+              <a-tag v-if="record.cleanup_status === 'milvus_delete_failed'" color="orangered" size="small">
+                待清理
+              </a-tag>
+              <a-tag v-else :color="statusColor(record.status)" size="small">
                 {{ statusLabel(record.status) }}
               </a-tag>
             </template>
@@ -84,7 +87,7 @@
           <a-table-column title="文档主体" data-index="entity_name" :width="180">
             <template #cell="{ record }">
               <a-input
-                v-if="record.status === 'uploaded'"
+                v-if="record.status === 'uploaded' && record.cleanup_status !== 'milvus_delete_failed'"
                 v-model="record.entity_name"
                 placeholder="可选：填写文档所属主体"
                 size="mini"
@@ -107,25 +110,33 @@
           <a-table-column title="操作" :width="180" align="center">
             <template #cell="{ record }">
               <a-space>
-                <a-button
-                  v-if="record.status === 'uploaded'"
-                  type="primary"
-                  size="small"
-                  @click="handleProcess(record.document_id)"
-                >
-                  处理入库
-                </a-button>
-                <a-button
-                  v-if="record.status === 'failed'"
-                  status="danger"
-                  size="small"
-                  @click="handleRetry(record.document_id)"
-                >
-                  重试
-                </a-button>
-                <a-popconfirm content="确认删除该文档及其向量数据？" @ok="handleDelete(record.document_id)">
-                  <a-button size="small" status="danger">删除</a-button>
-                </a-popconfirm>
+                <!-- cleanup_status 优先：待清理状态只显示修复删除 -->
+                <template v-if="record.cleanup_status === 'milvus_delete_failed'">
+                  <a-popconfirm content="确认重试清理向量数据并删除记录？" @ok="handleRepairDelete(record.document_id)">
+                    <a-button type="primary" size="small" status="warning">修复删除</a-button>
+                  </a-popconfirm>
+                </template>
+                <template v-else>
+                  <a-button
+                    v-if="record.status === 'uploaded'"
+                    type="primary"
+                    size="small"
+                    @click="handleProcess(record.document_id)"
+                  >
+                    处理入库
+                  </a-button>
+                  <a-button
+                    v-if="record.status === 'failed'"
+                    status="danger"
+                    size="small"
+                    @click="handleRetry(record.document_id)"
+                  >
+                    重试
+                  </a-button>
+                  <a-popconfirm content="确认删除该文档及其向量数据？" @ok="handleDelete(record.document_id)">
+                    <a-button size="small" status="danger">删除</a-button>
+                  </a-popconfirm>
+                </template>
               </a-space>
             </template>
           </a-table-column>
@@ -165,6 +176,7 @@ import {
   processDocument,
   retryDocument,
   deleteDocument,
+  repairDeleteDocument,
   getDocument,
   suggestMetadata,
   updateDocumentEntity,
@@ -326,11 +338,30 @@ async function handleRetry(docId: string) {
 
 async function handleDelete(docId: string) {
   try {
-    await deleteDocument(docId)
+    const res = await deleteDocument(docId)
+    stopPolling(docId)
+    if (res.status === 'partial') {
+      // Milvus 清理失败，更新记录而非移除
+      const updated = docs.value.find((d) => d.document_id === docId)
+      if (updated) {
+        updated.cleanup_status = 'milvus_delete_failed'
+      }
+      window.alert('向量数据清理未完成，文档已标记为"待清理"，可稍后点击"修复删除"')
+    } else {
+      docs.value = docs.value.filter((d) => d.document_id !== docId)
+    }
+  } catch (e: any) {
+    window.alert(e?.response?.data?.detail ?? '删除失败')
+  }
+}
+
+async function handleRepairDelete(docId: string) {
+  try {
+    await repairDeleteDocument(docId)
     stopPolling(docId)
     docs.value = docs.value.filter((d) => d.document_id !== docId)
   } catch (e: any) {
-    window.alert(e?.response?.data?.detail ?? '删除失败')
+    window.alert(e?.response?.data?.detail ?? '修复删除失败')
   }
 }
 

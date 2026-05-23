@@ -6,7 +6,7 @@ import shutil
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -209,16 +209,35 @@ async def retry_document(
 
 
 @router.delete("/documents/{document_id}")
-async def delete_document(document_id: str, _: None = Depends(verify_token)):
-    """删除通用文档。"""
+async def delete_document(document_id: str, response: Response, _: None = Depends(verify_token)):
+    """删除通用文档。Milvus 清理失败时返回 202 partial。"""
     doc = await document_service.get_document(document_id)
     if not doc:
         raise HTTPException(status_code=404, detail="文档不存在")
     if doc["status"] in document_service.PROCESSING_STATUSES:
         raise HTTPException(status_code=409, detail="文档正在处理中，无法删除，请等待处理完成")
 
-    if not await document_service.delete_document(document_id):
+    result = await document_service.delete_document(document_id)
+    if result == "not_found":
         raise HTTPException(status_code=404, detail="文档不存在")
+    if result == "partial":
+        response.status_code = 202
+        return {"ok": True, "status": "partial", "detail": "向量数据清理失败，请稍后使用修复功能"}
+    return {"ok": True, "status": "deleted"}
+
+
+@router.post("/documents/{document_id}/repair-delete")
+async def repair_delete(document_id: str, _: None = Depends(verify_token)):
+    """修复 milvus_delete_failed 状态的文档：重试 Milvus 删除 + 清理 DB。"""
+    try:
+        await document_service.repair_delete_document(document_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as exc:
+        from app.errors import classify_error
+        code = classify_error(exc)
+        await document_service.append_error_event(document_id, "repair_delete", code.value, str(exc))
+        raise HTTPException(status_code=503, detail="Milvus 清理仍失败，请稍后重试")
     return {"ok": True}
 
 

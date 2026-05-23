@@ -1,6 +1,6 @@
 <!--
   知识查询输入组件（纯文本，无图片上传）
-  Enter 发送，Shift+Enter 换行，流式处理中禁用
+  Enter 发送，Shift+Enter 换行，流式处理中显示停止按钮
 -->
 <template>
   <div class="chat-input">
@@ -14,11 +14,22 @@
           @keydown.enter.exact.prevent="onSubmit"
         />
       </div>
+      <!-- 流式中显示停止按钮 -->
       <button
+        v-if="disabled"
+        type="button"
+        class="send-btn active"
+        @click="emit('stop')"
+      >
+        <icon-pause />
+      </button>
+      <!-- 非流式显示发送按钮 -->
+      <button
+        v-else
         type="button"
         class="send-btn"
-        :class="{ active: !disabled && text.trim() }"
-        :disabled="disabled || !text.trim()"
+        :class="{ active: text.trim() }"
+        :disabled="!text.trim()"
         @click="onSubmit"
       >
         <icon-send />
@@ -29,10 +40,13 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { IconSend } from '@arco-design/web-vue/es/icon'
+import { IconSend, IconPause } from '@arco-design/web-vue/es/icon'
 
 const props = defineProps<{ disabled: boolean }>()
-const emit = defineEmits<{ send: [text: string] }>()
+const emit = defineEmits<{
+  send: [text: string]
+  stop: []
+}>()
 
 const text = ref('')
 
@@ -100,10 +114,6 @@ function onSubmit() {
   background: var(--accent);
   color: #0B0E14;
   box-shadow: var(--shadow-glow);
-}
-.send-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
 }
 .send-btn.active:hover {
   transform: scale(1.05);

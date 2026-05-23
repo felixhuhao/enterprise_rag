@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS general_documents (
     image_count    INTEGER DEFAULT 0,
     retry_count    INTEGER DEFAULT 0,
     last_failed_stage TEXT DEFAULT '',
+    cleanup_status TEXT DEFAULT '',
     error_msg      TEXT DEFAULT '',
     error_code     TEXT DEFAULT '',
     created_at     TEXT NOT NULL,
@@ -112,6 +113,7 @@ async def init_db():
         for _col, ddl in (
             ("retry_count", "ALTER TABLE general_documents ADD COLUMN retry_count INTEGER DEFAULT 0"),
             ("last_failed_stage", "ALTER TABLE general_documents ADD COLUMN last_failed_stage TEXT DEFAULT ''"),
+            ("cleanup_status", "ALTER TABLE general_documents ADD COLUMN cleanup_status TEXT DEFAULT ''"),
         ):
             try:
                 await db.execute(ddl)

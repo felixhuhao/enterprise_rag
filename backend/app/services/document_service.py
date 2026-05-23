@@ -72,7 +72,7 @@ _ALLOWED_STATUS_FIELDS = frozenset({
     "chunk_count", "image_count",
     "error_msg", "error_code",
     "retry_count", "last_failed_stage",
-    "entity_name",
+    "cleanup_status", "entity_name",
 })
 
 
@@ -226,26 +226,68 @@ def _sync_update_status(document_id: str, status: str, **kwargs):
     asyncio.run(_update())
 
 
-async def delete_document(document_id: str) -> bool:
-    """删除通用文档：Milvus + 本地文件 + SQLite。"""
+async def delete_document(document_id: str) -> str:
+    """删除文档。返回 "deleted" | "partial" | "not_found"。
+
+    - deleted: Milvus + 本地 + DB 全部清理
+    - partial: Milvus 失败，本地清理但 DB 保留（cleanup_status=milvus_delete_failed）
+    - not_found: 文档不存在
+    """
     doc = await get_document(document_id)
     if not doc:
-        return False
+        return "not_found"
 
+    milvus_ok = True
     try:
         await asyncio.to_thread(_sync_delete_from_milvus, document_id)
     except Exception as exc:
-        logger.warning("通用 Milvus 删除失败 document_id=%s: %s", document_id, exc)
+        milvus_ok = False
+        logger.warning("Milvus 删除失败 document_id=%s: %s", document_id, exc)
+        from app.errors import classify_error
+        code = classify_error(exc)
+        await update_document_status(
+            document_id, doc["status"],
+            cleanup_status="milvus_delete_failed",
+            error_code=code.value, error_msg=str(exc)[:1000],
+        )
+        await append_error_event(document_id, "delete_cleanup", code.value, str(exc)[:2000])
 
+    _delete_local_artifacts(document_id)
+    _invalidate_entity_cache()
+
+    if milvus_ok:
+        await delete_document_record(document_id)
+        return "deleted"
+    return "partial"
+
+
+async def repair_delete_document(document_id: str) -> str:
+    """修复 milvus_delete_failed 的文档：重试 Milvus 删除 + 清理 DB。
+
+    返回 "deleted"。Milvus 仍失败则 raise。
+    """
+    doc = await get_document(document_id)
+    if not doc or doc.get("cleanup_status") != "milvus_delete_failed":
+        raise ValueError("文档不处于可修复删除状态")
+
+    # 重试 Milvus 删除
+    await asyncio.to_thread(_sync_delete_from_milvus, document_id)
+
+    # Milvus 成功 → 清理本地（幂等）+ 删 DB
+    _delete_local_artifacts(document_id)
+    _invalidate_entity_cache()
+    await delete_document_record(document_id)
+    return "deleted"
+
+
+def _delete_local_artifacts(document_id: str):
+    """删除文档的本地文件（upload + parsed 目录）。幂等。"""
     for path in (
         os.path.join(settings.GENERAL_UPLOAD_DIR, document_id),
         os.path.join(settings.GENERAL_PARSED_DIR, document_id),
     ):
         if os.path.isdir(path):
             shutil.rmtree(path, ignore_errors=True)
-
-    _invalidate_entity_cache()
-    return await delete_document_record(document_id)
 
 
 def _sync_delete_from_milvus(document_id: str):

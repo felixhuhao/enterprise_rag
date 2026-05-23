@@ -7,6 +7,7 @@ import logging
 from langgraph.graph.state import RunnableConfig
 
 from app.rag.query.config import get_query_config
+from app.rag.query.search import SEARCH_TIMEOUT
 from app.rag.query.state import QueryState
 from app.rag.vectorstores.general_milvus import COLLECTION_NAME, client
 
@@ -59,6 +60,7 @@ def table_expand_node(state: QueryState, config: RunnableConfig) -> dict:
                 filter=f'table_id == "{table_id}" and source_type == "{target_type}"',
                 output_fields=_EXPAND_FIELDS,
                 limit=cfg.table_expand_limit,
+                timeout=SEARCH_TIMEOUT,
             )
         except Exception:
             logger.warning("table_expand query failed for %s", table_id, exc_info=True)

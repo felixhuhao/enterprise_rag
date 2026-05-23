@@ -58,3 +58,73 @@ class TestGetQueryConfig:
         assert cfg.use_entity_confirm is False
         assert cfg.use_rewrite is True  # 默认不改
         assert cfg.use_hyde is False
+
+
+class TestQueryConfigClamp:
+    """Extreme values should be clamped to safe ranges."""
+
+    def test_search_limit_too_high(self):
+        assert QueryConfig(search_limit=99999).search_limit == 50
+
+    def test_search_limit_too_low(self):
+        assert QueryConfig(search_limit=0).search_limit == 1
+
+    def test_hyde_limit_clamped(self):
+        assert QueryConfig(hyde_limit=1000).hyde_limit == 50
+
+    def test_weights_clamped_to_0_1(self):
+        cfg = QueryConfig(dense_weight=2.0, sparse_weight=-0.5)
+        assert cfg.dense_weight == 1.0
+        assert cfg.sparse_weight == 0.0
+
+    def test_rerank_min_top_k_cannot_exceed_max(self):
+        cfg = QueryConfig(rerank_min_top_k=20, rerank_max_top_k=5)
+        assert cfg.rerank_min_top_k == 5
+
+    def test_rerank_batch_size_clamped(self):
+        assert QueryConfig(rerank_batch_size=0).rerank_batch_size == 1
+        assert QueryConfig(rerank_batch_size=100).rerank_batch_size == 20
+
+    def test_thresholds_clamped(self):
+        cfg = QueryConfig(entity_filter_min_score=-1.0, rerank_cliff_threshold=5.0)
+        assert cfg.entity_filter_min_score == 0.0
+        assert cfg.rerank_cliff_threshold == 1.0
+
+    def test_content_preview_length_clamped(self):
+        assert QueryConfig(content_preview_length=5).content_preview_length == 50
+        assert QueryConfig(content_preview_length=50000).content_preview_length == 2000
+
+    def test_defaults_unchanged(self):
+        """Default values should all be within range (no clamping needed)."""
+        cfg = QueryConfig()
+        assert cfg.search_limit == 10
+        assert cfg.dense_weight == 0.8
+        assert cfg.rerank_max_top_k == 10
+
+
+class TestRuntimeSettingsClamp:
+    """Runtime settings bypass __init__ — clamp() must be called explicitly."""
+
+    def test_runtime_oversize_clamped(self):
+        """get_default_query_config() must clamp values from runtime_settings."""
+        from unittest.mock import patch, MagicMock
+        import app.core.runtime_settings as rs_mod
+        from app.rag.query.config import get_default_query_config
+
+        mock_rs = MagicMock()
+        mock_rs.get_all_cached.return_value = {
+            "query.search_limit": "10000",
+            "query.rerank_batch_size": "0",
+            "query.dense_weight": "5.0",
+            "query.content_preview_length": "99999",
+        }
+        original = rs_mod.runtime_settings
+        rs_mod.runtime_settings = mock_rs
+        try:
+            cfg = get_default_query_config()
+        finally:
+            rs_mod.runtime_settings = original
+        assert cfg.search_limit == 50
+        assert cfg.rerank_batch_size == 1
+        assert cfg.dense_weight == 1.0
+        assert cfg.content_preview_length == 2000

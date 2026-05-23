@@ -11,6 +11,7 @@ from langgraph.graph.state import RunnableConfig
 from app.config import settings
 from app.rag.embeddings.text_embedding_v4 import _text_embedding
 from app.rag.query.config import get_query_config
+from app.rag.query.search import SEARCH_TIMEOUT
 from app.rag.query.state import QueryState
 from app.rag.vectorstores.general_milvus import COLLECTION_NAME, client
 
@@ -80,6 +81,7 @@ def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
             limit=cfg.hyde_limit,
             filter=entity_filter,
             output_fields=OUTPUT_FIELDS,
+            timeout=SEARCH_TIMEOUT,
         )
         hits = _parse_hits(results[0])
         mode = "hyde_filtered" if entity_filter else "hyde"
@@ -100,6 +102,7 @@ def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
                 limit=cfg.hyde_limit,
                 filter=None,
                 output_fields=OUTPUT_FIELDS,
+                timeout=SEARCH_TIMEOUT,
             )
             hits = _parse_hits(results[0])
             mode = "hyde_filtered_fallback_unfiltered"

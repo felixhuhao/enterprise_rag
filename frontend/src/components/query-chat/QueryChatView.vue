@@ -22,6 +22,7 @@
     <QueryChatInput
       :disabled="store.isStreaming"
       @send="onSend"
+      @stop="store.stopStreaming()"
     />
   </div>
 </template>
