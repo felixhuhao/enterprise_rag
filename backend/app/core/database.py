@@ -87,6 +87,8 @@ CREATE TABLE IF NOT EXISTS query_run_stats (
     first_token_ms    INTEGER DEFAULT 0,
     generate_ms       INTEGER DEFAULT 0,
     total_ms          INTEGER DEFAULT 0,
+    status           TEXT DEFAULT 'success',
+    error_code       TEXT DEFAULT '',
     created_at       TEXT NOT NULL
 );
 
@@ -123,6 +125,15 @@ async def init_db():
         for col in ("retrieval_wall_ms", "first_token_ms", "generate_ms", "total_ms"):
             try:
                 await db.execute(f"ALTER TABLE query_run_stats ADD COLUMN {col} INTEGER DEFAULT 0")
+            except aiosqlite.OperationalError:
+                pass
+        # migration: query_run_stats status tracking
+        for col_ddl in (
+            "ALTER TABLE query_run_stats ADD COLUMN status TEXT DEFAULT 'success'",
+            "ALTER TABLE query_run_stats ADD COLUMN error_code TEXT DEFAULT ''",
+        ):
+            try:
+                await db.execute(col_ddl)
             except aiosqlite.OperationalError:
                 pass
         # migration: QueryConfig 默认值 seed

@@ -5,6 +5,9 @@ import apiClient from './client'
 
 export interface QueryStats {
   total_queries: number
+  success_count: number
+  total_failed: number
+  failure_rate: number
   avg_rerank_score: number
   avg_result_count: number
   fallback_count: number
@@ -16,6 +19,7 @@ export interface QueryStatsTrend {
   avg_rerank: number[]
   avg_result_count: number[]
   counts: number[]
+  failed_counts: number[]
 }
 
 export interface QueryStatsRecord {
@@ -31,6 +35,8 @@ export interface QueryStatsRecord {
   first_token_ms: number
   generate_ms: number
   total_ms: number
+  status: string
+  error_code: string
   created_at: string
 }
 

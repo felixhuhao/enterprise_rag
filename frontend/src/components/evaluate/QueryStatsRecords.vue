@@ -50,6 +50,17 @@
             <span v-else class="time-dash">—</span>
           </template>
         </a-table-column>
+        <a-table-column title="状态" :width="100">
+          <template #cell="{ record }">
+            <span
+              class="status-tag"
+              :class="statusClass(record.status)"
+              :title="record.error_code || undefined"
+            >
+              {{ statusLabel(record.status) }}
+            </span>
+          </template>
+        </a-table-column>
       </template>
       <template #empty>
         <a-empty description="暂无检索统计，进行查询后将自动收集" />
@@ -88,6 +99,22 @@ function isFallback(searchMode: string): boolean {
 function formatMs(ms: number): string {
   if (ms >= 1000) return (ms / 1000).toFixed(1) + 's'
   return ms + 'ms'
+}
+
+function statusLabel(status: string): string {
+  const map: Record<string, string> = {
+    success: '成功',
+    search_failed: '检索失败',
+    llm_failed: '生成失败',
+    client_aborted: '已中断',
+  }
+  return map[status] || status || '—'
+}
+
+function statusClass(status: string): string {
+  if (status === 'success') return 'status-success'
+  if (status === 'client_aborted') return 'status-aborted'
+  return 'status-failed'
 }
 </script>
 
@@ -141,5 +168,30 @@ function formatMs(ms: number): string {
 }
 .time-dash {
   color: var(--text-muted);
+}
+
+.status-tag {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: var(--font-display);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.status-success {
+  color: var(--success, #52c41a);
+  background: rgba(82, 196, 26, 0.08);
+  border: 1px solid rgba(82, 196, 26, 0.3);
+}
+.status-failed {
+  color: var(--danger, #f5222d);
+  background: rgba(245, 34, 45, 0.08);
+  border: 1px solid rgba(245, 34, 45, 0.3);
+}
+.status-aborted {
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
 }
 </style>

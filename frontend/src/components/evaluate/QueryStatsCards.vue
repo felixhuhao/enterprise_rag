@@ -22,6 +22,7 @@ const cards = computed(() => {
   if (!s) return []
   return [
     { label: '总查询数', value: s.total_queries, precision: 0, glow: 'rgba(212, 148, 58, 0.06)' },
+    { label: '未完成率', value: formatPercent(s.failure_rate), glow: 'rgba(240, 96, 96, 0.06)' },
     { label: '平均 Rerank 分', value: s.avg_rerank_score, precision: 3, glow: 'rgba(91, 156, 246, 0.06)' },
     { label: '平均结果数', value: s.avg_result_count, precision: 1, glow: 'rgba(61, 214, 140, 0.06)' },
     { label: 'Fallback 次数', value: s.fallback_count, precision: 0, glow: 'rgba(240, 96, 96, 0.06)' },
@@ -29,10 +30,14 @@ const cards = computed(() => {
   ]
 })
 
-function formatValue(item: { value: number; precision: number }) {
-  return typeof item.value === 'number'
-    ? item.precision > 0 ? item.value.toFixed(item.precision) : item.value
-    : item.value
+function formatPercent(rate: number): string {
+  return (rate * 100).toFixed(1) + '%'
+}
+
+function formatValue(item: { value: number | string; precision?: number }) {
+  if (typeof item.value === 'string') return item.value
+  const p = item.precision ?? 0
+  return p > 0 ? item.value.toFixed(p) : item.value
 }
 </script>
 
