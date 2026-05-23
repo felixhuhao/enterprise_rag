@@ -130,6 +130,9 @@ async def process_document(
     return {"ok": True, "message": "Document processing started"}
 
 
+MAX_RETRIES = 3
+
+
 @router.post("/documents/{document_id}/retry")
 async def retry_document(
     document_id: str,
@@ -143,13 +146,24 @@ async def retry_document(
     if doc["status"] != "failed":
         raise HTTPException(status_code=400, detail=f"文档状态为 {doc['status']}，无法 retry")
 
-    # 重试前清理 Milvus 中可能残留的旧向量
+    retry_count = doc.get("retry_count", 0) or 0
+    if retry_count >= MAX_RETRIES:
+        raise HTTPException(status_code=429, detail=f"重试次数已达上限({MAX_RETRIES})")
+
+    # 重试前清理 Milvus 中可能残留的旧向量——失败则阻断，避免重复向量
     try:
         await asyncio.to_thread(document_service._sync_delete_from_milvus, document_id)
-    except Exception:
-        pass
+    except Exception as exc:
+        from app.errors import classify_error
+        code = classify_error(exc)
+        await document_service.append_error_event(document_id, "pre_retry_cleanup", code.value, str(exc))
+        raise HTTPException(status_code=503, detail="Milvus 向量清理失败，请稍后重试")
 
-    await document_service.update_document_status(document_id, "processing")
+    await document_service.update_document_status(
+        document_id, "processing",
+        retry_count=retry_count + 1,
+        error_msg="", error_code="",
+    )
     background_tasks.add_task(document_service.process_document, document_id)
     return {"ok": True, "message": "Document retry started"}
 

@@ -37,10 +37,21 @@ CREATE TABLE IF NOT EXISTS general_documents (
     status         TEXT NOT NULL DEFAULT 'uploaded',
     chunk_count    INTEGER DEFAULT 0,
     image_count    INTEGER DEFAULT 0,
+    retry_count    INTEGER DEFAULT 0,
+    last_failed_stage TEXT DEFAULT '',
     error_msg      TEXT DEFAULT '',
     error_code     TEXT DEFAULT '',
     created_at     TEXT NOT NULL,
     updated_at     TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS document_error_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id TEXT NOT NULL,
+    stage       TEXT NOT NULL,
+    error_code  TEXT NOT NULL,
+    error_msg   TEXT NOT NULL,
+    created_at  TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -59,6 +70,7 @@ CREATE TABLE IF NOT EXISTS query_chat_messages (
 
 CREATE INDEX IF NOT EXISTS idx_general_documents_status ON general_documents(status);
 CREATE INDEX IF NOT EXISTS idx_general_documents_created ON general_documents(created_at);
+CREATE INDEX IF NOT EXISTS idx_error_events_doc ON document_error_events(document_id);
 CREATE INDEX IF NOT EXISTS idx_qchat_session ON query_chat_messages(session_id);
 
 CREATE TABLE IF NOT EXISTS query_run_stats (
@@ -96,6 +108,15 @@ async def init_db():
             await db.execute("ALTER TABLE general_documents ADD COLUMN error_code TEXT DEFAULT ''")
         except aiosqlite.OperationalError:
             pass
+        # migration: retry safety columns
+        for _col, ddl in (
+            ("retry_count", "ALTER TABLE general_documents ADD COLUMN retry_count INTEGER DEFAULT 0"),
+            ("last_failed_stage", "ALTER TABLE general_documents ADD COLUMN last_failed_stage TEXT DEFAULT ''"),
+        ):
+            try:
+                await db.execute(ddl)
+            except aiosqlite.OperationalError:
+                pass
         # migration: query_run_stats 耗时字段
         for col in ("retrieval_wall_ms", "first_token_ms", "generate_ms", "total_ms"):
             try:

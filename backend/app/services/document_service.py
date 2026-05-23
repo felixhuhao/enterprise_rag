@@ -96,19 +96,51 @@ async def update_entity_name(document_id: str, entity_name: str) -> bool:
         return cursor.rowcount > 0
 
 
+async def append_error_event(document_id: str, stage: str, error_code: str, error_msg: str):
+    """追加错误事件到 document_error_events 表。"""
+    now = datetime.now().isoformat()
+    async with get_db() as db:
+        await db.execute(
+            "INSERT INTO document_error_events (document_id, stage, error_code, error_msg, created_at) VALUES (?, ?, ?, ?, ?)",
+            (document_id, stage, error_code, error_msg[:2000], now),
+        )
+        await db.commit()
+
+
 async def mark_interrupted_documents_failed():
     """应用启动时恢复被进程中断的后台任务。"""
     now = datetime.now().isoformat()
     placeholders = ",".join("?" for _ in PROCESSING_STATUSES)
     async with get_db() as db:
+        # 查出所有被中断的文档
+        async with db.execute(
+            f"SELECT document_id, status FROM general_documents WHERE status IN ({placeholders})",
+            PROCESSING_STATUSES,
+        ) as cursor:
+            interrupted = await cursor.fetchall()
+
+        if not interrupted:
+            return
+
+        # 批量标记 failed
         await db.execute(
             f"""
             UPDATE general_documents
-            SET status = 'failed', error_msg = ?, updated_at = ?
+            SET status = 'failed', error_msg = ?, updated_at = ?,
+                last_failed_stage = status
             WHERE status IN ({placeholders})
             """,
             ("interrupted during previous run", now, *PROCESSING_STATUSES),
         )
+
+        # 追加 error events
+        for row in interrupted:
+            doc = dict(row)
+            await db.execute(
+                "INSERT INTO document_error_events (document_id, stage, error_code, error_msg, created_at) VALUES (?, ?, ?, ?, ?)",
+                (doc["document_id"], doc["status"], "UNKNOWN_ERROR", "interrupted during previous run", now),
+            )
+
         await db.commit()
 
 
@@ -146,7 +178,15 @@ async def process_document(document_id: str):
         logger.exception("通用文档处理失败 document_id=%s", document_id)
         from app.errors import classify_error
         code = classify_error(exc)
-        await update_document_status(document_id, "failed", error_msg=str(exc)[:1000], error_code=code.value)
+        # 推断失败阶段：当前 doc 的 status 就是最后到达的阶段
+        current_doc = await get_document(document_id)
+        failed_stage = current_doc["status"] if current_doc else "processing"
+        await update_document_status(
+            document_id, "failed",
+            error_msg=str(exc)[:1000], error_code=code.value,
+            last_failed_stage=failed_stage,
+        )
+        await append_error_event(document_id, failed_stage, code.value, str(exc)[:2000])
 
 
 def _sync_process_document(doc: dict) -> dict:
