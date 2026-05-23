@@ -124,6 +124,10 @@ async def process_document(
     if doc["status"] not in ("uploaded", "failed"):
         raise HTTPException(status_code=400, detail=f"文档状态为 {doc['status']}，无法处理")
 
+    # failed 文档走 /retry 端点的安全网逻辑
+    if doc["status"] == "failed":
+        raise HTTPException(status_code=400, detail="文档状态为 failed，请使用 /retry 端点重试")
+
     # 先原子改状态，防止连点重复提交
     await document_service.update_document_status(document_id, "processing")
     background_tasks.add_task(document_service.process_document, document_id)
