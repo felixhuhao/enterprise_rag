@@ -1,10 +1,22 @@
-"""Unit tests for P1 retry safety: retry_count, error events, Milvus delete blocking."""
+"""Unit tests for P1 retry safety: retry_count, error events, Milvus delete blocking.
 
+Tests real service-layer functions (update_document_status, append_error_event,
+mark_interrupted_documents_failed) against an in-memory SQLite via monkeypatch.
+"""
+
+import asyncio
 import sqlite3
+from contextlib import asynccontextmanager
 from datetime import datetime
 
 import pytest
 
+from app.services import document_service as svc
+
+
+# ---------------------------------------------------------------------------
+# In-memory fake DB
+# ---------------------------------------------------------------------------
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS general_documents (
@@ -37,114 +49,178 @@ CREATE TABLE IF NOT EXISTS document_error_events (
 """
 
 
+class _AsyncCursor:
+    """Wraps sqlite3.Cursor — fetch methods return awaitables like aiosqlite."""
+
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    async def fetchone(self):
+        return self._cursor.fetchone()
+
+    async def fetchall(self):
+        return self._cursor.fetchall()
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+
+class _AwaitableCursor:
+    """Supports both `await` and `async with` like aiosqlite's execute()."""
+
+    def __init__(self, cursor):
+        self._async_cursor = _AsyncCursor(cursor)
+
+    def __await__(self):
+        async def _self():
+            return self._async_cursor
+        return _self().__await__()
+
+    async def __aenter__(self):
+        return self._async_cursor
+
+    async def __aexit__(self, *args):
+        pass
+
+
+class _FakeDb:
+    """Synchronous wrapper over sqlite3.Connection that mimics aiosqlite interface."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self._conn = conn
+
+    @property
+    def row_factory(self):
+        return self._conn.row_factory
+
+    @row_factory.setter
+    def row_factory(self, val):
+        self._conn.row_factory = val
+
+    def execute(self, sql, params=None):
+        cursor = self._conn.execute(sql, params) if params else self._conn.execute(sql)
+        return _AwaitableCursor(cursor)
+
+    async def commit(self):
+        self._conn.commit()
+
+    async def close(self):
+        pass
+
+
 @pytest.fixture
-def db():
+def db(monkeypatch):
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)
     now = datetime.now().isoformat()
-    conn.execute(
-        "INSERT INTO general_documents (document_id, filename, source_path, file_type, status, retry_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        ("doc-failed-0", "test.pdf", "/tmp/test.pdf", "pdf", "failed", 0, now, now),
-    )
-    conn.execute(
-        "INSERT INTO general_documents (document_id, filename, source_path, file_type, status, retry_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        ("doc-failed-2", "test.pdf", "/tmp/test.pdf", "pdf", "failed", 2, now, now),
-    )
-    conn.execute(
-        "INSERT INTO general_documents (document_id, filename, source_path, file_type, status, retry_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        ("doc-failed-3", "test.pdf", "/tmp/test.pdf", "pdf", "failed", 3, now, now),
-    )
-    conn.execute(
-        "INSERT INTO general_documents (document_id, filename, source_path, file_type, status, retry_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        ("doc-uploaded", "test.pdf", "/tmp/test.pdf", "pdf", "uploaded", 0, now, now),
-    )
+    for doc_id, status, retry_count in [
+        ("doc-1", "failed", 0),
+        ("doc-2", "failed", 2),
+        ("doc-3", "failed", 3),
+        ("doc-4", "uploaded", 0),
+        ("doc-5", "parsing", 0),
+        ("doc-6", "embedding", 0),
+    ]:
+        conn.execute(
+            "INSERT INTO general_documents (document_id, filename, source_path, file_type, status, retry_count, created_at, updated_at) VALUES (?, 'test.pdf', '/tmp/test.pdf', 'pdf', ?, ?, ?, ?)",
+            (doc_id, status, retry_count, now, now),
+        )
     conn.commit()
+
+    fake = _FakeDb(conn)
+
+    @asynccontextmanager
+    async def _mock_get_db():
+        yield fake
+
+    monkeypatch.setattr("app.services.document_service.get_db", _mock_get_db)
     yield conn
     conn.close()
 
 
-def _insert_error_event(db, document_id, stage, error_code, error_msg):
-    now = datetime.now().isoformat()
-    db.execute(
-        "INSERT INTO document_error_events (document_id, stage, error_code, error_msg, created_at) VALUES (?, ?, ?, ?, ?)",
-        (document_id, stage, error_code, error_msg, now),
-    )
-    db.commit()
+# ---------------------------------------------------------------------------
+# Tests: update_document_status — retry_count + whitelist
+# ---------------------------------------------------------------------------
+
+class TestUpdateDocumentStatus:
+
+    def test_rejects_unknown_field(self, db):
+        with pytest.raises(ValueError, match="不允许的字段"):
+            asyncio.run(svc.update_document_status("doc-1", "processing", unknown_field="x"))
+
+    def test_updates_retry_count(self, db):
+        asyncio.run(svc.update_document_status("doc-2", "processing", retry_count=3))
+        row = db.execute("SELECT retry_count, status FROM general_documents WHERE document_id = 'doc-2'").fetchone()
+        assert row["retry_count"] == 3
+        assert row["status"] == "processing"
+
+    def test_updates_last_failed_stage(self, db):
+        asyncio.run(svc.update_document_status("doc-1", "failed", last_failed_stage="parsing", error_code="MINERU_API_ERROR"))
+        row = db.execute("SELECT last_failed_stage, error_code FROM general_documents WHERE document_id = 'doc-1'").fetchone()
+        assert row["last_failed_stage"] == "parsing"
+        assert row["error_code"] == "MINERU_API_ERROR"
 
 
-class TestRetryCountLimit:
-    """retry_count >= MAX_RETRIES (3) should block retry."""
+# ---------------------------------------------------------------------------
+# Tests: append_error_event
+# ---------------------------------------------------------------------------
 
-    def test_below_limit_allows(self, db):
-        row = db.execute("SELECT retry_count FROM general_documents WHERE document_id = 'doc-failed-0'").fetchone()
-        assert row["retry_count"] < 3
+class TestAppendErrorEvent:
 
-    def test_at_limit_blocks(self, db):
-        row = db.execute("SELECT retry_count FROM general_documents WHERE document_id = 'doc-failed-3'").fetchone()
-        assert row["retry_count"] >= 3
-
-    def test_retry_increments_count(self, db):
-        doc = db.execute("SELECT retry_count FROM general_documents WHERE document_id = 'doc-failed-2'").fetchone()
-        old_count = doc["retry_count"]
-        db.execute(
-            "UPDATE general_documents SET status = 'processing', retry_count = ? WHERE document_id = 'doc-failed-2'",
-            (old_count + 1,),
-        )
-        db.commit()
-        row = db.execute("SELECT retry_count FROM general_documents WHERE document_id = 'doc-failed-2'").fetchone()
-        assert row["retry_count"] == old_count + 1
-
-
-class TestErrorEvents:
-    """Error events should be append-only, multiple failures produce multiple records."""
-
-    def test_append_error_event(self, db):
-        _insert_error_event(db, "doc-failed-0", "parsing", "MINERU_API_ERROR", "parse failed")
-        events = db.execute("SELECT * FROM document_error_events WHERE document_id = 'doc-failed-0'").fetchall()
-        assert len(events) == 1
-        assert events[0]["stage"] == "parsing"
+    def test_single_event(self, db):
+        asyncio.run(svc.append_error_event("doc-1", "parsing", "MINERU_API_ERROR", "parse failed"))
+        rows = db.execute("SELECT * FROM document_error_events WHERE document_id = 'doc-1'").fetchall()
+        assert len(rows) == 1
+        assert rows[0]["stage"] == "parsing"
+        assert rows[0]["error_code"] == "MINERU_API_ERROR"
 
     def test_multiple_events_append(self, db):
-        _insert_error_event(db, "doc-failed-2", "parsing", "MINERU_API_ERROR", "first fail")
-        _insert_error_event(db, "doc-failed-2", "embedding", "EMBEDDING_ERROR", "second fail")
-        events = db.execute("SELECT * FROM document_error_events WHERE document_id = 'doc-failed-2' ORDER BY id").fetchall()
-        assert len(events) == 2
-        assert events[0]["stage"] == "parsing"
-        assert events[1]["stage"] == "embedding"
+        asyncio.run(svc.append_error_event("doc-2", "parsing", "MINERU_API_ERROR", "first fail"))
+        asyncio.run(svc.append_error_event("doc-2", "embedding", "EMBEDDING_ERROR", "second fail"))
+        rows = db.execute("SELECT * FROM document_error_events WHERE document_id = 'doc-2' ORDER BY id").fetchall()
+        assert len(rows) == 2
+        assert rows[0]["stage"] == "parsing"
+        assert rows[1]["stage"] == "embedding"
 
     def test_events_independent_per_document(self, db):
-        _insert_error_event(db, "doc-failed-0", "chunking", "UNKNOWN_ERROR", "fail A")
-        _insert_error_event(db, "doc-failed-2", "saving", "MILVUS_ERROR", "fail B")
-        events_a = db.execute("SELECT * FROM document_error_events WHERE document_id = 'doc-failed-0'").fetchall()
-        events_b = db.execute("SELECT * FROM document_error_events WHERE document_id = 'doc-failed-2'").fetchall()
-        assert len(events_a) == 1
-        assert len(events_b) == 1
+        asyncio.run(svc.append_error_event("doc-1", "chunking", "UNKNOWN_ERROR", "fail A"))
+        asyncio.run(svc.append_error_event("doc-2", "saving", "MILVUS_ERROR", "fail B"))
+        a = db.execute("SELECT * FROM document_error_events WHERE document_id = 'doc-1'").fetchall()
+        b = db.execute("SELECT * FROM document_error_events WHERE document_id = 'doc-2'").fetchall()
+        assert len(a) == 1
+        assert len(b) == 1
+
+    def test_truncates_long_msg(self, db):
+        long_msg = "x" * 3000
+        asyncio.run(svc.append_error_event("doc-1", "test", "ERR", long_msg))
+        row = db.execute("SELECT error_msg FROM document_error_events WHERE document_id = 'doc-1'").fetchone()
+        assert len(row["error_msg"]) == 2000
 
 
-class TestLastFailedStage:
-    """last_failed_stage should reflect the stage where processing failed."""
+# ---------------------------------------------------------------------------
+# Tests: mark_interrupted_documents_failed
+# ---------------------------------------------------------------------------
 
-    def test_failed_stage_recorded(self, db):
-        db.execute(
-            "UPDATE general_documents SET status = 'failed', last_failed_stage = 'parsing', error_code = 'MINERU_API_ERROR' WHERE document_id = 'doc-failed-0'"
-        )
-        db.commit()
-        row = db.execute("SELECT last_failed_stage FROM general_documents WHERE document_id = 'doc-failed-0'").fetchone()
-        assert row["last_failed_stage"] == "parsing"
+class TestMarkInterruptedDocumentsFailed:
 
-    def test_default_empty(self, db):
-        row = db.execute("SELECT last_failed_stage FROM general_documents WHERE document_id = 'doc-uploaded'").fetchone()
-        assert row["last_failed_stage"] == ""
+    def test_marks_interrupted_as_failed(self, db):
+        asyncio.run(svc.mark_interrupted_documents_failed())
+        for doc_id in ("doc-5", "doc-6"):
+            row = db.execute("SELECT status, last_failed_stage FROM general_documents WHERE document_id = ?", (doc_id,)).fetchone()
+            assert row["status"] == "failed"
+            assert row["last_failed_stage"] in ("parsing", "embedding")
 
+    def test_writes_error_events_for_interrupted(self, db):
+        asyncio.run(svc.mark_interrupted_documents_failed())
+        events = db.execute("SELECT document_id, stage, error_code FROM document_error_events ORDER BY id").fetchall()
+        assert len(events) == 2
+        stages = {e["stage"] for e in events}
+        assert stages == {"parsing", "embedding"}
+        assert all(e["error_code"] == "UNKNOWN_ERROR" for e in events)
 
-class TestPreRetryCleanup:
-    """pre_retry_cleanup error events should be recorded when Milvus delete fails."""
-
-    def test_cleanup_error_event(self, db):
-        _insert_error_event(db, "doc-failed-0", "pre_retry_cleanup", "MILVUS_ERROR", "connection refused")
-        events = db.execute(
-            "SELECT * FROM document_error_events WHERE document_id = 'doc-failed-0' AND stage = 'pre_retry_cleanup'"
-        ).fetchall()
-        assert len(events) == 1
-        assert events[0]["error_code"] == "MILVUS_ERROR"
+    def test_does_not_affect_completed_or_failed(self, db):
+        asyncio.run(svc.mark_interrupted_documents_failed())
+        for doc_id in ("doc-1", "doc-2", "doc-3", "doc-4"):
+            row = db.execute("SELECT status FROM general_documents WHERE document_id = ?", (doc_id,)).fetchone()
+            assert row["status"] in ("failed", "uploaded")

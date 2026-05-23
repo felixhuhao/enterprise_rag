@@ -72,7 +72,6 @@ _ALLOWED_STATUS_FIELDS = frozenset({
     "chunk_count", "image_count",
     "error_msg", "error_code",
     "retry_count", "last_failed_stage",
-    "cleanup_status",
     "entity_name",
 })
 

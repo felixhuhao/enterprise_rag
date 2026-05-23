@@ -2,6 +2,8 @@
 
 from unittest.mock import patch
 
+import pytest
+
 from app.rag.query.config import QueryConfig
 from app.rag.ingestion.graph import entry
 
@@ -22,6 +24,12 @@ def _config():
 
 
 class TestEntityNamePriority:
+    @pytest.fixture(autouse=True)
+    def _patch_parsed_dir(self, tmp_path):
+        """将 GENERAL_PARSED_DIR 指向临时目录，避免污染真实 data。"""
+        with patch("app.rag.ingestion.graph.settings.GENERAL_PARSED_DIR", str(tmp_path)):
+            yield
+
     def test_user_provided_takes_priority(self):
         """用户指定 entity_name > 文件名提取。"""
         state = _state(entity_name="中芯国际")

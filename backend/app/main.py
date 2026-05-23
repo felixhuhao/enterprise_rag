@@ -53,5 +53,10 @@ app.add_middleware(
     allow_headers=["*"],  # 允许所有请求头
 )
 
+# 健康检查（不需要鉴权）
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
 # 将所有 API 路由挂载到 /api 前缀下
 app.include_router(api_router, prefix="/api")

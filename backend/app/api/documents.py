@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import shutil
 import uuid
 from pathlib import Path
 
@@ -22,6 +23,26 @@ SUPPORTED_EXTENSIONS = {
     ".markdown": "md",
     ".zip": "md_zip",
 }
+
+# Magic bytes: { file_type: (offset, expected_bytes) }
+_FILE_SIGNATURES = {
+    "pdf": (0, b"%PDF-"),
+    "zip": (0, b"PK\x03\x04"),
+}
+
+
+def _validate_file_magic(path: str, file_type: str, upload_dir: str):
+    """校验文件头 magic bytes，防止改后缀绕过。MD/Markdown 纯文本无特征，跳过。"""
+    if file_type == "md":
+        return
+    sig_key = "zip" if file_type == "md_zip" else file_type
+    offset, expected = _FILE_SIGNATURES[sig_key]
+    with open(path, "rb") as f:
+        f.seek(offset)
+        header = f.read(len(expected))
+    if header != expected:
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        raise HTTPException(status_code=400, detail="文件内容与扩展名不匹配")
 
 
 class UpdateDocumentRequest(BaseModel):
@@ -81,6 +102,9 @@ async def upload_document(
                     detail=f"文件超过 {settings.UPLOAD_MAX_SIZE_MB}MB 限制",
                 )
             f.write(chunk)
+
+    # Magic bytes 校验：防止改后缀绕过
+    _validate_file_magic(source_path, file_type, upload_dir)
 
     return await document_service.create_document_record(
         document_id=document_id,
