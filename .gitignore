@@ -36,6 +36,9 @@ data/*
 !data/
 !data/stock reports/
 !data/stock reports/*.pdf
+!data/stock_reports_v2.jsonl
+!data/stock_reports_v2_results.jsonl
+!data/stock_reports_v2_summary.json
 backend/data/
 backend/logs/
 backend/.pytest_cache/

@@ -1,0 +1,25 @@
+{
+  "overall": {
+    "count": 17,
+    "avg_score": 0.9628,
+    "pass_rate": 1.0
+  },
+  "per_breakdown": {
+    "rule": {
+      "count": 10,
+      "avg_score": 0.9675,
+      "pass_rate": 1.0
+    },
+    "llm_judge": {
+      "count": 5,
+      "avg_score": 0.9385,
+      "pass_rate": 1.0
+    },
+    "no_answer": {
+      "count": 2,
+      "avg_score": 1.0,
+      "pass_rate": 1.0
+    }
+  },
+  "low_score_cases": []
+}
