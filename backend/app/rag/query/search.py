@@ -16,6 +16,8 @@ from app.rag.vectorstores.general_milvus import COLLECTION_NAME, client
 
 logger = logging.getLogger(__name__)
 
+SEARCH_TIMEOUT = 30  # seconds
+
 OUTPUT_FIELDS = [
     "content",
     "title",
@@ -96,6 +98,7 @@ def _hybrid_search(query_dense, query_text, entity_filter, cfg: QueryConfig):
         ranker=WeightedRanker(cfg.dense_weight, cfg.sparse_weight),
         limit=cfg.search_limit,
         output_fields=OUTPUT_FIELDS,
+        timeout=SEARCH_TIMEOUT,
     )
     return _parse_hits(results[0])
 
@@ -109,6 +112,7 @@ def _dense_only_search(query_dense, entity_filter, cfg: QueryConfig):
         limit=cfg.search_limit,
         filter=entity_filter,
         output_fields=OUTPUT_FIELDS,
+        timeout=SEARCH_TIMEOUT,
     )
     return _parse_hits(results[0])
 

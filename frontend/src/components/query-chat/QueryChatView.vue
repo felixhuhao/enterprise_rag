@@ -27,7 +27,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onBeforeUnmount, ref } from 'vue'
 import { useQueryChatStore } from '../../stores/queryChat'
 import QueryMessageList from './QueryMessageList.vue'
 import QueryChatInput from './QueryChatInput.vue'
@@ -38,6 +38,10 @@ const showDetail = ref(false)
 function onSend(text: string) {
   store.sendMessage(text)
 }
+
+onBeforeUnmount(() => {
+  store.stopStreaming()
+})
 </script>
 
 <style scoped>

@@ -232,9 +232,14 @@ function stopPolling(docId: string) {
   }
 }
 
+/** 连续轮询失败计数 */
+const pollFailCount = ref<Record<string, number>>({})
+
 async function pollDoc(docId: string) {
   try {
     const updated = await getDocument(docId)
+    // 成功则重置失败计数
+    pollFailCount.value[docId] = 0
     const idx = docs.value.findIndex((d) => d.document_id === docId)
     if (idx >= 0) docs.value[idx] = updated
     const busy = BUSY_STATUSES.includes(updated.status)
@@ -242,8 +247,12 @@ async function pollDoc(docId: string) {
       stopPolling(docId)
     }
   } catch {
-    // 404 等错误说明文档已删除或不可达，停止轮询
-    stopPolling(docId)
+    const count = (pollFailCount.value[docId] || 0) + 1
+    pollFailCount.value[docId] = count
+    // 连续失败 3 次或 404 等错误，停止轮询
+    if (count >= 3) {
+      stopPolling(docId)
+    }
   }
 }
 
