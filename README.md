@@ -4,12 +4,12 @@
 
 ## Quick Start (Docker)
 
-**Prerequisites**: Docker Desktop running, a [DashScope API key](https://dashscope.console.aliyun.com/), and optionally a [MinerU token](https://mineru.net/) for PDF parsing.
+**Prerequisites**: Docker Desktop running, local dense embedding model files (tested with `BAAI/bge-m3`), a [DashScope API key](https://dashscope.console.aliyun.com/) for LLM/image descriptions, and optionally a [MinerU token](https://mineru.net/) for PDF parsing.
 
 ```bash
 # 1. Configure
 cp .env.example .env
-# Edit .env — fill DASHSCOPE_API_KEY (required) and MINERU_API_TOKEN (for PDF)
+# Edit .env — set EMBEDDING_MODEL_HOST_PATH, DEEPSEEK_API_KEY, ZHIPU_API_KEY, and MINERU_API_TOKEN (for PDF)
 
 # 2. Launch
 docker compose up -d --build
@@ -23,12 +23,25 @@ docker compose exec backend python scripts/seed_demo.py
 
 Milvus data persists in `./data/milvus`. Re-run `seed_demo.py` anytime — it skips already-completed documents.
 
+If you change embedding models, reset the Milvus collection and re-process documents:
+
+```bash
+docker compose exec backend python scripts/reset_milvus_collection.py
+docker compose exec backend python scripts/seed_demo.py
+```
+
 ## Local Development
 
 Use two separate `.env` files:
 
 - `backend/.env` — backend config (copy from `.env.example`)
 - Frontend reads `VITE_API_TARGET` from `frontend/.env` (defaults to `http://localhost:8010`)
+
+For local backend development on Windows, set:
+
+```env
+EMBEDDING_MODEL_PATH=D:\Models\BAAI\bge-m3
+```
 
 ```bash
 # Terminal 1 — Backend
@@ -54,10 +67,10 @@ Start a local Milvus instance first (or point `MILVUS_URI` to an existing one).
       │  ┌───────────────────┼──────────────────┐
       │  │                   │                  │
       ▼  ▼                   ▼                  ▼
-  ┌───────┐          ┌──────────┐        ┌──────────┐
-  │ SQLite│          │  Milvus  │        │ DashScope│
-  │ state │          │ vectors  │        │  + MinerU│
-  └───────┘          └──────────┘        └──────────┘
+  ┌───────┐          ┌──────────┐        ┌──────────┐        ┌──────────┐
+  │ SQLite│          │  Milvus  │        │  Local   │        │ DashScope│
+  │ state │          │ vectors  │        │embedding │        │  + MinerU│
+  └───────┘          └──────────┘        └──────────┘        └──────────┘
 ```
 
 ### Ingestion Pipeline
@@ -78,7 +91,7 @@ entity_confirm → rewrite → [dense+sparse search, HyDE] → RRF → table_exp
 |---|---|
 | Backend | FastAPI, LangGraph, SQLite, Pydantic |
 | Vector Store | Milvus (dense + BM25 sparse) |
-| Embedding | DashScope text-embedding-v4 |
+| Embedding | Local dense embedding model (tested with BAAI/bge-m3) |
 | LLM | Qwen-Plus (DashScope) |
 | PDF Parsing | MinerU Online API |
 | Image-to-Text | Qwen-VL |
@@ -106,7 +119,7 @@ enterprise_rag/
 │   │   ├── core/                 # database, config, runtime settings
 │   │   ├── rag/
 │   │   │   ├── chunking/         # markdown + table chunker
-│   │   │   ├── embeddings/       # text-embedding-v4 client
+│   │   │   ├── embeddings/       # local dense embedding client
 │   │   │   ├── ingestion/        # LangGraph ingestion workflow
 │   │   │   ├── parsing/          # MinerU, Markdown, image describer, ZIP
 │   │   │   ├── query/            # search, fusion, rerank, prompt, citations
@@ -132,17 +145,21 @@ Required:
 
 | Variable | Description |
 |---|---|
-| `DASHSCOPE_API_KEY` | DashScope API key for embedding and LLM |
+| `EMBEDDING_MODEL_HOST_PATH` | Host path to the local embedding model for Docker volume mount, e.g. `D:/Models/BAAI/bge-m3` |
+| `EMBEDDING_MODEL_PATH` | Runtime embedding model path. Docker uses `/models/embedding`; local dev can use `D:\Models\BAAI\bge-m3` |
+| `DEEPSEEK_API_KEY` | DeepSeek API key for chat, HyDE, rerank |
+| `ZHIPU_API_KEY` | Zhipu AI API key for image description (GLM-4.6V) |
 | `API_TOKEN` | Bearer token for API auth |
 
 Optional:
 
 | Variable | Default | Description |
 |---|---|---|
-| `CHAT_MODEL` | `qwen-plus` | LLM model name |
+| `CHAT_MODEL` | `deepseek-v4-flash` | LLM model name |
 | `MINERU_API_TOKEN` | — | Required for PDF parsing |
 | `MILVUS_URI` | `http://localhost:19530` | Milvus connection |
-| `EMBEDDING_MODEL` | `text-embedding-v4` | Embedding model |
+| `EMBEDDING_BATCH_SIZE` | `4` | Embedding batch size |
+| `EMBEDDING_DEVICE` | `auto` | `auto`, `cuda`, or `cpu` |
 | `IMAGE_DESCRIPTION_ENABLED` | `true` | Enable image-to-text |
 
 Full list in `.env.example`.

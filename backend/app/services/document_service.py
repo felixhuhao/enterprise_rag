@@ -1,10 +1,12 @@
 """通用文档导入服务。"""
 
 import asyncio
+import json
 import logging
 import os
 import shutil
 from datetime import datetime
+from pathlib import Path
 
 from app.config import settings
 from app.core.database import get_db
@@ -66,6 +68,37 @@ async def list_documents() -> list[dict]:
         ) as cursor:
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
+
+
+async def get_document_chunks(document_id: str) -> dict | None:
+    """Return document metadata and chunks from Milvus, with parsed artifact fallback."""
+    doc = await get_document(document_id)
+    if not doc:
+        return None
+
+    chunks_source = "none"
+    chunks: list[dict] = []
+
+    try:
+        chunks = await asyncio.to_thread(_sync_query_milvus_chunks, document_id)
+        if chunks:
+            chunks_source = "milvus"
+    except Exception:
+        logger.warning("查询 Milvus chunks 失败 document_id=%s", document_id, exc_info=True)
+
+    if not chunks:
+        chunks = _load_parsed_chunks(document_id)
+        if chunks:
+            chunks_source = "parsed_artifact"
+
+    return {
+        "chunks_source": chunks_source,
+        "document": doc,
+        "chunks": [
+            _normalize_chunk(row, document_id, idx)
+            for idx, row in enumerate(_sort_chunks(chunks), start=1)
+        ],
+    }
 
 
 _ALLOWED_STATUS_FIELDS = frozenset({
@@ -294,6 +327,94 @@ def _sync_delete_from_milvus(document_id: str):
     from app.rag.vectorstores.general_milvus import delete_by_document_id
 
     delete_by_document_id(document_id)
+
+
+def _sync_query_milvus_chunks(document_id: str) -> list[dict]:
+    from app.rag.vectorstores.general_milvus import query_chunks_by_document_id
+
+    return query_chunks_by_document_id(document_id)
+
+
+def _load_parsed_chunks(document_id: str) -> list[dict]:
+    chunks_path = Path(settings.GENERAL_PARSED_DIR) / document_id / "chunks.json"
+    if not chunks_path.is_file():
+        return []
+    try:
+        data = json.loads(chunks_path.read_text(encoding="utf-8"))
+    except Exception:
+        logger.warning("读取 parsed chunks 失败 document_id=%s path=%s", document_id, chunks_path, exc_info=True)
+        return []
+    if not isinstance(data, list):
+        return []
+    return [row for row in data if isinstance(row, dict)]
+
+
+def _normalize_chunk(row: dict, document_id: str, sequence_index: int) -> dict:
+    image_paths = row.get("image_paths", [])
+    if isinstance(image_paths, str):
+        try:
+            image_paths = json.loads(image_paths or "[]")
+        except json.JSONDecodeError:
+            image_paths = []
+    if not isinstance(image_paths, list):
+        image_paths = []
+
+    content = row.get("content", "") or ""
+    source_type = row.get("source_type", "text") or "text"
+    table_id = row.get("table_id") or ""
+    part = row.get("part")
+    chunk_key = row.get("chunk_key") or _derive_chunk_key(
+        document_id=document_id,
+        source_type=source_type,
+        table_id=table_id,
+        part=part,
+        sequence_index=sequence_index,
+    )
+
+    return {
+        "chunk_key": chunk_key,
+        "sequence": sequence_index,
+        "milvus_chunk_id": row.get("chunk_id"),
+        "document_id": row.get("document_id") or document_id,
+        "file_title": row.get("file_title", ""),
+        "entity_name": row.get("entity_name", ""),
+        "content": content,
+        "title": row.get("title", ""),
+        "parent_title": row.get("parent_title", ""),
+        "section_title": row.get("section_title", ""),
+        "part": part,
+        "page": row.get("page"),
+        "source_type": source_type,
+        "table_id": row.get("table_id"),
+        "table_title": row.get("table_title"),
+        "raw_table_path": row.get("raw_table_path"),
+        "table_tokens": row.get("table_tokens"),
+        "image_paths": image_paths,
+        "content_length": len(content),
+    }
+
+
+def _sort_chunks(chunks: list[dict]) -> list[dict]:
+    def _key(row: dict):
+        page = row.get("page")
+        page_key = page if isinstance(page, int) else 10**9
+        chunk_id = row.get("chunk_id")
+        chunk_key = row.get("chunk_key") or ""
+        id_key = chunk_id if isinstance(chunk_id, int) else 10**9
+        return (page_key, chunk_key, id_key)
+
+    return sorted(chunks, key=_key)
+
+
+def _derive_chunk_key(
+    document_id: str,
+    source_type: str,
+    table_id: str,
+    part: object,
+    sequence_index: int,
+) -> str:
+    part_value = "" if part is None else str(part)
+    return f"{document_id}:{source_type}:{table_id}:{part_value}:{sequence_index:04d}"
 
 
 def _invalidate_entity_cache():

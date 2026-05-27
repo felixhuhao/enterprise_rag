@@ -49,8 +49,8 @@ async def describe_image(image_path: str) -> dict:
     Returns {"description": str, "status": "ok"} or {"status": "failed", "error": str}.
     """
     model = settings.IMAGE_DESCRIPTION_MODEL
-    api_key = settings.DASHSCOPE_API_KEY
-    base_url = settings.DASHSCOPE_BASE_URL
+    api_key = settings.ZHIPU_API_KEY
+    base_url = settings.ZHIPU_BASE_URL
     timeout = settings.IMAGE_DESCRIPTION_TIMEOUT
 
     try:

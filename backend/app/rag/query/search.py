@@ -8,7 +8,7 @@ import logging
 from pymilvus import AnnSearchRequest, WeightedRanker
 from langgraph.graph.state import RunnableConfig
 
-from app.rag.embeddings.text_embedding_v4 import _text_embedding
+from app.rag.embeddings.dense_embedding import dense_embedding
 from app.rag.query.config import QueryConfig, get_query_config
 from app.rag.query.scoring_utils import need_fallback
 from app.rag.query.state import QueryState
@@ -43,7 +43,7 @@ def search_node(state: QueryState, config: RunnableConfig) -> dict:
     entity_filter = state.get("entity_filter") or None
 
     try:
-        query_dense = _text_embedding.embed_query(query)
+        query_dense = dense_embedding.embed_query(query)
     except Exception as e:
         raise RuntimeError(f"Embedding 失败: {e}") from e
 

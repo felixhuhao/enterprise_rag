@@ -26,6 +26,11 @@ const router = createRouter({
       component: () => import('../components/documents/DocumentsView.vue'),
     },
     {
+      path: '/documents/:documentId',
+      name: 'DocumentDetail',
+      component: () => import('../components/documents/DocumentDetailView.vue'),
+    },
+    {
       path: '/settings',
       name: 'Settings',
       component: () => import('../components/settings/SettingsView.vue'),

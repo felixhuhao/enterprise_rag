@@ -11,6 +11,27 @@ logger = logging.getLogger(__name__)
 
 COLLECTION_NAME = "general_documents"
 client = MilvusClient(uri=settings.MILVUS_URI)
+QUERY_TIMEOUT = 30
+
+CHUNK_OUTPUT_FIELDS = [
+    "chunk_id",
+    "content",
+    "title",
+    "parent_title",
+    "section_title",
+    "part",
+    "file_title",
+    "source",
+    "document_id",
+    "page",
+    "source_type",
+    "table_id",
+    "table_title",
+    "raw_table_path",
+    "image_paths",
+    "table_tokens",
+    "entity_name",
+]
 
 
 def ensure_collection():
@@ -95,6 +116,22 @@ def delete_by_document_id(document_id: str):
     )
     client.flush(collection_name=COLLECTION_NAME)
     return res
+
+
+def query_chunks_by_document_id(document_id: str, limit: int = 10000) -> list[dict]:
+    """Return stored chunks for one document from Milvus, excluding vector fields."""
+    if not client.has_collection(collection_name=COLLECTION_NAME):
+        return []
+
+    # document_id is expected to be a hex UUID; Milvus SDK has no parameterized queries
+    rows = client.query(
+        collection_name=COLLECTION_NAME,
+        filter=f'document_id == "{document_id}"',
+        output_fields=CHUNK_OUTPUT_FIELDS,
+        limit=limit,
+        timeout=QUERY_TIMEOUT,
+    )
+    return rows or []
 
 
 def upsert_document_chunks(document_id: str, chunks: list[dict]):

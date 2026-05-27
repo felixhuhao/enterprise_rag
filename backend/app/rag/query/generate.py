@@ -10,8 +10,8 @@ from app.rag.query.state import QueryState
 
 _chat_llm = ChatOpenAI(
     model=settings.CHAT_MODEL,
-    api_key=settings.DASHSCOPE_API_KEY,
-    base_url=settings.DASHSCOPE_BASE_URL,
+    api_key=settings.DEEPSEEK_API_KEY,
+    base_url=settings.DEEPSEEK_BASE_URL,
     timeout=settings.CHAT_TIMEOUT,
     max_retries=3,
 )

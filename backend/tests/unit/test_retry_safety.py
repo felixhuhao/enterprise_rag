@@ -4,6 +4,7 @@ Tests real service-layer functions against an in-memory SQLite via monkeypatch.
 """
 
 import asyncio
+import json
 import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -300,3 +301,67 @@ class TestRepairDeleteDocument:
         # DB 记录保留
         row = db.execute("SELECT cleanup_status FROM general_documents WHERE document_id = 'doc-7'").fetchone()
         assert row["cleanup_status"] == "milvus_delete_failed"
+
+
+class TestDocumentChunks:
+
+    def test_milvus_chunks_are_normalized(self, db):
+        """Milvus chunks 优先，解析 image_paths 并派生稳定 chunk_key。"""
+        with patch("app.services.document_service._sync_query_milvus_chunks", return_value=[
+            {
+                "chunk_id": 123,
+                "document_id": "doc-4",
+                "file_title": "test.pdf",
+                "entity_name": "ACME",
+                "content": "hello chunk",
+                "title": "Title",
+                "parent_title": "Parent",
+                "section_title": "Parent > Title",
+                "part": 0,
+                "page": 2,
+                "source_type": "text",
+                "table_id": "",
+                "table_title": "",
+                "raw_table_path": "",
+                "table_tokens": None,
+                "image_paths": json.dumps(["images/a.png"]),
+            }
+        ]):
+            payload = asyncio.run(svc.get_document_chunks("doc-4"))
+
+        assert payload["chunks_source"] == "milvus"
+        assert payload["document"]["document_id"] == "doc-4"
+        chunk = payload["chunks"][0]
+        assert chunk["milvus_chunk_id"] == 123
+        assert chunk["chunk_key"] == "doc-4:text::0:0001"
+        assert chunk["image_paths"] == ["images/a.png"]
+        assert chunk["content_length"] == len("hello chunk")
+
+    def test_falls_back_to_parsed_chunks(self, db, tmp_path, monkeypatch):
+        """Milvus 无结果时读取 parsed_dir/chunks.json。"""
+        parsed_dir = tmp_path / "doc-4"
+        parsed_dir.mkdir()
+        (parsed_dir / "chunks.json").write_text(json.dumps([
+            {
+                "document_id": "doc-4",
+                "content": "parsed chunk",
+                "source_type": "table_summary",
+                "table_id": "t1",
+                "part": 1,
+                "image_paths": ["images/b.png"],
+            }
+        ], ensure_ascii=False), encoding="utf-8")
+        monkeypatch.setattr(svc.settings, "GENERAL_PARSED_DIR", str(tmp_path))
+
+        with patch("app.services.document_service._sync_query_milvus_chunks", return_value=[]):
+            payload = asyncio.run(svc.get_document_chunks("doc-4"))
+
+        assert payload["chunks_source"] == "parsed_artifact"
+        chunk = payload["chunks"][0]
+        assert chunk["chunk_key"] == "doc-4:table_summary:t1:1:0001"
+        assert chunk["milvus_chunk_id"] is None
+        assert chunk["content"] == "parsed chunk"
+
+    def test_missing_document_returns_none(self, db):
+        payload = asyncio.run(svc.get_document_chunks("missing"))
+        assert payload is None

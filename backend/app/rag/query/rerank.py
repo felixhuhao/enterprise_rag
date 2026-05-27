@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 _rerank_llm = ChatOpenAI(
     model=settings.CHAT_MODEL,
-    api_key=settings.DASHSCOPE_API_KEY,
-    base_url=settings.DASHSCOPE_BASE_URL,
+    api_key=settings.DEEPSEEK_API_KEY,
+    base_url=settings.DEEPSEEK_BASE_URL,
     timeout=30,
     max_retries=2,
     temperature=0.0,

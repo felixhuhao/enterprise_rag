@@ -760,8 +760,8 @@ def main():
             from app.config import settings
             if not judge_model:
                 judge_model = settings.CHAT_MODEL
-            api_key = settings.DASHSCOPE_API_KEY
-            base_url = settings.DASHSCOPE_BASE_URL
+            api_key = settings.DEEPSEEK_API_KEY
+            base_url = settings.DEEPSEEK_BASE_URL
         except Exception:
             pass
         if not api_key:
@@ -769,15 +769,15 @@ def main():
             if env_path.exists():
                 for line in env_path.read_text(encoding="utf-8").splitlines():
                     line = line.strip()
-                    if line.startswith("DASHSCOPE_API_KEY="):
+                    if line.startswith("DEEPSEEK_API_KEY="):
                         api_key = line.split("=", 1)[1].strip().strip('"').strip("'")
-                    elif line.startswith("DASHSCOPE_BASE_URL="):
+                    elif line.startswith("DEEPSEEK_BASE_URL="):
                         base_url = line.split("=", 1)[1].strip().strip('"').strip("'")
                     elif line.startswith("CHAT_MODEL=") and not judge_model:
                         judge_model = line.split("=", 1)[1].strip().strip('"').strip("'")
 
         if not api_key or not judge_model:
-            print("Warning: --judge 需要 DASHSCOPE_API_KEY 和 CHAT_MODEL")
+            print("Warning: --judge 需要 DEEPSEEK_API_KEY 和 CHAT_MODEL")
         else:
             run_judge(results, judge_model, api_key, base_url)
             # Update final_score for judged questions

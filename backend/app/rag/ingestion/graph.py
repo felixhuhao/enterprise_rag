@@ -209,7 +209,7 @@ def chunk(state: IngestionState, config: RunnableConfig) -> dict:
 
 def embed_and_save(state: IngestionState, config: RunnableConfig) -> dict:
     """Embedding + Milvus 入库。"""
-    from app.rag.embeddings.text_embedding_v4 import embed_chunks
+    from app.rag.embeddings.dense_embedding import embed_chunks
     from app.rag.vectorstores.general_milvus import upsert_document_chunks
 
     doc_id = state["document_id"]

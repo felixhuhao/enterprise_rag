@@ -131,6 +131,15 @@ async def get_document(document_id: str, _: None = Depends(verify_token)):
     return doc
 
 
+@router.get("/documents/{document_id}/chunks")
+async def get_document_chunks(document_id: str, _: None = Depends(verify_token)):
+    """获取文档元数据和 chunk 列表。Milvus 无结果时回退到 parsed chunks 产物。"""
+    payload = await document_service.get_document_chunks(document_id)
+    if not payload:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    return payload
+
+
 @router.patch("/documents/{document_id}")
 async def update_document(
     document_id: str,

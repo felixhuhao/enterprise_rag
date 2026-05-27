@@ -9,7 +9,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph.state import RunnableConfig
 
 from app.config import settings
-from app.rag.embeddings.text_embedding_v4 import _text_embedding
+from app.rag.embeddings.dense_embedding import dense_embedding
 from app.rag.query.config import get_query_config
 from app.rag.query.search import SEARCH_TIMEOUT
 from app.rag.query.state import QueryState
@@ -33,8 +33,8 @@ OUTPUT_FIELDS = [
 
 _hyde_llm = ChatOpenAI(
     model=settings.CHAT_MODEL,
-    api_key=settings.DASHSCOPE_API_KEY,
-    base_url=settings.DASHSCOPE_BASE_URL,
+    api_key=settings.DEEPSEEK_API_KEY,
+    base_url=settings.DEEPSEEK_BASE_URL,
     timeout=30,
     max_retries=2,
     temperature=0.3,
@@ -66,7 +66,7 @@ def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
     # 2. embed (query + 假设文档)
     hyde_text = f"{query}\n{hypothetical_doc}"
     try:
-        hyde_dense = _text_embedding.embed_query(hyde_text)
+        hyde_dense = dense_embedding.embed_query(hyde_text)
     except Exception:
         logger.warning("HyDE embedding failed, returning empty", exc_info=True)
         return {"search_results_hyde": []}

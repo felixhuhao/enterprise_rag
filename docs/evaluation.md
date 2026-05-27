@@ -153,7 +153,7 @@ All errors are classified into structured codes for debugging and alerting:
 | Code | Source | User Hint |
 |---|---|---|
 | `MINERU_API_ERROR` | MinerU API failure | "文档解析服务异常，请稍后重试" |
-| `EMBEDDING_ERROR` | DashScope embedding failure | "向量化服务异常，请稍后重试" |
+| `EMBEDDING_ERROR` | Embedding model failure | "向量化服务异常，请稍后重试" |
 | `MILVUS_ERROR` | Milvus connection/query failure | "向量数据库异常，请检查 Milvus 连接" |
 | `LLM_ERROR` | DashScope LLM failure | "大模型服务异常，请稍后重试" |
 | `NO_CONTEXT_FOUND` | Retrieval returned nothing | "未找到相关内容，请尝试换个表述或上传更多文档" |

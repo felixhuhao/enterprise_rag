@@ -19,7 +19,7 @@ That commit included README rewrite, FastAPI metadata update, frontend title upd
 
 ## Current Architecture
 
-Backend: FastAPI, LangGraph, SQLite app state, Milvus general_documents, DashScope text-embedding-v4, MinerU Online, Qwen-VL compatible image description.
+Backend: FastAPI, LangGraph, SQLite app state, Milvus general_documents, local dense embedding model, MinerU Online, DashScope/Qwen-compatible LLM and image description.
 Frontend: Vue 3, TypeScript, Pinia, Arco Design Vue.
 Main pages: Query Chat, Documents, Evaluate / Query Stats, Settings.
 

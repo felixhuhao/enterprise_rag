@@ -24,8 +24,11 @@ services:
       milvus-standalone:
         condition: service_healthy
     env_file: .env
+    environment:
+      EMBEDDING_MODEL_PATH: /models/embedding
     volumes:
       - ./data:/app/data
+      - ${EMBEDDING_MODEL_HOST_PATH:-D:/Models/BAAI/bge-m3}:/models/embedding:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health')"]
       interval: 5s

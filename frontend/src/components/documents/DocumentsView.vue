@@ -81,10 +81,10 @@
         <template #columns>
           <a-table-column title="文件名" data-index="filename">
             <template #cell="{ record }">
-              <span class="doc-name">
+              <button class="doc-name doc-link" type="button" @click="openDocument(record.document_id)">
                 <icon-file class="doc-icon" :style="{ color: record.file_type === 'pdf' ? 'var(--error)' : 'var(--accent)' }" />
                 <span class="doc-filename" :title="record.filename">{{ record.filename }}</span>
-              </span>
+              </button>
             </template>
           </a-table-column>
 
@@ -178,6 +178,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   IconUpload,
   IconFile,
@@ -197,6 +198,7 @@ import {
   updateDocumentEntity,
 } from '../../api/documents'
 
+const router = useRouter()
 const docs = ref<Document[]>([])
 const uploading = ref(false)
 const pendingFile = ref<File | null>(null)
@@ -254,6 +256,10 @@ function statusColor(s: string) {
 function formatTime(t: string) {
   if (!t) return ''
   return t.replace('T', ' ').slice(0, 19)
+}
+
+function openDocument(documentId: string) {
+  router.push(`/documents/${documentId}`)
 }
 
 async function refresh() {
@@ -551,6 +557,19 @@ onUnmounted(() => {
   font-size: 13px;
   max-width: 520px;
   min-width: 0;
+}
+.doc-link {
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+.doc-link:hover .doc-filename {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .doc-icon {
   flex: 0 0 auto;

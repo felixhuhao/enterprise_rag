@@ -23,17 +23,21 @@ class Settings(BaseSettings):
     DATABASE_PATH: str = "./data/app.db"
 
     # ---- LLM 模型配置 ----
-    DASHSCOPE_API_KEY: str = ""
-    DASHSCOPE_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    CHAT_MODEL: str = "qwen-plus"
+    DEEPSEEK_API_KEY: str = ""
+    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
+    CHAT_MODEL: str = "deepseek-v4-flash"
     CHAT_TIMEOUT: int = 180
     # 本地模型（vLLM 部署），留空则使用 DashScope 云端模型
     LOCAL_MODEL_URL: str = ""
     LOCAL_MODEL_NAME: str = ""
 
     # ---- Embedding 配置 ----
-    EMBEDDING_MODEL: str = "text-embedding-v4"
+    EMBEDDING_MODEL_PATH: str = "D:/Models/BAAI/bge-m3"
     EMBEDDING_DIM: int = 1024
+    EMBEDDING_BATCH_SIZE: int = 4
+    EMBEDDING_MAX_LENGTH: int = 8192
+    EMBEDDING_DEVICE: str = "auto"  # auto | cuda | cpu
+    EMBEDDING_USE_FP16: bool = True
     MINERU_BASE_URL: str = "https://mineru.net/api/v4"
     MINERU_API_TOKEN: str = ""
     MINERU_MODEL_VERSION: str = "vlm"
@@ -51,9 +55,11 @@ class Settings(BaseSettings):
     # ---- 通用上传限制 ----
     UPLOAD_MAX_SIZE_MB: int = 100
 
-    # ---- 图片描述配置 ----
+    # ---- 图片描述配置 (智谱 GLM-4.6V) ----
+    ZHIPU_API_KEY: str = ""
+    ZHIPU_BASE_URL: str = "https://open.bigmodel.cn/api/paas/v4"
     IMAGE_DESCRIPTION_ENABLED: bool = True
-    IMAGE_DESCRIPTION_MODEL: str = "qwen3-vl-flash"
+    IMAGE_DESCRIPTION_MODEL: str = "glm-4.6v-flash"
     IMAGE_DESCRIPTION_CONCURRENCY: int = 3
     IMAGE_DESCRIPTION_TIMEOUT: int = 30
     IMAGE_DESCRIPTION_MAX_SIZE_MB: int = 10

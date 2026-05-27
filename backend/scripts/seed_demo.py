@@ -32,9 +32,12 @@ MAX_RETRIES = 2  # max retry attempts per document
 
 # Demo data directory auto-detection (in priority order)
 _DEMO_DIR_CANDIDATES = [
-    "/app/data/stock reports",       # Docker container
-    "../data/stock reports",          # cd backend && python scripts/seed_demo.py
-    "data/stock reports",             # from project root
+    "/app/data/enterprise_docs",     # Docker container
+    "/app/data/stock reports",       # Docker container (legacy)
+    "../data/enterprise_docs",        # cd backend && python scripts/seed_demo.py
+    "../data/stock reports",          # cd backend && python scripts/seed_demo.py (legacy)
+    "data/enterprise_docs",           # from project root
+    "data/stock reports",             # from project root (legacy)
 ]
 
 SUPPORTED_EXTENSIONS = {".pdf", ".md", ".markdown", ".zip"}
@@ -307,6 +310,19 @@ def main():
                     completed += 1
                 else:
                     print(f"  [fail] {filename} — {final}")
+                    failed += 1
+                continue
+            elif status == "uploaded":
+                print(f"  [process] {filename} — already uploaded")
+                final = process_with_retry(
+                    args.api_base, headers,
+                    existing["document_id"], filename,
+                )
+                if final == "completed":
+                    print(f"  [done] {filename} — completed")
+                    completed += 1
+                else:
+                    print(f"  [fail] {filename} — {final} after {MAX_RETRIES} retries")
                     failed += 1
                 continue
             elif status == "failed":

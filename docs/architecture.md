@@ -70,7 +70,7 @@ Documents flow through a LangGraph state machine. Each node updates document sta
                   └──────┬───────┘
                          ▼
                   ┌──────────────┐
-                  │    Embed     │  text-embedding-v4 → 1024-dim vectors
+                  │    Embed     │  local dense embedding → 1024-dim vectors
                   └──────┬───────┘
                          ▼
                   ┌──────────────┐
