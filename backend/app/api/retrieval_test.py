@@ -5,6 +5,7 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.core.auth import CurrentUser, get_allowed_document_ids
 from app.deps import verify_token
 from app.services.retrieval_test_service import run_retrieval_test
 
@@ -20,8 +21,9 @@ class RetrievalTestRequest(BaseModel):
 
 
 @router.post("/query/retrieval-test")
-async def retrieval_test(req: RetrievalTestRequest, _: None = Depends(verify_token)):
+async def retrieval_test(req: RetrievalTestRequest, current_user: CurrentUser = Depends(verify_token)):
     """Run retrieval pipeline up to rerank and return inspectable chunks."""
+    allowed_ids = await get_allowed_document_ids(current_user)
     try:
         return await asyncio.to_thread(
             run_retrieval_test,
@@ -30,6 +32,7 @@ async def retrieval_test(req: RetrievalTestRequest, _: None = Depends(verify_tok
             use_hybrid=req.use_hybrid,
             use_hyde=req.use_hyde,
             use_rerank=req.use_rerank,
+            allowed_document_ids=allowed_ids,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"检索测试失败: {e}") from e

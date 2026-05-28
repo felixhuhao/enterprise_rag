@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS query_run_stats (
     error_code       TEXT DEFAULT '',
     retrieved_chunks TEXT DEFAULT '[]',
     groundedness_score REAL DEFAULT NULL,
+    user_id          TEXT DEFAULT '',
     created_at       TEXT NOT NULL
 );
 """

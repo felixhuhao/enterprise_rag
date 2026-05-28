@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from app.core.auth import CurrentUser, get_allowed_document_ids
 from app.deps import verify_token
 from app.services.chat_history import load_history, save_message
 from app.utils.sse import sse_event
@@ -55,19 +56,21 @@ def _build_config(req: QueryChatRequest):
 
 
 @router.post("/query/chat")
-async def query_chat(req: QueryChatRequest, _: None = Depends(verify_token)):
+async def query_chat(req: QueryChatRequest, current_user: CurrentUser = Depends(verify_token)):
     """非流式查询，返回 answer + citations。"""
     from app.rag.query.graph import run_query_graph
 
     session_id = req.session_id or str(uuid.uuid4())
     query_config = _build_config(req)
+    allowed_ids = await get_allowed_document_ids(current_user)
 
-    result = await asyncio.to_thread(run_query_graph, req.query, query_config)
+    result = await asyncio.to_thread(run_query_graph, req.query, query_config,
+                                     {"allowed_document_ids": allowed_ids})
 
     # 保存聊天历史
     try:
-        await save_message(session_id, "user", req.query)
-        await save_message(session_id, "assistant", result.get("answer", ""), result.get("citations"))
+        await save_message(session_id, "user", req.query, user_id=current_user.user_id)
+        await save_message(session_id, "assistant", result.get("answer", ""), result.get("citations"), user_id=current_user.user_id)
     except Exception:
         logger.warning("保存聊天历史失败", exc_info=True)
 
@@ -76,12 +79,13 @@ async def query_chat(req: QueryChatRequest, _: None = Depends(verify_token)):
 
 
 @router.post("/query/chat/stream")
-async def query_chat_stream(req: QueryChatRequest, _: None = Depends(verify_token)):
+async def query_chat_stream(req: QueryChatRequest, current_user: CurrentUser = Depends(verify_token)):
     """SSE 流式查询。两阶段：graph 跑搜索 → LLM 流式生成。"""
     session_id = req.session_id or str(uuid.uuid4())
     query_config = _build_config(req)
+    allowed_ids = await get_allowed_document_ids(current_user)
     return EventSourceResponse(
-        _stream_generator(session_id, req.query, query_config),
+        _stream_generator(session_id, req.query, query_config, allowed_ids, current_user.user_id),
         media_type="text/event-stream",
     )
 
@@ -91,7 +95,7 @@ def _tick_ms(t0: float) -> int:
     return round((time.monotonic() - t0) * 1000)
 
 
-async def _stream_generator(session_id: str, query: str, query_config):
+async def _stream_generator(session_id: str, query: str, query_config, allowed_ids, user_id: str = ""):
     """两阶段 SSE 生成器。所有路径（成功/失败/中断）均落库 query_run_stats。"""
     from app.rag.query.entity_confirm import entity_confirm_node
     from app.rag.query.rewrite_query import rewrite_query_node
@@ -110,7 +114,11 @@ async def _stream_generator(session_id: str, query: str, query_config):
     import threading
 
     # RunnableConfig for nodes
-    run_config = {"configurable": {"query_config": query_config}}
+    run_config = {"configurable": {
+        "query_config": query_config,
+        "allowed_document_ids": allowed_ids,
+        "current_user_id": user_id,
+    }}
 
     # 外层变量初始化 — 所有路径都能安全取值
     state: dict = {}
@@ -255,7 +263,7 @@ async def _stream_generator(session_id: str, query: str, query_config):
         yield sse_event({"type": "trace", "trace": state.get("trace", {})})
 
         # ── Phase 2: LLM 流式生成（带对话历史） ──
-        history = await load_history(session_id, limit=10)
+        history = await load_history(session_id, user_id=user_id, limit=10)
         messages = [SystemMessage(content=state.get("context_text", ""))]
         for msg in history:
             if msg["role"] == "user":
@@ -341,8 +349,8 @@ async def _stream_generator(session_id: str, query: str, query_config):
 
         # 保存聊天历史
         try:
-            await save_message(session_id, "user", query)
-            await save_message(session_id, "assistant", answer, cit_result.get("citations"))
+            await save_message(session_id, "user", query, user_id=user_id)
+            await save_message(session_id, "assistant", answer, cit_result.get("citations"), user_id=user_id)
         except Exception:
             logger.warning("保存聊天历史失败", exc_info=True)
 
@@ -387,6 +395,7 @@ async def _stream_generator(session_id: str, query: str, query_config):
                 error_code=error_code,
                 retrieved_chunks=retrieved_chunks,
                 groundedness_score=gr_result.get("groundedness", {}).get("groundedness_score"),
+                user_id=user_id,
             ))
             await asyncio.shield(save_task)
         except asyncio.CancelledError:

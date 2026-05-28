@@ -76,21 +76,33 @@ _RELATED_COLUMNS = (
 )
 
 
-async def list_related_documents(document_id: str) -> dict:
-    """返回同 entity 的相关文档列表，排除自身。按 updated_at 降序。"""
-    # TODO: apply document ACL filter once permission-aware retrieval is added.
+async def list_related_documents(document_id: str, allowed_ids: list[str] | None = None) -> dict:
+    """返回同 entity 且用户可见的相关文档列表。allowed_ids=None 表示不限制。"""
     doc = await get_document(document_id)
     if not doc or not doc.get("entity_name"):
         return {"entity": "", "related": []}
 
+    if allowed_ids is not None and not allowed_ids:
+        return {"entity": doc["entity_name"], "related": []}
+
     async with get_db() as db:
-        async with db.execute(
-            f"SELECT {_RELATED_COLUMNS} FROM general_documents "
-            "WHERE entity_name = ? AND document_id != ? "
-            "ORDER BY updated_at DESC",
-            (doc["entity_name"], document_id),
-        ) as cursor:
-            rows = await cursor.fetchall()
+        if allowed_ids is None:
+            async with db.execute(
+                f"SELECT {_RELATED_COLUMNS} FROM general_documents "
+                "WHERE entity_name = ? AND document_id != ? "
+                "ORDER BY updated_at DESC",
+                (doc["entity_name"], document_id),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        else:
+            placeholders = ",".join("?" * len(allowed_ids))
+            async with db.execute(
+                f"SELECT {_RELATED_COLUMNS} FROM general_documents "
+                f"WHERE entity_name = ? AND document_id != ? AND document_id IN ({placeholders}) "
+                "ORDER BY updated_at DESC",
+                (doc["entity_name"], document_id, *allowed_ids),
+            ) as cursor:
+                rows = await cursor.fetchall()
     return {"entity": doc["entity_name"], "related": [dict(r) for r in rows]}
 
 

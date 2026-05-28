@@ -11,6 +11,7 @@ from langgraph.graph.state import RunnableConfig
 from app.config import settings
 from app.rag.embeddings.dense_embedding import dense_embedding
 from app.rag.query.config import get_query_config
+from app.rag.query.filter_utils import build_acl_expr, combine_filters, get_allowed_ids
 from app.rag.query.search import SEARCH_TIMEOUT
 from app.rag.query.state import QueryState
 from app.rag.vectorstores.general_milvus import COLLECTION_NAME, client
@@ -61,6 +62,13 @@ def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
     query = state.get("rewritten_query") or state["query"]
     entity_filter = state.get("entity_filter") or None
 
+    # ACL filter
+    allowed = get_allowed_ids(config)
+    if allowed is not None and not allowed:
+        return {"search_results_hyde": []}
+    acl_filter = build_acl_expr(allowed) if allowed else None
+    entity_filter = combine_filters(entity_filter, acl_filter)
+
     # 1. 生成假设文档
     try:
         response = _hyde_llm.invoke([HumanMessage(content=HYDE_PROMPT.format(query=query))])
@@ -106,7 +114,7 @@ def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
                 anns_field="dense",
                 search_params={"metric_type": "COSINE"},
                 limit=cfg.hyde_limit,
-                filter=None,
+                filter=acl_filter,
                 output_fields=OUTPUT_FIELDS,
                 timeout=SEARCH_TIMEOUT,
             )

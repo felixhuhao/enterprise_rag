@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS query_chat_messages (
     role        TEXT NOT NULL,
     content     TEXT NOT NULL,
     citations   TEXT DEFAULT '[]',
+    user_id     TEXT DEFAULT '',
     created_at  TEXT NOT NULL
 );
 
@@ -95,6 +96,21 @@ CREATE TABLE IF NOT EXISTS query_run_stats (
 );
 
 CREATE INDEX IF NOT EXISTS idx_qrunstats_created ON query_run_stats(created_at);
+
+CREATE TABLE IF NOT EXISTS users (
+    user_id   TEXT PRIMARY KEY,
+    username  TEXT NOT NULL,
+    api_token TEXT NOT NULL UNIQUE,
+    role      TEXT DEFAULT 'user'
+);
+
+CREATE TABLE IF NOT EXISTS document_acl (
+    document_id TEXT NOT NULL,
+    user_id     TEXT NOT NULL,
+    permission  TEXT NOT NULL DEFAULT 'read',
+    PRIMARY KEY (document_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_acl_user ON document_acl(user_id);
 """
 
 
@@ -148,6 +164,32 @@ async def init_db():
             await db.execute("ALTER TABLE query_run_stats ADD COLUMN groundedness_score REAL DEFAULT NULL")
         except aiosqlite.OperationalError:
             pass
+        # migration: user_id column on query_run_stats
+        try:
+            await db.execute("ALTER TABLE query_run_stats ADD COLUMN user_id TEXT DEFAULT ''")
+        except aiosqlite.OperationalError:
+            pass
+        # migration: user_id column on query_chat_messages
+        try:
+            await db.execute("ALTER TABLE query_chat_messages ADD COLUMN user_id TEXT DEFAULT ''")
+        except aiosqlite.OperationalError:
+            pass
+        # Seed demo users (idempotent，admin token 同步 .env 配置)
+        from app.config import settings as app_settings
+        admin_token = app_settings.API_TOKEN or "enterprise-rag-dev-token"
+        for user_id, username, token, role in (
+            ("u_alice", "Alice", "alice-demo-token", "user"),
+            ("u_bob",   "Bob",   "bob-demo-token",   "user"),
+            ("u_admin", "Admin", admin_token, "admin"),
+        ):
+            try:
+                await db.execute(
+                    "INSERT INTO users (user_id, username, api_token, role) VALUES (?, ?, ?, ?) "
+                    "ON CONFLICT(user_id) DO UPDATE SET api_token = excluded.api_token",
+                    (user_id, username, token, role),
+                )
+            except Exception:
+                pass
         # migration: QueryConfig 默认值 seed
         from app.core.runtime_settings import _DEFAULTS
         for key, value in _DEFAULTS.items():

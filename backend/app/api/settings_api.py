@@ -13,6 +13,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.core.auth import CurrentUser
 from app.deps import verify_token
 from app.config import settings
 from app.core.runtime_settings import runtime_settings
@@ -22,30 +23,17 @@ router = APIRouter()
 
 
 @router.get("/settings")
-async def get_settings(_: None = Depends(verify_token)):
-    """
-    获取所有运行时设置
-
-    返回:
-        dict: { key: value, ... }
-    """
+async def get_settings(current_user: CurrentUser = Depends(verify_token)):
     return await runtime_settings.get_all()
 
 
 @router.put("/settings")
 async def update_settings(
     request: SettingsUpdate,
-    _: None = Depends(verify_token),
+    current_user: CurrentUser = Depends(verify_token),
 ):
-    """
-    批量更新运行时设置
-
-    参数:
-        request: 设置更新请求体 { settings: { key: value, ... } }
-
-    返回:
-        dict: 更新后的完整设置
-    """
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员可修改设置")
     if not request.settings:
         raise HTTPException(status_code=400, detail="settings 不能为空")
     await runtime_settings.update_batch(request.settings)
@@ -55,7 +43,7 @@ async def update_settings(
 @router.post("/settings/token")
 async def update_token(
     request: TokenUpdate,
-    _: None = Depends(verify_token),
+    current_user: CurrentUser = Depends(verify_token),
 ):
     """
     更新 API Token
@@ -65,12 +53,22 @@ async def update_token(
     参数:
         request: Token 更新请求体 { token: "新 token" }
     """
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员可修改 Token")
     new_token = request.token.strip()
     if not new_token:
         raise HTTPException(status_code=400, detail="Token 不能为空")
 
     # 更新进程内配置（立即生效）
     settings.API_TOKEN = new_token
+
+    # 同步当前 admin 用户的 api_token 到 users 表
+    from app.core.database import get_db
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE users SET api_token = ? WHERE user_id = ?", (new_token, current_user.user_id)
+        )
+        await db.commit()
 
     # 写入 .env 文件持久化
     env_path = Path(__file__).resolve().parent.parent.parent / ".env"

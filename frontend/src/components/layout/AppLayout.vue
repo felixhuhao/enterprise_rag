@@ -37,21 +37,29 @@
           系统设置
         </a-menu-item>
       </a-menu>
-      <!-- Token 输入区域 -->
+      <!-- Demo 用户切换 -->
       <div class="sider-footer">
-        <div class="token-label" @click="showTokenInput = !showTokenInput">
-          <icon-lock />
-          <span>访问令牌</span>
-          <icon-tag v-if="tokenSet && !showTokenInput" :style="{ color: 'var(--success)' }" />
-        </div>
-        <div v-if="showTokenInput" class="token-input">
-          <a-input-password
-            v-model="tokenValue"
-            placeholder="输入访问令牌"
+        <div class="user-label">Demo 用户</div>
+        <div class="user-switcher">
+          <a-select
+            :model-value="currentUserToken"
             size="small"
-            @keydown.enter="saveToken"
-          />
-          <a-button type="primary" size="mini" @click="saveToken">保存</a-button>
+            @change="onUserSwitch"
+          >
+            <a-option value="enterprise-rag-dev-token">Admin（全部文档）</a-option>
+            <a-option value="alice-demo-token">Alice（星辰科技）</a-option>
+            <a-option value="bob-demo-token">Bob（远景能源）</a-option>
+            <a-option v-if="isCustomToken" :value="currentUserToken">自定义 Token</a-option>
+          </a-select>
+          <div class="custom-token">
+            <a-input-password
+              v-model="customToken"
+              placeholder="自定义 Token"
+              size="small"
+              @keydown.enter="saveCustomToken"
+            />
+            <a-button size="mini" @click="saveCustomToken">保存</a-button>
+          </div>
         </div>
       </div>
     </a-layout-sider>
@@ -64,7 +72,7 @@
         </div>
         <div class="header-status">
           <span class="status-dot"></span>
-          <span>{{ tokenSet ? '访问令牌已配置' : '需要访问令牌' }}</span>
+          <span>就绪</span>
         </div>
       </a-layout-header>
       <a-layout-content class="content">
@@ -85,8 +93,6 @@ import {
   IconStorage,
   IconBarChart,
   IconSettings,
-  IconLock,
-  IconTag,
   IconSearch,
 } from '@arco-design/web-vue/es/icon'
 
@@ -106,9 +112,14 @@ const pageMeta = computed(() => {
 })
 const pageTitle = computed(() => pageMeta.value.title)
 const pageSubtitle = computed(() => pageMeta.value.subtitle)
-const showTokenInput = ref(false)
-const tokenValue = ref('')
-const tokenSet = ref(false)
+const DEMO_TOKENS: Record<string, string> = {
+  'Admin（全部文档）': 'enterprise-rag-dev-token',
+  'Alice（星辰科技）': 'alice-demo-token',
+  'Bob（远景能源）': 'bob-demo-token',
+}
+
+const customToken = ref('')
+const currentUserToken = ref(DEMO_TOKENS['Admin（全部文档）'])
 
 function onMenuClick(key: string) {
   router.push(key)
@@ -117,19 +128,31 @@ function onMenuClick(key: string) {
 onMounted(() => {
   const stored = localStorage.getItem('api_token')
   if (stored) {
-    tokenValue.value = stored
-    tokenSet.value = true
+    currentUserToken.value = stored
   } else {
-    showTokenInput.value = true
+    localStorage.setItem('api_token', currentUserToken.value)
   }
 })
 
-function saveToken() {
-  const trimmed = tokenValue.value.trim()
+function switchUser(token: string) {
+  localStorage.setItem('api_token', token)
+  currentUserToken.value = token
+  window.location.reload()
+}
+
+const isCustomToken = computed(() =>
+  currentUserToken.value !== '' && !Object.values(DEMO_TOKENS).includes(currentUserToken.value),
+)
+
+function onUserSwitch(value: unknown) {
+  if (typeof value !== 'string') return
+  switchUser(value)
+}
+
+function saveCustomToken() {
+  const trimmed = customToken.value.trim()
   if (!trimmed) return
-  localStorage.setItem('api_token', trimmed)
-  tokenSet.value = true
-  showTokenInput.value = false
+  switchUser(trimmed)
 }
 </script>
 
@@ -194,26 +217,24 @@ function saveToken() {
   padding: 12px 16px;
 }
 
-.token-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
+.user-label {
+  font-size: 11px;
+  font-weight: 600;
   color: var(--text-muted);
-  cursor: pointer;
-  user-select: none;
-  transition: color 0.2s var(--ease-out);
-}
-.token-label:hover {
-  color: var(--accent);
+  margin-bottom: 6px;
 }
 
-.token-input {
+.user-switcher {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.custom-token {
   display: flex;
   gap: 6px;
-  margin-top: 8px;
 }
-.token-input :deep(.arco-input-password) {
+.custom-token :deep(.arco-input-password) {
   flex: 1;
 }
 

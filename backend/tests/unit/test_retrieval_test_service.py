@@ -135,7 +135,7 @@ def test_dense_only_multi_entity_keeps_entity_filters(monkeypatch):
         use_rerank=False,
     )
 
-    assert seen_filters == ['entity_name == "实体A"', 'entity_name == "实体B"']
+    assert seen_filters == ['(entity_name == "实体A")', '(entity_name == "实体B")']
     assert payload["strategy"]["search_mode"] == "multi_dense_filtered"
     assert payload["per_entity_counts"] == {"实体A": 1, "实体B": 1}
     assert {row["entity_name"] for row in payload["results"]} == {"实体A", "实体B"}

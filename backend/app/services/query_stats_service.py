@@ -25,6 +25,7 @@ class QueryStatsService:
         error_code: str = "",
         retrieved_chunks: str = "[]",
         groundedness_score: float | None = None,
+        user_id: str = "",
     ):
         """保存一次查询统计。"""
         now = datetime.now().isoformat()
@@ -34,19 +35,21 @@ class QueryStatsService:
                    (session_id, query, search_mode, search_mode_hyde,
                     result_count, rerank_avg_score, rerank_top_score,
                     retrieval_wall_ms, first_token_ms, generate_ms, total_ms,
-                    status, error_code, retrieved_chunks, groundedness_score, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    status, error_code, retrieved_chunks, groundedness_score, user_id, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (session_id, query[:500], search_mode, search_mode_hyde,
                  result_count, rerank_avg_score, rerank_top_score,
                  retrieval_wall_ms, first_token_ms, generate_ms, total_ms,
-                 status, error_code, retrieved_chunks, groundedness_score, now),
+                 status, error_code, retrieved_chunks, groundedness_score, user_id, now),
             )
             await db.commit()
 
-    async def get_stats(self) -> dict:
-        """聚合统计。平均值只算 success，fallback 只算 success。"""
+    async def get_stats(self, user_id: str | None = None) -> dict:
+        """聚合统计。user_id 非空时只统计该用户；None = admin 看全部。"""
+        where = "WHERE user_id = ?" if user_id else ""
+        params = (user_id,) if user_id else ()
         async with get_db() as db:
-            async with db.execute(
+            sql = (
                 "SELECT COUNT(*) as total_queries, "
                 "COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) as success_count, "
                 "COALESCE(AVG(CASE WHEN status = 'success' THEN rerank_avg_score END), 0) as avg_rerank, "
@@ -57,12 +60,11 @@ class QueryStatsService:
                 "  THEN 1 ELSE 0 END), 0) as fallback_count, "
                 "AVG(CASE WHEN status = 'success' AND groundedness_score IS NOT NULL "
                 "  THEN groundedness_score END) as avg_groundedness_score, "
-                # TODO: if groundedness_warning_threshold becomes user-configurable in the UI,
-                # read the threshold from QueryConfig instead of keeping this aggregate fixed.
                 "COALESCE(SUM(CASE WHEN status = 'success' AND groundedness_score IS NOT NULL "
                 "  AND groundedness_score < 0.7 THEN 1 ELSE 0 END), 0) as low_groundedness_count "
-                "FROM query_run_stats"
-            ) as cursor:
+                f"FROM query_run_stats {where}"
+            )
+            async with db.execute(sql, params) as cursor:
                 row = dict(await cursor.fetchone())
 
         total = row["total_queries"] or 0
@@ -82,20 +84,22 @@ class QueryStatsService:
             "low_groundedness_count": row["low_groundedness_count"] or 0,
         }
 
-    async def get_trend(self, days: int = 30) -> dict:
-        """每日趋势。"""
+    async def get_trend(self, days: int = 30, user_id: str | None = None) -> dict:
+        """每日趋势。user_id 非空时过滤。"""
+        where = "WHERE user_id = ?" if user_id else ""
+        extra = (user_id,) if user_id else ()
         async with get_db() as db:
             async with db.execute(
-                """SELECT DATE(created_at) as date,
+                f"""SELECT DATE(created_at) as date,
                           AVG(CASE WHEN status = 'success' THEN rerank_avg_score END) as avg_rerank,
                           AVG(CASE WHEN status = 'success' THEN result_count END) as avg_result_count,
                           COUNT(*) as count,
                           SUM(CASE WHEN status != 'success' THEN 1 ELSE 0 END) as failed_count
-                   FROM query_run_stats
+                   FROM query_run_stats {where}
                    GROUP BY DATE(created_at)
                    ORDER BY date DESC
                    LIMIT ?""",
-                (days,),
+                (*extra, days),
             ) as cursor:
                 rows = await cursor.fetchall()
         return {
@@ -106,24 +110,27 @@ class QueryStatsService:
             "failed_counts": [row["failed_count"] for row in rows],
         }
 
-    async def get_records(self, page: int = 1, page_size: int = 20) -> dict:
-        """分页查询记录。"""
+    async def get_records(self, page: int = 1, page_size: int = 20, user_id: str | None = None) -> dict:
+        """分页查询记录。user_id 非空时过滤。"""
         offset = (page - 1) * page_size
+        where = "WHERE user_id = ?" if user_id else ""
+        user_param = (user_id,) if user_id else ()
         async with get_db() as db:
             async with db.execute(
-                """SELECT id, session_id, query, search_mode, search_mode_hyde,
+                f"""SELECT id, session_id, query, search_mode, search_mode_hyde,
                           result_count, rerank_avg_score, rerank_top_score,
                           retrieval_wall_ms, first_token_ms, generate_ms, total_ms,
-                          status, error_code, retrieved_chunks, groundedness_score, created_at
-                   FROM query_run_stats
+                          status, error_code, retrieved_chunks, groundedness_score, user_id, created_at
+                   FROM query_run_stats {where}
                    ORDER BY created_at DESC
                    LIMIT ? OFFSET ?""",
-                (page_size, offset),
+                (*user_param, page_size, offset),
             ) as cursor:
                 rows = await cursor.fetchall()
                 records = [dict(row) for row in rows]
 
-            async with db.execute("SELECT COUNT(*) as total FROM query_run_stats") as cursor:
+            count_sql = f"SELECT COUNT(*) as total FROM query_run_stats {where}"
+            async with db.execute(count_sql, user_param) as cursor:
                 total = (await cursor.fetchone())["total"]
 
         return {

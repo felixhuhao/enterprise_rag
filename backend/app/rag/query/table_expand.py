@@ -55,11 +55,15 @@ def table_expand_node(state: QueryState, config: RunnableConfig) -> dict:
 
         tokens = hit.get("table_tokens") or 0
         target_type = "table_full" if tokens <= cfg.table_full_token_limit else "table_row_group"
+        doc_id = hit.get("document_id", "")
 
         try:
+            filter_expr = f'table_id == "{table_id}" and source_type == "{target_type}"'
+            if doc_id:
+                filter_expr += f' and document_id == "{doc_id}"'
             rows = client.query(
                 collection_name=COLLECTION_NAME,
-                filter=f'table_id == "{table_id}" and source_type == "{target_type}"',
+                filter=filter_expr,
                 output_fields=_EXPAND_FIELDS,
                 limit=cfg.table_expand_limit,
                 timeout=SEARCH_TIMEOUT,

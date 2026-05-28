@@ -19,12 +19,16 @@ def run_retrieval_test(
     use_hybrid: bool = True,
     use_hyde: bool = True,
     use_rerank: bool = True,
+    allowed_document_ids: list[str] | None = None,
 ) -> dict:
     """Run the query pipeline up to rerank, without prompt building or generation."""
     from app.rag.query.rrf_fusion import _dedup_key, rrf_fusion_node
 
     cfg = _build_config(top_k=top_k, use_hyde=use_hyde, use_rerank=use_rerank)
-    run_config = {"configurable": {"query_config": cfg}}
+    run_config = {"configurable": {
+        "query_config": cfg,
+        "allowed_document_ids": allowed_document_ids,
+    }}
     trace: dict[str, int] = {}
     t0 = time.monotonic()
     state: dict = {"query": query}
@@ -108,29 +112,55 @@ def _build_config(*, top_k: int, use_hyde: bool, use_rerank: bool) -> QueryConfi
     return cfg
 
 
+def _retrieval_acl_filter(run_config: dict) -> tuple[str | None, list[str] | None]:
+    """Build ACL expr from retrieval test run_config.
+    Returns (acl_expr, allowed_ids) where allowed_ids=None means no restriction,
+    acl_expr=None with allowed_ids=[] means no access.
+    """
+    from app.rag.query.filter_utils import build_acl_expr, get_allowed_ids
+    allowed = get_allowed_ids(run_config)
+    if allowed is not None and not allowed:
+        return None, []  # no access
+    acl = build_acl_expr(allowed) if allowed else None
+    return acl, allowed
+
+
+def _combine_acl(entity_filter: str | None, acl_filter: str | None) -> str | None:
+    """Combine entity and ACL filter."""
+    from app.rag.query.filter_utils import combine_filters
+    if acl_filter is None and entity_filter is None:
+        return None
+    return combine_filters(entity_filter, acl_filter)
+
+
 def _run_primary_search(state: dict, run_config: dict, cfg: QueryConfig, *, use_hybrid: bool) -> dict:
     from app.rag.query.scoring_utils import need_fallback
+
+    acl_filter, allowed_ids = _retrieval_acl_filter(run_config)
+    if allowed_ids is not None and not allowed_ids:
+        return {"search_results": [], "search_mode": "acl_empty"}
 
     if use_hybrid:
         return _search_node(state, run_config)
 
     if state.get("entity_mode") == "multi_explicit":
-        return _run_multi_entity_dense_search(state, cfg)
+        return _run_multi_entity_dense_search(state, cfg, acl_filter)
 
     query = state.get("rewritten_query") or state["query"]
     entity_filter = state.get("entity_filter") or None
+    combined = _combine_acl(entity_filter, acl_filter)
     query_dense = _embed_query(query)
 
-    results = _dense_only_search_limited(query_dense, entity_filter, cfg.search_limit)
-    if need_fallback(results, entity_filter, cfg):
-        results = _dense_only_search_limited(query_dense, None, cfg.search_limit)
+    results = _dense_only_search_limited(query_dense, combined, cfg.search_limit)
+    if need_fallback(results, combined, cfg):
+        results = _dense_only_search_limited(query_dense, acl_filter, cfg.search_limit)
         mode = "dense_filtered_fallback_unfiltered"
     else:
-        mode = "dense_filtered" if entity_filter else "dense"
+        mode = "dense_filtered" if combined else "dense"
     return {"search_results": results, "search_mode": mode}
 
 
-def _run_multi_entity_dense_search(state: dict, cfg: QueryConfig) -> dict:
+def _run_multi_entity_dense_search(state: dict, cfg: QueryConfig, acl_filter: str | None = None) -> dict:
     """Dense-only variant of multi-entity retrieval for the retrieval test page."""
     from concurrent.futures import ThreadPoolExecutor
 
@@ -141,8 +171,9 @@ def _run_multi_entity_dense_search(state: dict, cfg: QueryConfig) -> dict:
     query_dense = _embed_query(query)
 
     def _search_one(entity: str) -> tuple[str, list[dict], str]:
+        combined = _combine_acl(f'entity_name == "{entity}"', acl_filter)
         try:
-            rows = _dense_only_search_limited(query_dense, f'entity_name == "{entity}"', per_limit)
+            rows = _dense_only_search_limited(query_dense, combined, per_limit)
             return entity, rows, "dense_filtered"
         except Exception:
             return entity, [], "failed"

@@ -54,9 +54,12 @@ _builder.add_edge("groundedness_check", END)
 query_graph = _builder.compile()
 
 
-def run_query_graph(query: str, query_config: QueryConfig | None = None) -> dict:
-    """入口函数。"""
-    config = {"configurable": {"query_config": query_config or get_default_query_config()}}
+def run_query_graph(query: str, query_config: QueryConfig | None = None, extra_configurable: dict | None = None) -> dict:
+    """入口函数。extra_configurable 传入 allowed_document_ids 等 request-level 字段。"""
+    configurable = {"query_config": query_config or get_default_query_config()}
+    if extra_configurable:
+        configurable.update(extra_configurable)
+    config = {"configurable": configurable}
     result = query_graph.invoke({"query": query}, config=config)
     return {
         "answer": result.get("answer", ""),

@@ -16,25 +16,26 @@ async def save_message(
     role: str,
     content: str,
     citations: list[dict] | None = None,
+    user_id: str = "",
 ) -> None:
     """保存一条聊天记录。"""
     now = datetime.now(timezone.utc).isoformat()
     async with get_db() as db:
         await db.execute(
-            "INSERT INTO query_chat_messages (session_id, role, content, citations, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (session_id, role, content, json.dumps(citations or [], ensure_ascii=False), now),
+            "INSERT INTO query_chat_messages (session_id, role, content, citations, user_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (session_id, role, content, json.dumps(citations or [], ensure_ascii=False), user_id, now),
         )
         await db.commit()
 
 
-async def load_history(session_id: str, limit: int = 20) -> list[dict]:
-    """加载最近 N 条聊天记录。"""
+async def load_history(session_id: str, user_id: str = "", limit: int = 20) -> list[dict]:
+    """加载最近 N 条聊天记录。按 session + user 隔离。"""
     async with get_db() as db:
         cursor = await db.execute(
             "SELECT role, content, citations, created_at FROM query_chat_messages "
-            "WHERE session_id = ? ORDER BY id DESC LIMIT ?",
-            (session_id, limit),
+            "WHERE session_id = ? AND user_id = ? ORDER BY id DESC LIMIT ?",
+            (session_id, user_id, limit),
         )
         rows = await cursor.fetchall()
         return [

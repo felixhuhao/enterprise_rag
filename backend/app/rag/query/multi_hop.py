@@ -68,7 +68,8 @@ def run_multi_hop_search(
     state: dict, query: str, run_config, cfg: QueryConfig, trace: dict,
 ) -> dict:
     """Broad entity discovery + per-entity hop2. Returns state update dict."""
-    from app.rag.query.search import _single_search, search_node  # lazy — avoid pymilvus at import time
+    from app.rag.query.filter_utils import build_acl_expr, get_allowed_ids
+    from app.rag.query.search import _single_search, search_node
 
     seed_entities = list(state.get("matched_entities", []))
     seed_entity_set = set(seed_entities)
@@ -76,8 +77,19 @@ def run_multi_hop_search(
 
     t = time.monotonic()
 
-    # ── Hop 1: broad search, no entity_filter ──
-    hop1_result = _single_search(query, None, cfg)
+    # ACL filter
+    allowed = get_allowed_ids(run_config)
+    if allowed is not None and not allowed:
+        return {
+            "search_results": [], "search_mode": "acl_empty", "search_mode_hyde": "",
+            "entity_mode": state.get("entity_mode", "none"),
+            "matched_entities": seed_entities, "per_entity_counts": {},
+            "hop_plan": "discovery", "hop_trace": [],
+        }
+    acl_filter = build_acl_expr(allowed) if allowed else None
+
+    # ── Hop 1: broad search, no entity_filter, with ACL ──
+    hop1_result = _single_search(query, None, cfg, acl_filter=acl_filter)
     hop1_results = hop1_result.get("search_results", [])
     hop_trace.append({
         "hop": 1,

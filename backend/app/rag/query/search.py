@@ -10,6 +10,7 @@ from langgraph.graph.state import RunnableConfig
 
 from app.rag.embeddings.dense_embedding import dense_embedding
 from app.rag.query.config import QueryConfig, get_query_config
+from app.rag.query.filter_utils import build_acl_expr, combine_filters, get_allowed_ids
 from app.rag.query.scoring_utils import need_fallback
 from app.rag.query.state import QueryState
 from app.rag.vectorstores.general_milvus import COLLECTION_NAME, client
@@ -17,6 +18,7 @@ from app.rag.vectorstores.general_milvus import COLLECTION_NAME, client
 logger = logging.getLogger(__name__)
 
 SEARCH_TIMEOUT = 30  # seconds
+
 
 OUTPUT_FIELDS = [
     "content",
@@ -45,45 +47,55 @@ def search_node(state: QueryState, config: RunnableConfig) -> dict:
     query = state.get("rewritten_query") or state["query"]
     entity_mode = state.get("entity_mode", "none")
 
+    # ACL check
+    allowed = get_allowed_ids(config)
+    if allowed is not None and not allowed:
+        return {"search_results": [], "search_mode": "acl_empty"}
+
+    entity_filter = state.get("entity_filter") or None
+    acl_filter = build_acl_expr(allowed) if allowed else None
+    combined = combine_filters(entity_filter, acl_filter)
+
     # multi_explicit: 逐 entity 检索，合并去重
     if entity_mode == "multi_explicit":
-        return _multi_entity_search(state, config, query, cfg)
+        return _multi_entity_search(state, config, query, cfg, combined)
 
     # single / broad / none: 原有逻辑
-    entity_filter = state.get("entity_filter") or None
-    return _single_search(query, entity_filter, cfg)
+    return _single_search(query, entity_filter, cfg, acl_filter=acl_filter)
 
 
-def _single_search(query: str, entity_filter: str | None, cfg: QueryConfig) -> dict:
-    """单 entity / 无 filter 的搜索。"""
+def _single_search(query: str, entity_filter: str | None, cfg: QueryConfig, acl_filter: str | None = None) -> dict:
+    """单 entity / 无 filter 的搜索。acl_filter 在 fallback 时保留。"""
+    combined = combine_filters(entity_filter, acl_filter)
+
     try:
         query_dense = dense_embedding.embed_query(query)
     except Exception as e:
         raise RuntimeError(f"Embedding 失败: {e}") from e
 
     try:
-        results = _hybrid_search(query_dense, query, entity_filter, cfg)
-        if need_fallback(results, entity_filter, cfg):
+        results = _hybrid_search(query_dense, query, combined, cfg)
+        if need_fallback(results, combined, cfg):
             logger.info("Filtered hybrid: %d results, max_score=%.3f, retrying unfiltered",
                         len(results), max((r["score"] for r in results), default=0))
-            results = _hybrid_search(query_dense, query, None, cfg)
+            results = _hybrid_search(query_dense, query, acl_filter, cfg)
             mode = "hybrid_filtered_fallback_unfiltered"
         else:
-            mode = "hybrid_filtered" if entity_filter else "hybrid"
+            mode = "hybrid_filtered" if combined else "hybrid"
         logger.debug("Search mode: %s (%d results)", mode, len(results))
         return {"search_results": results, "search_mode": mode}
     except Exception as e:
         logger.warning("Hybrid search failed: %s, falling back to dense_only", e)
 
     try:
-        results = _dense_only_search(query_dense, entity_filter, cfg)
-        if need_fallback(results, entity_filter, cfg):
+        results = _dense_only_search(query_dense, combined, cfg)
+        if need_fallback(results, combined, cfg):
             logger.info("Filtered dense: %d results, max_score=%.3f, retrying unfiltered",
                         len(results), max((r["score"] for r in results), default=0))
-            results = _dense_only_search(query_dense, None, cfg)
+            results = _dense_only_search(query_dense, acl_filter, cfg)
             mode = "dense_filtered_fallback_unfiltered"
         else:
-            mode = "dense_filtered" if entity_filter else "dense"
+            mode = "dense_filtered" if combined else "dense"
         logger.debug("Search mode: %s (%d results)", mode, len(results))
         return {"search_results": results, "search_mode": mode}
     except Exception as e:
@@ -91,7 +103,7 @@ def _single_search(query: str, entity_filter: str | None, cfg: QueryConfig) -> d
         raise RuntimeError(f"搜索失败: {e}") from e
 
 
-def _multi_entity_search(state: dict, config: RunnableConfig, query: str, cfg: QueryConfig) -> dict:
+def _multi_entity_search(state: dict, config: RunnableConfig, query: str, cfg: QueryConfig, acl_filter: str | None = None) -> dict:
     """multi_explicit: 逐 entity 检索，合并去重，记录 per_entity_counts。"""
     from concurrent.futures import ThreadPoolExecutor
 
@@ -106,7 +118,7 @@ def _multi_entity_search(state: dict, config: RunnableConfig, query: str, cfg: Q
         raise RuntimeError(f"Embedding 失败: {e}") from e
 
     def _search_one(entity: str) -> tuple[str, list[dict], str]:
-        ef = f'entity_name == "{entity}"'
+        ef = combine_filters(f'entity_name == "{entity}"', acl_filter) or f'entity_name == "{entity}"'
         try:
             results = _hybrid_search_limited(query_dense, query, ef, per_limit, cfg)
             return entity, results, "hybrid_filtered"
