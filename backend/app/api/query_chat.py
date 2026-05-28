@@ -101,6 +101,7 @@ async def _stream_generator(session_id: str, query: str, query_config):
     from app.rag.query.table_expand import table_expand_node
     from app.rag.query.rerank import rerank_node
     from app.rag.query.build_prompt import build_prompt_node
+    from app.rag.query.config import get_query_config
     from app.rag.query.generate import _chat_llm
     from app.rag.query.validate_citations import validate_citations_node
     from app.errors import classify_error
@@ -115,6 +116,7 @@ async def _stream_generator(session_id: str, query: str, query_config):
     state: dict = {}
     gen_trace: dict = {}
     cit_result: dict = {}
+    gr_result: dict = {}
     status = "client_aborted"
     error_code = "CLIENT_ABORTED"
 
@@ -128,57 +130,24 @@ async def _stream_generator(session_id: str, query: str, query_config):
         state.update(entity_confirm_node(state, run_config))
         trace["entity_confirm_ms"] = _tick_ms(t)
 
-        t = time.monotonic()
-        state.update(rewrite_query_node(state, run_config))
-        trace["rewrite_ms"] = _tick_ms(t)
+        cfg = get_query_config(run_config)
+        from app.rag.query.multi_hop import _decide_multi_hop
 
-        # 并行 search + hyde，wall time
-        t = time.monotonic()
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            f1 = pool.submit(search_node, state, run_config)
-            f2 = pool.submit(hyde_search_node, state, run_config)
-            state.update(f1.result())
-            state.update(f2.result())
-        trace["search_hyde_ms"] = _tick_ms(t)
+        if cfg.use_multi_hop and _decide_multi_hop(state.get("entity_mode", "none"), query):
+            # ── Discovery path ──
+            from app.rag.query.multi_hop import run_multi_hop_search
+            state.update(run_multi_hop_search(state, query, run_config, cfg, trace))
 
-        t = time.monotonic()
-        state.update(rrf_fusion_node(state, run_config))
-        trace["rrf_fusion_ms"] = _tick_ms(t)
+            t = time.monotonic()
+            state.update(table_expand_node(state, run_config))
+            trace["table_expand_ms"] = _tick_ms(t)
 
-        t = time.monotonic()
-        state.update(table_expand_node(state, run_config))
-        trace["table_expand_ms"] = _tick_ms(t)
-
-        t = time.monotonic()
-        state.update(rerank_node(state, run_config))
-        trace["rerank_ms"] = _tick_ms(t)
-
-        # Post-rerank fallback
-        entity_filter = state.get("entity_filter")
-        already_fell_back = (
-            "fallback" in state.get("search_mode", "")
-            or "fallback" in state.get("search_mode_hyde", "")
-        )
-        results = state.get("search_results", [])
-        if entity_filter and not already_fell_back and results:
-            top_score = results[0].get("score", 0)
-            if top_score < query_config.entity_filter_rerank_min_score:
-                logger.info(
-                    "Post-rerank fallback: top_score=%.3f < %.3f, retrying unfiltered",
-                    top_score, query_config.entity_filter_rerank_min_score,
-                )
-                t_fb = time.monotonic()
-                state["entity_filter"] = ""
-                with ThreadPoolExecutor(max_workers=2) as pool:
-                    f1 = pool.submit(search_node, state, run_config)
-                    f2 = pool.submit(hyde_search_node, state, run_config)
-                    state.update(f1.result())
-                    state.update(f2.result())
-                state.update(rrf_fusion_node(state, run_config))
-                state.update(table_expand_node(state, run_config))
-                state.update(rerank_node(state, run_config))
-                state["search_mode"] = state.get("search_mode", "") + "_post_rerank_fallback"
-                trace["post_rerank_fallback_ms"] = _tick_ms(t_fb)
+            t = time.monotonic()
+            state.update(rerank_node(state, run_config))
+            trace["rerank_ms"] = _tick_ms(t)
+        else:
+            # ── Direct path（含 post-rerank fallback）──
+            _run_direct_with_fallback(state, run_config, trace)
 
         t = time.monotonic()
         state.update(build_prompt_node(state, run_config))
@@ -187,6 +156,63 @@ async def _stream_generator(session_id: str, query: str, query_config):
         trace["retrieval_wall_ms"] = _tick_ms(t0)
         state["trace"] = trace
         return state
+
+    def _run_direct_retrieval(st, cfg_dict, trace):
+        """rewrite → search+hyde → rrf."""
+        t = time.monotonic()
+        st.update(rewrite_query_node(st, cfg_dict))
+        trace["rewrite_ms"] = _tick_ms(t)
+
+        t = time.monotonic()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            f1 = pool.submit(search_node, st, cfg_dict)
+            f2 = pool.submit(hyde_search_node, st, cfg_dict)
+            st.update(f1.result())
+            st.update(f2.result())
+        trace["search_hyde_ms"] = _tick_ms(t)
+
+        t = time.monotonic()
+        st.update(rrf_fusion_node(st, cfg_dict))
+        trace["rrf_fusion_ms"] = _tick_ms(t)
+
+        return st
+
+    def _run_direct_with_fallback(st, cfg_dict, trace):
+        """rewrite → search+hyde → rrf → table → rerank → [fallback] → final."""
+        st.update(_run_direct_retrieval(st, cfg_dict, trace))
+
+        t = time.monotonic()
+        st.update(table_expand_node(st, cfg_dict))
+        trace["table_expand_ms"] = _tick_ms(t)
+
+        t = time.monotonic()
+        st.update(rerank_node(st, cfg_dict))
+        trace["rerank_ms"] = _tick_ms(t)
+
+        # Post-rerank fallback：rerank 后 top_score 仍低 → 去掉 filter 重搜
+        entity_filter = st.get("entity_filter")
+        already_fell_back = (
+            "fallback" in st.get("search_mode", "")
+            or "fallback" in st.get("search_mode_hyde", "")
+        )
+        results = st.get("search_results", [])
+        if entity_filter and not already_fell_back and results:
+            top_score = results[0].get("score", 0)
+            if top_score < query_config.entity_filter_rerank_min_score:
+                logger.info(
+                    "Post-rerank fallback: top_score=%.3f < %.3f, retrying unfiltered",
+                    top_score, query_config.entity_filter_rerank_min_score,
+                )
+                t_fb = time.monotonic()
+                st["entity_filter"] = ""
+                st.update(_run_direct_retrieval(st, cfg_dict, trace))
+
+                t_fb2 = time.monotonic()
+                st.update(table_expand_node(st, cfg_dict))
+                st.update(rerank_node(st, cfg_dict))
+                trace["post_rerank_fallback_ms"] = _tick_ms(t_fb) + _tick_ms(t_fb2)
+
+                st["search_mode"] = st.get("search_mode", "") + "_post_rerank_fallback"
 
     # ── 所有 yield/await 都在 finally 保护内 ──
     try:
@@ -216,6 +242,8 @@ async def _stream_generator(session_id: str, query: str, query_config):
             "entity_mode": state.get("entity_mode", "none"),
             "matched_entities": state.get("matched_entities", []),
             "per_entity_counts": state.get("per_entity_counts", {}),
+            "hop_plan": state.get("hop_plan", "direct"),
+            "hop_trace": state.get("hop_trace", []),
         })
 
         # rerank debug（rerank 关闭时不发）
@@ -296,6 +324,19 @@ async def _stream_generator(session_id: str, query: str, query_config):
         state["context_map"] = state.get("context_map", {})
         cit_result = validate_citations_node(state)
         yield sse_event({"type": "citations", "citations": cit_result.get("citations", [])})
+
+        # ── Phase 4: Groundedness check（仅 enabled 时发送 SSE 事件）──
+        try:
+            from app.rag.query.groundedness import groundedness_check_node
+            gr_result = await asyncio.to_thread(groundedness_check_node, state, run_config)
+            gr_data = gr_result.get("groundedness", {})
+            if gr_data.get("status") != "skipped":
+                yield sse_event({"type": "groundedness", **gr_data})
+        except Exception:
+            logger.warning("Groundedness check failed", exc_info=True)
+            yield sse_event({"type": "groundedness", "enabled": True, "status": "unavailable",
+                             "groundedness_score": None, "claims": [], "warning": "依据覆盖检查失败"})
+
         yield sse_event({"type": "message_end"})
 
         # 保存聊天历史
@@ -345,6 +386,7 @@ async def _stream_generator(session_id: str, query: str, query_config):
                 status=status,
                 error_code=error_code,
                 retrieved_chunks=retrieved_chunks,
+                groundedness_score=gr_result.get("groundedness", {}).get("groundedness_score"),
             ))
             await asyncio.shield(save_task)
         except asyncio.CancelledError:

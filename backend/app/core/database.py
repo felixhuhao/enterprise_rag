@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS query_run_stats (
     status           TEXT DEFAULT 'success',
     error_code       TEXT DEFAULT '',
     retrieved_chunks TEXT DEFAULT '[]',
+    groundedness_score REAL DEFAULT NULL,
     created_at       TEXT NOT NULL
 );
 
@@ -140,6 +141,11 @@ async def init_db():
         # migration: retrieved_chunks JSON column on query_run_stats
         try:
             await db.execute("ALTER TABLE query_run_stats ADD COLUMN retrieved_chunks TEXT DEFAULT '[]'")
+        except aiosqlite.OperationalError:
+            pass
+        # migration: groundedness_score column on query_run_stats
+        try:
+            await db.execute("ALTER TABLE query_run_stats ADD COLUMN groundedness_score REAL DEFAULT NULL")
         except aiosqlite.OperationalError:
             pass
         # migration: QueryConfig 默认值 seed

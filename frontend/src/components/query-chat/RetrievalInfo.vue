@@ -19,6 +19,30 @@
 
     <!-- 展开状态：trace + rerank -->
     <template v-if="expanded">
+      <!-- Multi-hop trace -->
+      <div v-if="info.hop_plan === 'discovery' && info.hop_trace?.length" class="hop-trace-panel">
+        <div class="hop-trace-title" @click="showHopTrace = !showHopTrace">
+          检索跳转 (multi-hop)
+          <span class="hop-count">{{ info.hop_trace.length }} hops</span>
+        </div>
+        <template v-if="showHopTrace">
+          <div class="hop-row" v-for="(hop, i) in info.hop_trace" :key="i">
+            <div class="hop-label">Hop {{ hop.hop }}</div>
+            <div class="hop-detail">
+              <span v-if="hop.query">查询: {{ hop.query }}</span>
+              <span v-if="hop.discovered_entities?.length">
+                发现实体: {{ hop.discovered_entities.join('、') }}
+              </span>
+              <span v-if="hop.per_entity_counts">
+                命中: <template v-for="(cnt, ent) in hop.per_entity_counts" :key="ent">{{ ent }}×{{ cnt }} </template>
+              </span>
+              <span class="hop-status" :class="'hop-' + hop.status">{{ hop.status }}</span>
+            </div>
+            <div class="hop-count-badge">{{ hop.result_count }} results</div>
+          </div>
+        </template>
+      </div>
+
       <!-- Trace 链路 -->
       <div v-if="traceRows.length" class="trace-panel">
         <div class="trace-row" v-for="row in traceRows" :key="row.label">
@@ -102,6 +126,7 @@ const props = withDefaults(defineProps<{
 })
 
 const expanded = ref(false)
+const showHopTrace = ref(false)
 
 const resolved = computed(() => resolveSearchMode(props.info.search_mode, props.info.search_mode_hyde))
 const combinedSearchModeLabel = computed(() => resolved.value.label)
@@ -276,5 +301,67 @@ const traceRows = computed<TraceRow[]>(() => {
 .cell-score {
   font-weight: 600;
   color: var(--text-primary);
+}
+
+/* Multi-hop trace */
+.hop-trace-panel {
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 12px;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-radius: var(--radius-md);
+}
+
+.hop-trace-title {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  color: #166534;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.hop-count { font-weight: 400; color: var(--text-muted); }
+
+.hop-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid #dcfce7;
+  font-size: 11px;
+}
+.hop-row:last-child { border-bottom: none; }
+
+.hop-label {
+  font-weight: 600;
+  color: #166534;
+  min-width: 40px;
+}
+
+.hop-detail {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text-secondary);
+}
+
+.hop-status {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 0 4px;
+  border-radius: 999px;
+}
+.hop-ok { color: #166534; }
+.hop-no_entities_found { color: #92400e; }
+.hop-hop2_failed { color: #991b1b; }
+.hop-no_results { color: var(--text-muted); }
+
+.hop-count-badge {
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 </style>

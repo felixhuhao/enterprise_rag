@@ -11,6 +11,7 @@ from app.rag.query.build_prompt import build_prompt_node
 from app.rag.query.config import QueryConfig, get_default_query_config
 from app.rag.query.entity_confirm import entity_confirm_node
 from app.rag.query.generate import generate_answer_node
+from app.rag.query.groundedness import groundedness_check_node
 from app.rag.query.hyde_search import hyde_search_node
 from app.rag.query.rerank import rerank_node
 from app.rag.query.rewrite_query import rewrite_query_node
@@ -32,6 +33,7 @@ _builder.add_node("rerank", rerank_node)
 _builder.add_node("build_prompt", build_prompt_node)
 _builder.add_node("generate_answer", generate_answer_node)
 _builder.add_node("validate_citations", validate_citations_node)
+_builder.add_node("groundedness_check", groundedness_check_node)
 
 _builder.add_edge(START, "entity_confirm")
 _builder.add_edge("entity_confirm", "rewrite_query")
@@ -46,7 +48,8 @@ _builder.add_edge("table_expand", "rerank")
 _builder.add_edge("rerank", "build_prompt")
 _builder.add_edge("build_prompt", "generate_answer")
 _builder.add_edge("generate_answer", "validate_citations")
-_builder.add_edge("validate_citations", END)
+_builder.add_edge("validate_citations", "groundedness_check")
+_builder.add_edge("groundedness_check", END)
 
 query_graph = _builder.compile()
 
@@ -64,4 +67,5 @@ def run_query_graph(query: str, query_config: QueryConfig | None = None) -> dict
         "entity_mode": result.get("entity_mode", "none"),
         "matched_entities": result.get("matched_entities", []),
         "per_entity_counts": result.get("per_entity_counts", {}),
+        "groundedness": result.get("groundedness", {}),
     }

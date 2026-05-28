@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS query_run_stats (
     status           TEXT DEFAULT 'success',
     error_code       TEXT DEFAULT '',
     retrieved_chunks TEXT DEFAULT '[]',
+    groundedness_score REAL DEFAULT NULL,
     created_at       TEXT NOT NULL
 );
 """
@@ -213,3 +214,27 @@ class TestTrend:
         assert len(trend["dates"]) >= 1
         assert trend["failed_counts"][0] == 1
         assert trend["counts"][0] == 2
+
+
+class TestRetrievedChunks:
+    def test_save_and_read_back(self, svc):
+        chunks_json = (
+            '[{"chunk_id": 123, "rank": 1, "score": 0.87, '
+            '"document_id": "abc", "file_title": "年报.pdf", '
+            '"entity_name": "中芯国际", "section_title": "财务", '
+            '"source_type": "text", "retrieval_path": "Hybrid + Rerank", '
+            '"stage": "rerank"}]'
+        )
+        run(svc.save(
+            "s1", "test query", "hybrid", "hyde",
+            result_count=1, rerank_avg_score=0.87, rerank_top_score=0.87,
+            retrieved_chunks=chunks_json,
+        ))
+        result = run(svc.get_records(page=1, page_size=10))
+        records = result["records"]
+        assert records[0]["retrieved_chunks"] == chunks_json
+
+    def test_defaults_to_empty_array(self, svc):
+        run(svc.save("s1", "q", "", "", 0, 0, 0))
+        result = run(svc.get_records(page=1, page_size=10))
+        assert result["records"][0]["retrieved_chunks"] == "[]"

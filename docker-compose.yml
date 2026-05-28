@@ -26,6 +26,7 @@ services:
     env_file: .env
     environment:
       EMBEDDING_MODEL_PATH: /models/embedding
+      MILVUS_URI: http://milvus-standalone:19530
     volumes:
       - ./data:/app/data
       - ${EMBEDDING_MODEL_HOST_PATH:-D:/Models/BAAI/bge-m3}:/models/embedding:ro

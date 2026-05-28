@@ -52,6 +52,17 @@ class QueryConfig:
     # Content truncation (HyDE + rerank)
     content_preview_length: int = 300
 
+    # Groundedness check
+    use_groundedness: bool = False
+    groundedness_max_claims: int = 8
+    groundedness_timeout_sec: int = 30
+    groundedness_warning_threshold: float = 0.7
+    groundedness_context_max_chars: int = 12000
+
+    # Multi-hop retrieval
+    use_multi_hop: bool = False
+    multi_hop_max_discovered: int = 5
+
     def __post_init__(self):
         self.clamp()
 
@@ -69,6 +80,11 @@ class QueryConfig:
         _clamp(self, "rerank_min_top_k", 1, self.rerank_max_top_k)
         _clamp(self, "content_preview_length", 50, 2000)
         _clamp(self, "entity_filter_min_results", 1, 50)
+        _clamp(self, "groundedness_max_claims", 3, 20)
+        _clamp(self, "groundedness_timeout_sec", 5, 120)
+        _clamp(self, "groundedness_warning_threshold", 0.1, 1.0)
+        _clamp(self, "groundedness_context_max_chars", 2000, 32000)
+        _clamp(self, "multi_hop_max_discovered", 1, 10)
         for name in ("dense_weight", "sparse_weight", "entity_filter_min_score",
                       "entity_filter_rerank_min_score", "rerank_llm_weight",
                       "rerank_rrf_weight", "rerank_cliff_threshold", "rerank_fallback_score"):

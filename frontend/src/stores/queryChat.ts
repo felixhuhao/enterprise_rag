@@ -22,6 +22,17 @@ export interface Citation {
   image_paths?: string[]
 }
 
+/** multi-hop trace entry */
+export interface HopTraceEntry {
+  hop: number
+  query?: string
+  entity_filter?: string
+  result_count: number
+  status: string
+  discovered_entities?: string[]
+  per_entity_counts?: Record<string, number>
+}
+
 /** 检索步骤信息 */
 export interface RetrievalInfo {
   results_count: number
@@ -32,6 +43,26 @@ export interface RetrievalInfo {
   entity_mode: string
   matched_entities: string[]
   per_entity_counts: Record<string, number>
+  hop_plan?: string
+  hop_trace?: HopTraceEntry[]
+}
+
+/** groundedness claim */
+export interface GroundednessClaim {
+  claim: string
+  claim_type?: 'factual' | 'no_answer'
+  verdict: 'supported' | 'partially_supported' | 'unsupported' | 'contradicted'
+  evidence: string | null
+  citation_ids: string[]
+}
+
+/** groundedness 结果 */
+export interface GroundednessResult {
+  enabled: boolean
+  status: 'ok' | 'skipped' | 'unavailable'
+  groundedness_score: number | null
+  claims: GroundednessClaim[]
+  warning: string | null
 }
 
 /** rerank debug 条目 */
@@ -67,6 +98,7 @@ export interface QueryChatMessage {
   role: 'user' | 'assistant'
   content: string
   citations?: Citation[]
+  groundedness?: GroundednessResult
   retrievalInfo?: RetrievalInfo
   rerankItems?: RerankItem[]
   trace?: TraceData
@@ -96,6 +128,12 @@ export const useQueryChatStore = defineStore('queryChat', () => {
 
   /** 错误信息 */
   const error = ref<AppError | null>(null)
+
+  /** Query debug config — 本次会话级别，不持久化 */
+  const debugConfig = ref({
+    use_multi_hop: false,
+    use_groundedness: false,
+  })
 
   /** 当前 SSE 连接的 AbortController */
   let abortController: AbortController | null = null
@@ -142,7 +180,14 @@ export const useQueryChatStore = defineStore('queryChat', () => {
     // 发起 SSE 连接
     abortController = connectSSE(
       '/query/chat/stream',
-      { session_id: sessionId.value, query: query.trim() },
+      {
+        session_id: sessionId.value,
+        query: query.trim(),
+        config: {
+          use_multi_hop: debugConfig.value.use_multi_hop,
+          use_groundedness: debugConfig.value.use_groundedness,
+        },
+      },
       (event: SSEEvent) => handleEvent(event),
       (err: any) => {
         isStreaming.value = false
@@ -171,6 +216,8 @@ export const useQueryChatStore = defineStore('queryChat', () => {
             entity_mode: (event as any).entity_mode ?? 'none',
             matched_entities: (event as any).matched_entities ?? [],
             per_entity_counts: (event as any).per_entity_counts ?? {},
+            hop_plan: (event as any).hop_plan ?? 'direct',
+            hop_trace: (event as any).hop_trace ?? [],
           },
         })
         break
@@ -202,6 +249,18 @@ export const useQueryChatStore = defineStore('queryChat', () => {
       case 'citations':
         updateAssistant({
           citations: (event as any).citations ?? [],
+        })
+        break
+
+      case 'groundedness':
+        updateAssistant({
+          groundedness: {
+            enabled: (event as any).enabled ?? false,
+            status: (event as any).status ?? 'unavailable',
+            groundedness_score: (event as any).groundedness_score ?? null,
+            claims: (event as any).claims ?? [],
+            warning: (event as any).warning ?? null,
+          },
         })
         break
 
@@ -242,6 +301,7 @@ export const useQueryChatStore = defineStore('queryChat', () => {
     messages,
     isStreaming,
     error,
+    debugConfig,
     sendMessage,
     stopStreaming,
     clearMessages,

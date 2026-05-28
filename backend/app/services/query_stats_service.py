@@ -24,6 +24,7 @@ class QueryStatsService:
         status: str = "success",
         error_code: str = "",
         retrieved_chunks: str = "[]",
+        groundedness_score: float | None = None,
     ):
         """保存一次查询统计。"""
         now = datetime.now().isoformat()
@@ -33,12 +34,12 @@ class QueryStatsService:
                    (session_id, query, search_mode, search_mode_hyde,
                     result_count, rerank_avg_score, rerank_top_score,
                     retrieval_wall_ms, first_token_ms, generate_ms, total_ms,
-                    status, error_code, retrieved_chunks, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    status, error_code, retrieved_chunks, groundedness_score, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (session_id, query[:500], search_mode, search_mode_hyde,
                  result_count, rerank_avg_score, rerank_top_score,
                  retrieval_wall_ms, first_token_ms, generate_ms, total_ms,
-                 status, error_code, retrieved_chunks, now),
+                 status, error_code, retrieved_chunks, groundedness_score, now),
             )
             await db.commit()
 
@@ -53,7 +54,13 @@ class QueryStatsService:
                 "COALESCE(SUM(CASE WHEN status != 'success' THEN 1 ELSE 0 END), 0) as total_failed, "
                 "COALESCE(SUM(CASE WHEN status = 'success' "
                 "  AND (search_mode LIKE '%fallback%' OR search_mode_hyde LIKE '%fallback%') "
-                "  THEN 1 ELSE 0 END), 0) as fallback_count "
+                "  THEN 1 ELSE 0 END), 0) as fallback_count, "
+                "AVG(CASE WHEN status = 'success' AND groundedness_score IS NOT NULL "
+                "  THEN groundedness_score END) as avg_groundedness_score, "
+                # TODO: if groundedness_warning_threshold becomes user-configurable in the UI,
+                # read the threshold from QueryConfig instead of keeping this aggregate fixed.
+                "COALESCE(SUM(CASE WHEN status = 'success' AND groundedness_score IS NOT NULL "
+                "  AND groundedness_score < 0.7 THEN 1 ELSE 0 END), 0) as low_groundedness_count "
                 "FROM query_run_stats"
             ) as cursor:
                 row = dict(await cursor.fetchone())
@@ -71,6 +78,8 @@ class QueryStatsService:
             "avg_result_count": round(row["avg_result_count"], 1),
             "fallback_count": fallback_count,
             "fallback_ratio": round(fallback_count / success_count, 3) if success_count else 0,
+            "avg_groundedness_score": round(row["avg_groundedness_score"], 3) if row["avg_groundedness_score"] is not None else None,
+            "low_groundedness_count": row["low_groundedness_count"] or 0,
         }
 
     async def get_trend(self, days: int = 30) -> dict:
@@ -105,7 +114,7 @@ class QueryStatsService:
                 """SELECT id, session_id, query, search_mode, search_mode_hyde,
                           result_count, rerank_avg_score, rerank_top_score,
                           retrieval_wall_ms, first_token_ms, generate_ms, total_ms,
-                          status, error_code, retrieved_chunks, created_at
+                          status, error_code, retrieved_chunks, groundedness_score, created_at
                    FROM query_run_stats
                    ORDER BY created_at DESC
                    LIMIT ? OFFSET ?""",

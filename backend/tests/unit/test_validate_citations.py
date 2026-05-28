@@ -63,3 +63,26 @@ class TestValidateCitations:
         assert c["document_id"] == "doc-001"
         assert c["source_type"] == "table_full"
         assert c["table_id"] == "doc-001_t_0001"
+
+    def test_citation_preserves_chunk_id_and_page(self):
+        state = {
+            "answer": "参考 [C1]。",
+            "context_map": {
+                "C1": {
+                    "chunk_id": 456,
+                    "document_id": "doc-001",
+                    "file_title": "年报.pdf",
+                    "entity_name": "中芯国际",
+                    "section_title": "财务",
+                    "page": 12,
+                    "source_type": "text",
+                    "table_id": "",
+                    "image_paths": [],
+                },
+            },
+        }
+        result = validate_citations_node(state)
+        c = result["citations"][0]
+        assert c["chunk_id"] == 456
+        assert c["page"] == 12
+        assert c["entity_name"] == "中芯国际"

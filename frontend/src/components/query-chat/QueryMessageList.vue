@@ -44,6 +44,8 @@
           <div class="content" v-html="renderMarkdown(msg.content)"></div>
           <!-- 引用卡片 -->
           <CitationCard v-if="msg.citations?.length" :citations="msg.citations" />
+          <!-- 依据覆盖检查 -->
+          <GroundednessCard v-if="msg.groundedness" :result="msg.groundedness" />
         </div>
       </div>
     </template>
@@ -57,6 +59,7 @@ import DOMPurify from 'dompurify'
 import type { QueryChatMessage } from '../../stores/queryChat'
 import RetrievalInfo from './RetrievalInfo.vue'
 import CitationCard from './CitationCard.vue'
+import GroundednessCard from './GroundednessCard.vue'
 
 const props = defineProps<{
   messages: QueryChatMessage[]

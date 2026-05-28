@@ -10,10 +10,30 @@
         <div class="toolbar-title">知识库问答工作台</div>
         <div class="toolbar-subtitle">回答会附带引用来源、检索链路和耗时追踪。</div>
       </div>
-      <div class="toolbar-pill">
-        <span class="dot" :class="{ active: store.isStreaming }"></span>
-        {{ store.isStreaming ? '生成中' : '就绪' }}
+      <div class="toolbar-actions">
+        <button class="debug-toggle" :class="{ active: showDebug }" @click="showDebug = !showDebug">
+          调试
+        </button>
+        <div class="toolbar-pill">
+          <span class="dot" :class="{ active: store.isStreaming }"></span>
+          {{ store.isStreaming ? '生成中' : '就绪' }}
+        </div>
       </div>
+    </div>
+
+    <!-- Query Debug Panel -->
+    <div v-if="showDebug" class="debug-panel">
+      <div class="debug-title">检索调试</div>
+      <label class="debug-row">
+        <span>Multi-hop 实体发现</span>
+        <a-switch :model-value="store.debugConfig.use_multi_hop"
+                  @change="store.debugConfig.use_multi_hop = $event as boolean" size="small" />
+      </label>
+      <label class="debug-row">
+        <span>Groundedness 检查</span>
+        <a-switch :model-value="store.debugConfig.use_groundedness"
+                  @change="store.debugConfig.use_groundedness = $event as boolean" size="small" />
+      </label>
     </div>
 
     <QueryMessageList :messages="store.messages" />
@@ -45,6 +65,7 @@ import QueryChatInput from './QueryChatInput.vue'
 
 const store = useQueryChatStore()
 const showDetail = ref(false)
+const showDebug = ref(false)
 
 function onSend(text: string) {
   store.sendMessage(text)
@@ -142,6 +163,53 @@ onBeforeUnmount(() => {
 }
 .dot.active {
   background: var(--info);
+}
+
+.toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.debug-toggle {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.debug-toggle:hover,
+.debug-toggle.active {
+  color: var(--accent);
+  border-color: var(--border-accent);
+}
+
+.debug-panel {
+  margin: 0 18px 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-hover);
+}
+
+.debug-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.debug-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
 }
 
 @media (max-width: 760px) {

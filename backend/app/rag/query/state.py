@@ -30,6 +30,9 @@ class QueryState(TypedDict, total=False):
     answer: str
     citations: list[dict]
 
+    # groundedness
+    groundedness: dict  # {enabled, status, groundedness_score, claims, warning}
+
     # 状态
     status: str
     error_msg: str
