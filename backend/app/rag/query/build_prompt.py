@@ -23,6 +23,37 @@ ANSWER_PROMPT = """\
 
 用户问题：{query}"""
 
+ANSWER_PROMPT_MULTI = """\
+你是企业文档知识库助手。用户的问题涉及多个实体，请基于以下检索到的上下文回答。
+
+要求：
+1. 按实体分组回答，使用标题或列表区分每个实体的信息
+2. 如果涉及对比，请用表格或对比列表呈现
+3. 引用上下文时使用 [C1]、[C2] 等编号
+4. 数值类回答必须标注来源编号
+5. 如果某个实体在上下文中没有相关信息，直接说明
+6. 使用 Markdown 格式
+
+上下文：
+{context}
+
+用户问题：{query}"""
+
+ANSWER_PROMPT_BROAD = """\
+你是企业文档知识库助手。用户的问题涉及多个实体或全局检索，请基于以下检索到的上下文回答。
+
+要求：
+1. 按相关实体分组归纳信息，使用标题区分
+2. 引用上下文时使用 [C1]、[C2] 等编号
+3. 数值类回答必须标注来源编号
+4. 如果上下文中没有相关信息，直接说明
+5. 使用 Markdown 格式
+
+上下文：
+{context}
+
+用户问题：{query}"""
+
 
 def build_prompt_node(state: QueryState, config: RunnableConfig) -> dict:
     """组装编号上下文 [C1]/[C2]... + 构建 prompt。表格按三层策略标注。"""
@@ -35,6 +66,7 @@ def build_prompt_node(state: QueryState, config: RunnableConfig) -> dict:
         context_map[cid] = {
             "document_id": result.get("document_id", ""),
             "file_title": result.get("file_title", ""),
+            "entity_name": result.get("entity_name", ""),
             "section_title": result.get("section_title", ""),
             "table_id": result.get("table_id", ""),
             "source_type": result.get("source_type", ""),
@@ -44,7 +76,17 @@ def build_prompt_node(state: QueryState, config: RunnableConfig) -> dict:
         context_parts.append(f"{header}\n{result.get('content', '')}")
 
     context_text = "\n\n---\n\n".join(context_parts)
-    prompt = ANSWER_PROMPT.format(context=context_text, query=state.get("rewritten_query") or state["query"])
+    query = state.get("rewritten_query") or state["query"]
+
+    entity_mode = state.get("entity_mode", "none")
+    if entity_mode == "multi_explicit":
+        template = ANSWER_PROMPT_MULTI
+    elif entity_mode == "broad":
+        template = ANSWER_PROMPT_BROAD
+    else:
+        template = ANSWER_PROMPT
+
+    prompt = template.format(context=context_text, query=query)
 
     return {"context_text": prompt, "context_map": context_map, "status": "prompted"}
 
@@ -52,8 +94,11 @@ def build_prompt_node(state: QueryState, config: RunnableConfig) -> dict:
 def _build_header(result: dict, cid: str, cfg: QueryConfig) -> str:
     """构建上下文条目标题，表格按 token 大小分层标注。"""
     file_title = result.get("file_title", "")
+    entity_name = result.get("entity_name", "")
     section = result.get("section_title", "")
     base = f"[{cid}] 文件: {file_title} | 章节: {section}"
+    if entity_name:
+        base = f"{base} | 实体: {entity_name}"
 
     source_type = result.get("source_type", "")
     if source_type not in ("table_summary", "table_full", "table_row_group"):

@@ -49,10 +49,14 @@ HYDE_PROMPT = (
 
 
 def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
-    """LLM 生成假设文档 → embedding → dense search。"""
+    """LLM 生成假设文档 → embedding → dense search。multi_explicit 模式下关闭。"""
     cfg = get_query_config(config)
     if not cfg.use_hyde:
         return {"search_results_hyde": [], "search_mode_hyde": "disabled"}
+
+    # multi_explicit: HyDE 无法按 entity 分流，跳过
+    if state.get("entity_mode") == "multi_explicit":
+        return {"search_results_hyde": [], "search_mode_hyde": "disabled_multi"}
 
     query = state.get("rewritten_query") or state["query"]
     entity_filter = state.get("entity_filter") or None

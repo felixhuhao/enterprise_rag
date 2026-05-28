@@ -16,14 +16,18 @@ _PRONOUNS = [
 
 
 def rewrite_query_node(state: QueryState, config: RunnableConfig) -> dict:
-    """规则版代词替换：如果确认了 entity，替换 query 中的代词。"""
+    """规则版代词替换：single 模式下替换代词，multi/broad/none 跳过。"""
     cfg = get_query_config(config)
     if not cfg.use_rewrite:
         return {"rewritten_query": state["query"]}
 
     query = state["query"]
-    entity = state.get("confirmed_entity", "")
 
+    # multi / broad / none 模式不做代词替换，避免污染
+    if state.get("entity_mode", "none") != "single":
+        return {"rewritten_query": query}
+
+    entity = state.get("confirmed_entity", "")
     if not entity:
         return {"rewritten_query": query}
 

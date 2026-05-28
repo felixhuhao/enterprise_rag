@@ -71,8 +71,8 @@
             <strong>{{ response.trace.retrieval_wall_ms ?? 0 }}ms</strong>
           </div>
           <div class="metric">
-            <span>实体</span>
-            <strong>{{ response.confirmed_entity || '全库' }}</strong>
+            <span>实体路由</span>
+            <strong>{{ entityRouteLabel }}</strong>
           </div>
           <div class="metric">
             <span>Embedding</span>
@@ -81,6 +81,15 @@
           <div class="metric">
             <span>LLM</span>
             <strong>{{ response.strategy.chat_model }}</strong>
+          </div>
+        </div>
+
+        <!-- Per-entity hit distribution -->
+        <div v-if="entityEntries.length" class="entity-dist">
+          <span class="entity-dist-label">实体命中分布</span>
+          <div v-for="[name, count] in entityEntries" :key="name" class="entity-dist-item">
+            <span class="entity-dist-name">{{ name }}</span>
+            <span class="entity-dist-count">{{ count }} 条</span>
           </div>
         </div>
       </section>
@@ -207,6 +216,24 @@ const strategyText = computed(() => {
   const s = response.value.strategy
   const weights = s.hybrid ? `Dense ${s.dense_weight} / Sparse ${s.sparse_weight}` : 'Dense 1.0'
   return `Top ${s.top_k}，${weights}，主检索：${s.search_mode || '—'}，HyDE：${s.search_mode_hyde || '—'}`
+})
+
+const entityRouteLabel = computed(() => {
+  if (!response.value) return '—'
+  const mode = response.value.entity_mode
+  const entity = response.value.confirmed_entity
+  if (mode === 'single') return entity || '—'
+  if (mode === 'multi_explicit') {
+    const entities = response.value.matched_entities ?? []
+    return entities.join(' / ')
+  }
+  if (mode === 'broad') return '全局检索'
+  return entity || '全库'
+})
+
+const entityEntries = computed(() => {
+  if (!response.value?.per_entity_counts) return []
+  return Object.entries(response.value.per_entity_counts)
 })
 
 async function runTest() {
@@ -388,6 +415,39 @@ function sourceTypeLabel(sourceType: string) {
 
 .results-panel {
   margin-top: 14px;
+}
+
+.entity-dist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  align-items: center;
+}
+
+.entity-dist-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.entity-dist-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-subtle);
+  border: 1px solid var(--border-accent);
+  font-size: 12px;
+}
+
+.entity-dist-name {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.entity-dist-count {
+  color: var(--text-muted);
 }
 
 .trace-mini {

@@ -7,7 +7,7 @@
   <div class="retrieval-info">
     <!-- 收起状态：核心 tag -->
     <span class="tag">{{ info.results_count }} 条结果</span>
-    <span v-if="info.entity" class="tag accent">主体: {{ info.entity }}</span>
+    <span v-if="entityTag.text" class="tag" :class="entityTag.cls">{{ entityTag.text }}</span>
     <span v-if="info.search_mode" class="tag" :class="{ warn: combinedWarn }">
       {{ combinedSearchModeLabel }}
     </span>
@@ -107,6 +107,22 @@ const resolved = computed(() => resolveSearchMode(props.info.search_mode, props.
 const combinedSearchModeLabel = computed(() => resolved.value.label)
 const combinedWarn = computed(() => resolved.value.warn)
 
+const entityTag = computed(() => {
+  const mode = props.info.entity_mode
+  if (mode === 'multi_explicit') {
+    const entities = props.info.matched_entities ?? []
+    return { text: `多实体: ${entities.join('、')}`, cls: 'accent' }
+  }
+  if (mode === 'broad' || mode === 'none') {
+    return { text: '全局搜索', cls: '' }
+  }
+  // single or fallback
+  if (props.info.entity) {
+    return { text: `主体: ${props.info.entity}`, cls: 'accent' }
+  }
+  return { text: '', cls: '' }
+})
+
 interface TraceRow {
   label: string
   value?: string
@@ -117,7 +133,7 @@ const traceRows = computed<TraceRow[]>(() => {
   const t = props.trace
   if (!t) return []
   const rows: TraceRow[] = []
-  if (t.entity_confirm_ms != null) rows.push({ label: '主体确认', value: props.info.entity || undefined, ms: t.entity_confirm_ms })
+  if (t.entity_confirm_ms != null) rows.push({ label: '主体确认', value: entityTag.value.text || undefined, ms: t.entity_confirm_ms })
   if (t.rewrite_ms != null) rows.push({ label: '查询改写', value: props.info.rewritten_query || undefined, ms: t.rewrite_ms })
   if (t.search_hyde_ms != null) rows.push({ label: '搜索 + HyDE (并行)', ms: t.search_hyde_ms })
   if (t.rrf_fusion_ms != null) rows.push({ label: 'RRF 融合', ms: t.rrf_fusion_ms })

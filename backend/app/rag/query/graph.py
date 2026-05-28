@@ -61,4 +61,7 @@ def run_query_graph(query: str, query_config: QueryConfig | None = None) -> dict
         "results_count": len(result.get("search_results", [])),
         "entity": result.get("confirmed_entity", ""),
         "rewritten_query": result.get("rewritten_query", ""),
+        "entity_mode": result.get("entity_mode", "none"),
+        "matched_entities": result.get("matched_entities", []),
+        "per_entity_counts": result.get("per_entity_counts", {}),
     }

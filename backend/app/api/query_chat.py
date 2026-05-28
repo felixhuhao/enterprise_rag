@@ -193,6 +193,9 @@ async def _stream_generator(session_id: str, query: str, query_config):
             "rewritten_query": rewritten,
             "search_mode": state.get("search_mode", ""),
             "search_mode_hyde": state.get("search_mode_hyde", ""),
+            "entity_mode": state.get("entity_mode", "none"),
+            "matched_entities": state.get("matched_entities", []),
+            "per_entity_counts": state.get("per_entity_counts", {}),
         })
 
         # rerank debug（rerank 关闭时不发）

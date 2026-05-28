@@ -26,6 +26,9 @@ export interface RetrievalInfo {
   rewritten_query: string
   search_mode: string
   search_mode_hyde: string
+  entity_mode: string
+  matched_entities: string[]
+  per_entity_counts: Record<string, number>
 }
 
 /** rerank debug 条目 */
@@ -162,6 +165,9 @@ export const useQueryChatStore = defineStore('queryChat', () => {
             rewritten_query: (event as any).rewritten_query ?? '',
             search_mode: (event as any).search_mode ?? '',
             search_mode_hyde: (event as any).search_mode_hyde ?? '',
+            entity_mode: (event as any).entity_mode ?? 'none',
+            matched_entities: (event as any).matched_entities ?? [],
+            per_entity_counts: (event as any).per_entity_counts ?? {},
           },
         })
         break

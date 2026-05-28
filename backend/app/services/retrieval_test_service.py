@@ -7,16 +7,7 @@ import time
 from pathlib import Path
 
 from app.config import settings
-from app.rag.embeddings.dense_embedding import dense_embedding
 from app.rag.query.config import QueryConfig, get_default_query_config
-from app.rag.query.entity_confirm import entity_confirm_node
-from app.rag.query.hyde_search import hyde_search_node
-from app.rag.query.rerank import rerank_node
-from app.rag.query.rewrite_query import rewrite_query_node
-from app.rag.query.rrf_fusion import _dedup_key, rrf_fusion_node
-from app.rag.query.scoring_utils import need_fallback
-from app.rag.query.search import search_node, _dense_only_search
-from app.rag.query.table_expand import table_expand_node
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +21,8 @@ def run_retrieval_test(
     use_rerank: bool = True,
 ) -> dict:
     """Run the query pipeline up to rerank, without prompt building or generation."""
+    from app.rag.query.rrf_fusion import _dedup_key, rrf_fusion_node
+
     cfg = _build_config(top_k=top_k, use_hyde=use_hyde, use_rerank=use_rerank)
     run_config = {"configurable": {"query_config": cfg}}
     trace: dict[str, int] = {}
@@ -37,16 +30,16 @@ def run_retrieval_test(
     state: dict = {"query": query}
 
     t = time.monotonic()
-    state.update(entity_confirm_node(state, run_config))
+    state.update(_entity_confirm_node(state, run_config))
     trace["entity_confirm_ms"] = _tick_ms(t)
 
     t = time.monotonic()
-    state.update(rewrite_query_node(state, run_config))
+    state.update(_rewrite_query_node(state, run_config))
     trace["rewrite_ms"] = _tick_ms(t)
 
     t = time.monotonic()
     primary = _run_primary_search(state, run_config, cfg, use_hybrid=use_hybrid)
-    hyde = hyde_search_node(state, run_config) if use_hyde else {
+    hyde = _hyde_search_node(state, run_config) if use_hyde else {
         "search_results_hyde": [],
         "search_mode_hyde": "disabled",
     }
@@ -55,6 +48,7 @@ def run_retrieval_test(
     trace["search_hyde_ms"] = _tick_ms(t)
 
     path_map = _build_path_map(
+        _dedup_key,
         state.get("search_results", []),
         state.get("search_mode", ""),
         state.get("search_results_hyde", []),
@@ -63,18 +57,18 @@ def run_retrieval_test(
 
     t = time.monotonic()
     state.update(rrf_fusion_node(state, run_config))
-    _apply_paths(state.get("search_results", []), path_map)
+    _apply_paths(_dedup_key, state.get("search_results", []), path_map)
     trace["rrf_fusion_ms"] = _tick_ms(t)
 
     table_paths = _table_path_map(state.get("search_results", []))
     t = time.monotonic()
-    state.update(table_expand_node(state, run_config))
+    state.update(_table_expand_node(state, run_config))
     _apply_table_paths(state.get("search_results", []), table_paths)
     trace["table_expand_ms"] = _tick_ms(t)
 
     t = time.monotonic()
     if use_rerank:
-        state.update(rerank_node(state, run_config))
+        state.update(_rerank_node(state, run_config))
     else:
         state["search_results"] = state.get("search_results", [])[:cfg.rerank_max_top_k]
         state["rerank_debug"] = []
@@ -91,6 +85,9 @@ def run_retrieval_test(
         "rewritten_query": state.get("rewritten_query", query),
         "confirmed_entity": state.get("confirmed_entity", ""),
         "entity_filter": state.get("entity_filter", ""),
+        "entity_mode": state.get("entity_mode", "none"),
+        "matched_entities": state.get("matched_entities", []),
+        "per_entity_counts": state.get("per_entity_counts", {}),
         "result_count": len(results),
         "trace": trace,
         "strategy": _strategy_summary(cfg, use_hybrid, state),
@@ -112,34 +109,88 @@ def _build_config(*, top_k: int, use_hyde: bool, use_rerank: bool) -> QueryConfi
 
 
 def _run_primary_search(state: dict, run_config: dict, cfg: QueryConfig, *, use_hybrid: bool) -> dict:
+    from app.rag.query.scoring_utils import need_fallback
+
     if use_hybrid:
-        return search_node(state, run_config)
+        return _search_node(state, run_config)
+
+    if state.get("entity_mode") == "multi_explicit":
+        return _run_multi_entity_dense_search(state, cfg)
 
     query = state.get("rewritten_query") or state["query"]
     entity_filter = state.get("entity_filter") or None
     query_dense = _embed_query(query)
 
-    results = _dense_only_search(query_dense, entity_filter, cfg)
+    results = _dense_only_search_limited(query_dense, entity_filter, cfg.search_limit)
     if need_fallback(results, entity_filter, cfg):
-        results = _dense_only_search(query_dense, None, cfg)
+        results = _dense_only_search_limited(query_dense, None, cfg.search_limit)
         mode = "dense_filtered_fallback_unfiltered"
     else:
         mode = "dense_filtered" if entity_filter else "dense"
     return {"search_results": results, "search_mode": mode}
 
 
-def _build_path_map(primary: list[dict], primary_mode: str, hyde: list[dict], hyde_mode: str) -> dict[str, set[str]]:
+def _run_multi_entity_dense_search(state: dict, cfg: QueryConfig) -> dict:
+    """Dense-only variant of multi-entity retrieval for the retrieval test page."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    query = state.get("rewritten_query") or state["query"]
+    matched = state.get("matched_entities", [])
+    n = max(len(matched), 1)
+    per_limit = max(cfg.search_limit // n, 5)
+    query_dense = _embed_query(query)
+
+    def _search_one(entity: str) -> tuple[str, list[dict], str]:
+        try:
+            rows = _dense_only_search_limited(query_dense, f'entity_name == "{entity}"', per_limit)
+            return entity, rows, "dense_filtered"
+        except Exception:
+            return entity, [], "failed"
+
+    all_results: list[dict] = []
+    per_counts: dict[str, int] = {}
+    all_failed = True
+    with ThreadPoolExecutor(max_workers=min(n, 4)) as pool:
+        futures = [pool.submit(_search_one, entity) for entity in matched]
+        for future in futures:
+            entity, rows, mode = future.result()
+            per_counts[entity] = len(rows)
+            all_results.extend(rows)
+            if mode != "failed":
+                all_failed = False
+
+    if all_failed:
+        raise RuntimeError(f"多实体 dense 检索全部失败: entities={matched}")
+
+    seen: dict[str, dict] = {}
+    for row in all_results:
+        key = str(row.get("chunk_id") or f"{row.get('document_id')}|{row.get('source_type')}|{row.get('part')}")
+        if key not in seen or row["score"] > seen[key]["score"]:
+            seen[key] = row
+
+    cap = min(len(seen), cfg.search_limit * 2)
+    return {
+        "search_results": sorted(seen.values(), key=lambda x: x["score"], reverse=True)[:cap],
+        "search_mode": "multi_dense_filtered",
+        "per_entity_counts": per_counts,
+    }
+
+
+def _build_path_map(
+    dedup_key, primary: list[dict], primary_mode: str,
+    hyde: list[dict], hyde_mode: str,
+) -> dict[str, set[str]]:
     path_map: dict[str, set[str]] = {}
     for row in primary:
-        path_map.setdefault(_dedup_key(row), set()).add(_mode_label(primary_mode))
+        path_map.setdefault(dedup_key(row), set()).add(_mode_label(primary_mode))
     for row in hyde:
-        path_map.setdefault(_dedup_key(row), set()).add(_mode_label(hyde_mode))
+        path_map.setdefault(dedup_key(row), set()).add(_mode_label(hyde_mode))
     return path_map
 
 
-def _apply_paths(rows: list[dict], path_map: dict[str, set[str]]):
+def _apply_paths(dedup_key, rows: list[dict], path_map: dict[str, set[str]]):
     for row in rows:
-        paths = sorted(path_map.get(_dedup_key(row), set()))
+        paths = sorted(path_map.get(dedup_key(row), set()))
         row["retrieval_paths"] = paths
         row["retrieval_path"] = " + ".join(paths) if paths else "未知"
 
@@ -228,5 +279,49 @@ def _tick_ms(t0: float) -> int:
     return round((time.monotonic() - t0) * 1000)
 
 
+def _entity_confirm_node(state: dict, config: dict) -> dict:
+    from app.rag.query.entity_confirm import entity_confirm_node
+
+    return entity_confirm_node(state, config)
+
+
+def _rewrite_query_node(state: dict, config: dict) -> dict:
+    from app.rag.query.rewrite_query import rewrite_query_node
+
+    return rewrite_query_node(state, config)
+
+
+def _search_node(state: dict, config: dict) -> dict:
+    from app.rag.query.search import search_node
+
+    return search_node(state, config)
+
+
+def _hyde_search_node(state: dict, config: dict) -> dict:
+    from app.rag.query.hyde_search import hyde_search_node
+
+    return hyde_search_node(state, config)
+
+
+def _table_expand_node(state: dict, config: dict) -> dict:
+    from app.rag.query.table_expand import table_expand_node
+
+    return table_expand_node(state, config)
+
+
+def _rerank_node(state: dict, config: dict) -> dict:
+    from app.rag.query.rerank import rerank_node
+
+    return rerank_node(state, config)
+
+
 def _embed_query(query: str) -> list[float]:
+    from app.rag.embeddings.dense_embedding import dense_embedding
+
     return dense_embedding.embed_query(query)
+
+
+def _dense_only_search_limited(query_dense, entity_filter, limit: int) -> list[dict]:
+    from app.rag.query.search import _dense_only_search_limited as dense_only_search_limited
+
+    return dense_only_search_limited(query_dense, entity_filter, limit)

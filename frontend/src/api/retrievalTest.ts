@@ -52,6 +52,9 @@ export interface RetrievalTestResponse {
   rewritten_query: string
   confirmed_entity: string
   entity_filter: string
+  entity_mode: string
+  matched_entities: string[]
+  per_entity_counts: Record<string, number>
   result_count: number
   trace: Record<string, number>
   strategy: RetrievalStrategy
