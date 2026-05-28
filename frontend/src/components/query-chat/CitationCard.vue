@@ -9,7 +9,7 @@
       <icon-down :class="{ rotated: expanded }" />
     </div>
     <div v-if="expanded" class="citation-list">
-      <div v-for="c in citations" :key="c.id" class="citation-item">
+      <div v-for="c in citations" :key="c.id" class="citation-item" :class="{ clickable: c.document_id }" @click="goToChunk(c)">
         <span class="citation-id">{{ c.id }}</span>
         <span v-if="c.file_title" class="citation-field">{{ c.file_title }}</span>
         <span v-if="c.section_title" class="citation-field">{{ c.section_title }}</span>
@@ -41,12 +41,25 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { IconBookmark, IconDown, IconImage } from '@arco-design/web-vue/es/icon'
 import type { Citation } from '../../stores/queryChat'
 
 defineProps<{ citations: Citation[] }>()
 const expanded = ref(false)
 const previewSrc = ref('')
+const router = useRouter()
+
+function goToChunk(citation: Citation) {
+  if (citation.document_id && citation.chunk_id != null) {
+    router.push({
+      path: `/documents/${citation.document_id}`,
+      query: { highlight_chunk: String(citation.chunk_id) },
+    })
+  } else if (citation.document_id) {
+    router.push({ path: `/documents/${citation.document_id}` })
+  }
+}
 
 function assetUrl(documentId: string, imagePath: string): string {
   // Backend serves: GET /api/documents/{document_id}/assets/{asset_path:path}?token=xxx
@@ -103,6 +116,12 @@ function assetUrl(documentId: string, imagePath: string): string {
   padding: 5px 0;
   font-size: 12px;
   color: var(--text-secondary);
+}
+.citation-item.clickable {
+  cursor: pointer;
+}
+.citation-item.clickable:hover {
+  color: var(--text-primary);
 }
 
 .citation-id {

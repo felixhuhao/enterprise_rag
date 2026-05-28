@@ -11,9 +11,12 @@ import { connectSSE, type SSEEvent } from '../utils/sse'
 /** 引用信息 */
 export interface Citation {
   id: string
+  chunk_id?: number | null
   document_id?: string
   file_title?: string
+  entity_name?: string
   section_title?: string
+  page?: number | null
   table_id?: string
   source_type?: string
   image_paths?: string[]

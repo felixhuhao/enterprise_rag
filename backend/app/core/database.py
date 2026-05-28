@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS query_run_stats (
     total_ms          INTEGER DEFAULT 0,
     status           TEXT DEFAULT 'success',
     error_code       TEXT DEFAULT '',
+    retrieved_chunks TEXT DEFAULT '[]',
     created_at       TEXT NOT NULL
 );
 
@@ -136,6 +137,11 @@ async def init_db():
                 await db.execute(col_ddl)
             except aiosqlite.OperationalError:
                 pass
+        # migration: retrieved_chunks JSON column on query_run_stats
+        try:
+            await db.execute("ALTER TABLE query_run_stats ADD COLUMN retrieved_chunks TEXT DEFAULT '[]'")
+        except aiosqlite.OperationalError:
+            pass
         # migration: QueryConfig 默认值 seed
         from app.core.runtime_settings import _DEFAULTS
         for key, value in _DEFAULTS.items():

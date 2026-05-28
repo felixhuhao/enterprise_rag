@@ -64,12 +64,14 @@ def build_prompt_node(state: QueryState, config: RunnableConfig) -> dict:
     for i, result in enumerate(state.get("search_results", []), start=1):
         cid = f"C{i}"
         context_map[cid] = {
+            "chunk_id": result.get("chunk_id"),
             "document_id": result.get("document_id", ""),
             "file_title": result.get("file_title", ""),
             "entity_name": result.get("entity_name", ""),
             "section_title": result.get("section_title", ""),
-            "table_id": result.get("table_id", ""),
+            "page": result.get("page"),
             "source_type": result.get("source_type", ""),
+            "table_id": result.get("table_id", ""),
             "image_paths": result.get("image_paths", []),
         }
         header = _build_header(result, cid, cfg)

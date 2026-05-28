@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS query_run_stats (
     total_ms          INTEGER DEFAULT 0,
     status           TEXT DEFAULT 'success',
     error_code       TEXT DEFAULT '',
+    retrieved_chunks TEXT DEFAULT '[]',
     created_at       TEXT NOT NULL
 );
 """

@@ -82,9 +82,11 @@
 
           <a-table
             :data="filteredChunks"
-            :pagination="{ pageSize: 20 }"
+            :pagination="{ pageSize: PAGE_SIZE, current: currentPage }"
             :bordered="false"
             row-key="chunk_key"
+            :row-class="rowClass"
+            @page-change="onPageChange"
             class="chunk-table"
           >
             <template #columns>
@@ -152,7 +154,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { IconFile, IconLeft } from '@arco-design/web-vue/es/icon'
 import type { Document, DocumentChunk, DocumentChunksSource } from '../../api/documents'
@@ -168,6 +170,9 @@ const chunksSource = ref<DocumentChunksSource>('none')
 const loading = ref(false)
 const keyword = ref('')
 const expandedKeys = ref<Set<string>>(new Set())
+const PAGE_SIZE = 20
+const currentPage = ref(1)
+const highlightChunkId = ref<string | null>(null)
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
   uploaded: { label: '已上传', color: 'arcoblue' },
@@ -277,12 +282,67 @@ async function loadDetail() {
     document.value = payload.document
     chunks.value = payload.chunks
     chunksSource.value = payload.chunks_source
+    // 数据加载后尝试高亮
+    applyHighlight()
   } catch {
     // 404 or other errors — empty state will show
   } finally {
     loading.value = false
   }
 }
+
+function onPageChange(page: number) {
+  currentPage.value = page
+}
+
+function rowClass(record: DocumentChunk) {
+  if (highlightChunkId.value != null && String(record.milvus_chunk_id) === highlightChunkId.value) {
+    return 'chunk-row-highlight'
+  }
+  return ''
+}
+
+function applyHighlight() {
+  const raw = route.query.highlight_chunk
+  if (typeof raw !== 'string' || !raw) {
+    highlightChunkId.value = null
+    return
+  }
+  highlightChunkId.value = raw
+  // 确保 keyword 不干扰高亮 chunk 的可见性
+  keyword.value = ''
+
+  const index = chunks.value.findIndex(
+    (c) => c.milvus_chunk_id != null && String(c.milvus_chunk_id) === raw,
+  )
+  if (index === -1) {
+    // parsed artifact 或 chunk 不在列表中，静默忽略
+    return
+  }
+  const targetPage = Math.floor(index / PAGE_SIZE) + 1
+  currentPage.value = targetPage
+  nextTick(() => {
+    const row = window.document.querySelector('.chunk-row-highlight') as HTMLElement | null
+    if (row) {
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  })
+}
+
+// route 变化时重新应用高亮（route.params 不变时组件可能复用）
+watch(() => route.query.highlight_chunk, () => {
+  if (chunks.value.length > 0) {
+    applyHighlight()
+  }
+})
+
+// 用户手动搜索时重置页码（高亮模式下 keyword 被 applyHighlight 清空时跳过）
+watch(keyword, () => {
+  if (highlightChunkId.value != null && keyword.value === '') {
+    return
+  }
+  currentPage.value = 1
+})
 
 onMounted(loadDetail)
 </script>
@@ -488,6 +548,11 @@ onMounted(loadDetail)
   position: absolute;
   top: 8px;
   right: 8px;
+}
+
+:deep(.chunk-row-highlight) td {
+  background: var(--accent-subtle) !important;
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 @media (max-width: 1100px) {

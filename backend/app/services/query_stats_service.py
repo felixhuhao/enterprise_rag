@@ -23,6 +23,7 @@ class QueryStatsService:
         total_ms: int = 0,
         status: str = "success",
         error_code: str = "",
+        retrieved_chunks: str = "[]",
     ):
         """保存一次查询统计。"""
         now = datetime.now().isoformat()
@@ -32,12 +33,12 @@ class QueryStatsService:
                    (session_id, query, search_mode, search_mode_hyde,
                     result_count, rerank_avg_score, rerank_top_score,
                     retrieval_wall_ms, first_token_ms, generate_ms, total_ms,
-                    status, error_code, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    status, error_code, retrieved_chunks, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (session_id, query[:500], search_mode, search_mode_hyde,
                  result_count, rerank_avg_score, rerank_top_score,
                  retrieval_wall_ms, first_token_ms, generate_ms, total_ms,
-                 status, error_code, now),
+                 status, error_code, retrieved_chunks, now),
             )
             await db.commit()
 
@@ -104,7 +105,7 @@ class QueryStatsService:
                 """SELECT id, session_id, query, search_mode, search_mode_hyde,
                           result_count, rerank_avg_score, rerank_top_score,
                           retrieval_wall_ms, first_token_ms, generate_ms, total_ms,
-                          status, error_code, created_at
+                          status, error_code, retrieved_chunks, created_at
                    FROM query_run_stats
                    ORDER BY created_at DESC
                    LIMIT ? OFFSET ?""",

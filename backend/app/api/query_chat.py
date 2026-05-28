@@ -1,6 +1,7 @@
 """Query chat API — POST /api/query/chat + SSE /api/query/chat/stream."""
 
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -16,6 +17,25 @@ from app.utils.sse import sse_event
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _build_retrieved_chunks(search_results: list[dict]) -> str:
+    """从最终检索结果构造 retrieved_chunks JSON。"""
+    return json.dumps([
+        {
+            "chunk_id": r.get("chunk_id"),
+            "rank": i + 1,
+            "score": r.get("score", 0),
+            "document_id": r.get("document_id", ""),
+            "file_title": r.get("file_title", ""),
+            "entity_name": r.get("entity_name", ""),
+            "section_title": r.get("section_title", ""),
+            "source_type": r.get("source_type", ""),
+            "retrieval_path": r.get("retrieval_path", ""),
+            "stage": "rerank",
+        }
+        for i, r in enumerate(search_results)
+    ], ensure_ascii=False)
 
 
 class QueryChatRequest(BaseModel):
@@ -313,6 +333,7 @@ async def _stream_generator(session_id: str, query: str, query_config):
             )
             rerank_top = _rd[0]["final_score"] if _rd else 0
             result_count = len(state.get("search_results", []))
+            retrieved_chunks = _build_retrieved_chunks(state.get("search_results", []))
             save_task = asyncio.create_task(query_stats_service.save(
                 session_id, query,
                 state.get("search_mode", ""), state.get("search_mode_hyde", ""),
@@ -323,6 +344,7 @@ async def _stream_generator(session_id: str, query: str, query_config):
                 total_ms=gen_trace.get("total_ms", 0),
                 status=status,
                 error_code=error_code,
+                retrieved_chunks=retrieved_chunks,
             ))
             await asyncio.shield(save_task)
         except asyncio.CancelledError:
