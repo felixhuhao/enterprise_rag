@@ -15,6 +15,7 @@ from app.api.retrieval_test import router as retrieval_test_router
 from app.api.auth_me import router as auth_me_router
 from app.api.admin_acl import router as admin_acl_router
 from app.api.query_feedback import router as query_feedback_router
+from app.api.admin_eval import router as admin_eval_router
 
 # 创建聚合路由器
 api_router = APIRouter()
@@ -27,3 +28,4 @@ api_router.include_router(query_chat_router, tags=["query"])
 api_router.include_router(query_stats_router, tags=["query-stats"])
 api_router.include_router(retrieval_test_router, tags=["retrieval-test"])
 api_router.include_router(query_feedback_router, tags=["query-feedback"])
+api_router.include_router(admin_eval_router, tags=["admin"])

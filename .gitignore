@@ -38,6 +38,9 @@ data/*
 !data/enterprise_docs/*.md
 !data/enterprise_docs/.entity
 !data/enterprise_docs_v1.jsonl
+!data/eval_results/
+data/eval_results/*
+!data/eval_results/.gitkeep
 !data/stock reports/
 !data/stock reports/*.pdf
 !data/stock_reports_v2.jsonl
