@@ -146,6 +146,21 @@
             </template>
           </a-table>
         </section>
+
+        <!-- 相关文档 -->
+        <section v-if="related.length" class="detail-card related-section">
+          <h3>同主体文档 · {{ relatedEntity }}</h3>
+          <div
+            v-for="doc in related"
+            :key="doc.document_id"
+            class="related-item"
+            @click="router.push('/documents/' + doc.document_id)"
+          >
+            <span class="related-name">{{ doc.filename }}</span>
+            <span class="related-meta">{{ doc.chunk_count }} chunks</span>
+            <span class="related-meta">{{ formatTime(doc.updated_at) }}</span>
+          </div>
+        </section>
       </template>
 
       <a-empty v-else-if="!loading" description="文档不存在" />
@@ -158,7 +173,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { IconFile, IconLeft } from '@arco-design/web-vue/es/icon'
 import type { Document, DocumentChunk, DocumentChunksSource } from '../../api/documents'
-import { getDocumentChunks } from '../../api/documents'
+import { getDocumentChunks, getRelatedDocuments } from '../../api/documents'
 import { ERROR_HINTS } from '../../utils/errorHints'
 
 const route = useRoute()
@@ -173,6 +188,8 @@ const expandedKeys = ref<Set<string>>(new Set())
 const PAGE_SIZE = 20
 const currentPage = ref(1)
 const highlightChunkId = ref<string | null>(null)
+const related = ref<Document[]>([])
+const relatedEntity = ref('')
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
   uploaded: { label: '已上传', color: 'arcoblue' },
@@ -284,6 +301,16 @@ async function loadDetail() {
     chunksSource.value = payload.chunks_source
     // 数据加载后尝试高亮
     applyHighlight()
+
+    // 加载相关文档
+    try {
+      const rel = await getRelatedDocuments(documentId)
+      related.value = rel.related
+      relatedEntity.value = rel.entity
+    } catch {
+      related.value = []
+      relatedEntity.value = ''
+    }
   } catch {
     // 404 or other errors — empty state will show
   } finally {
@@ -342,6 +369,17 @@ watch(keyword, () => {
     return
   }
   currentPage.value = 1
+})
+
+watch(() => route.params.documentId, () => {
+  document.value = null
+  chunks.value = []
+  related.value = []
+  relatedEntity.value = ''
+  currentPage.value = 1
+  keyword.value = ''
+  highlightChunkId.value = null
+  loadDetail()
 })
 
 onMounted(loadDetail)
@@ -548,6 +586,48 @@ onMounted(loadDetail)
   position: absolute;
   top: 8px;
   right: 8px;
+}
+
+.related-section {
+  margin-top: 16px;
+}
+
+.related-section h3 {
+  margin: 0 0 10px;
+  color: var(--text-primary);
+  font-size: 16px;
+}
+
+.related-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.related-item:hover {
+  border-color: var(--border-accent);
+}
+.related-item + .related-item {
+  margin-top: 6px;
+}
+
+.related-name {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.related-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 
 :deep(.chunk-row-highlight) td {

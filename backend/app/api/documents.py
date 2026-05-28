@@ -140,6 +140,13 @@ async def get_document_chunks(document_id: str, _: None = Depends(verify_token))
     return payload
 
 
+@router.get("/documents/{document_id}/related")
+async def get_related_documents(document_id: str, _: None = Depends(verify_token)):
+    """返回同 entity_name 的相关文档列表。"""
+    # TODO: apply document ACL filter once permission-aware retrieval is added.
+    return await document_service.list_related_documents(document_id)
+
+
 @router.patch("/documents/{document_id}")
 async def update_document(
     document_id: str,

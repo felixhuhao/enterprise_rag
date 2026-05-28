@@ -70,6 +70,30 @@ async def list_documents() -> list[dict]:
             return [dict(row) for row in rows]
 
 
+_RELATED_COLUMNS = (
+    "document_id, filename, file_type, entity_name, status, "
+    "chunk_count, image_count, created_at, updated_at"
+)
+
+
+async def list_related_documents(document_id: str) -> dict:
+    """返回同 entity 的相关文档列表，排除自身。按 updated_at 降序。"""
+    # TODO: apply document ACL filter once permission-aware retrieval is added.
+    doc = await get_document(document_id)
+    if not doc or not doc.get("entity_name"):
+        return {"entity": "", "related": []}
+
+    async with get_db() as db:
+        async with db.execute(
+            f"SELECT {_RELATED_COLUMNS} FROM general_documents "
+            "WHERE entity_name = ? AND document_id != ? "
+            "ORDER BY updated_at DESC",
+            (doc["entity_name"], document_id),
+        ) as cursor:
+            rows = await cursor.fetchall()
+    return {"entity": doc["entity_name"], "related": [dict(r) for r in rows]}
+
+
 async def get_document_chunks(document_id: str) -> dict | None:
     """Return document metadata and chunks from Milvus, with parsed artifact fallback."""
     doc = await get_document(document_id)

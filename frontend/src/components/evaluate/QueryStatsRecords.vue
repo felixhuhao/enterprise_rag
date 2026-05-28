@@ -61,16 +61,75 @@
             </span>
           </template>
         </a-table-column>
+        <a-table-column title="命中" :width="80" align="center">
+          <template #cell="{ record }">
+            <button
+              v-if="hasChunks(record)"
+              class="hits-btn"
+              @click="openHits(record)"
+            >
+              查看
+            </button>
+            <span v-else class="hits-empty">—</span>
+          </template>
+        </a-table-column>
       </template>
       <template #empty>
         <a-empty description="暂无检索统计，进行查询后将自动收集" />
       </template>
     </a-table>
+
+    <!-- 命中详情 Drawer -->
+    <a-drawer
+      :visible="drawerOpen"
+      :width="680"
+      title="检索命中详情"
+      @cancel="drawerOpen = false"
+      :footer="false"
+    >
+      <div v-if="drawerError" class="drawer-error">{{ drawerError }}</div>
+      <div v-else-if="!drawerChunks.length" class="drawer-empty">暂无命中记录</div>
+      <a-table
+        v-else
+        :data="drawerChunks"
+        :pagination="{ pageSize: 20, size: 'small' }"
+        row-key="rank"
+        size="small"
+      >
+        <template #columns>
+          <a-table-column title="#" data-index="rank" :width="50" />
+          <a-table-column title="Score" :width="80">
+            <template #cell="{ record }">
+              {{ record.score?.toFixed(4) ?? '—' }}
+            </template>
+          </a-table-column>
+          <a-table-column title="文档" data-index="file_title" :ellipsis="true" />
+          <a-table-column title="实体" data-index="entity_name" :width="100" />
+          <a-table-column title="章节" data-index="section_title" :width="140" :ellipsis="true" />
+          <a-table-column title="类型" data-index="source_type" :width="90" />
+          <a-table-column title="路径" data-index="retrieval_path" :width="120" :ellipsis="true" />
+          <a-table-column title="" :width="60" align="center">
+            <template #cell="{ record }">
+              <button
+                class="jump-btn"
+                :disabled="!record.document_id || record.chunk_id == null"
+                :title="!record.document_id || record.chunk_id == null ? '缺少定位信息' : '查看文档'"
+                @click="jumpToChunk(record)"
+              >
+                定位
+              </button>
+            </template>
+          </a-table-column>
+        </template>
+      </a-table>
+    </a-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-import type { QueryStatsRecord } from '../../api/queryStats'
+import { ref } from 'vue'
+import { useRouter } from 'vue-router'
+import type { QueryStatsRecord, RetrievedChunkItem } from '../../api/queryStats'
 
 defineProps<{
   records: QueryStatsRecord[]
@@ -79,9 +138,46 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{ 'page-change': [page: number] }>()
+const router = useRouter()
 
 function onPageChange(page: number) {
   emit('page-change', page)
+}
+
+// ── 命中回放 ──
+
+const drawerOpen = ref(false)
+const drawerChunks = ref<RetrievedChunkItem[]>([])
+const drawerError = ref('')
+
+function hasChunks(record: QueryStatsRecord): boolean {
+  return !!record.retrieved_chunks && record.retrieved_chunks !== '[]'
+}
+
+function parseChunks(record: QueryStatsRecord): { chunks: RetrievedChunkItem[]; error: string } {
+  if (!record.retrieved_chunks) return { chunks: [], error: '' }
+  try {
+    const parsed = JSON.parse(record.retrieved_chunks)
+    if (!Array.isArray(parsed)) return { chunks: [], error: '命中记录格式异常' }
+    return { chunks: parsed, error: '' }
+  } catch {
+    return { chunks: [], error: '命中记录解析失败' }
+  }
+}
+
+function openHits(record: QueryStatsRecord) {
+  const { chunks, error } = parseChunks(record)
+  drawerChunks.value = chunks
+  drawerError.value = error
+  drawerOpen.value = true
+}
+
+function jumpToChunk(chunk: RetrievedChunkItem) {
+  if (!chunk.document_id || chunk.chunk_id == null) return
+  router.push({
+    path: `/documents/${chunk.document_id}`,
+    query: { highlight_chunk: String(chunk.chunk_id) },
+  })
 }
 
 function formatTime(value: string) {
@@ -191,5 +287,53 @@ function statusClass(status: string): string {
   color: var(--text-muted);
   background: var(--bg-hover);
   border: 1px solid var(--border);
+}
+
+.hits-btn {
+  border: 1px solid var(--border-accent);
+  background: var(--accent-subtle);
+  color: var(--accent);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.hits-btn:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.hits-empty {
+  color: var(--text-muted);
+}
+
+.drawer-error {
+  padding: 12px;
+  color: var(--error);
+  font-size: 13px;
+}
+
+.drawer-empty {
+  padding: 12px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.jump-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.jump-btn:not(:disabled):hover {
+  color: var(--accent);
+  border-color: var(--border-accent);
+}
+.jump-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 </style>

@@ -51,6 +51,16 @@ export interface DocumentChunksResponse {
   chunks: DocumentChunk[]
 }
 
+export interface RelatedDocumentsResponse {
+  entity: string
+  related: Document[]
+}
+
+export async function getRelatedDocuments(documentId: string): Promise<RelatedDocumentsResponse> {
+  const res = await apiClient.get(`/documents/${documentId}/related`)
+  return res.data
+}
+
 export async function suggestMetadata(filename: string): Promise<{ suggested_entity_name: string }> {
   const res = await apiClient.get('/documents/suggest-metadata', { params: { filename } })
   return res.data

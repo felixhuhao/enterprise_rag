@@ -12,6 +12,8 @@ export interface QueryStats {
   avg_result_count: number
   fallback_count: number
   fallback_ratio: number
+  avg_groundedness_score?: number | null
+  low_groundedness_count?: number
 }
 
 export interface QueryStatsTrend {
@@ -20,6 +22,19 @@ export interface QueryStatsTrend {
   avg_result_count: number[]
   counts: number[]
   failed_counts: number[]
+}
+
+export interface RetrievedChunkItem {
+  chunk_id?: number | null
+  rank: number
+  score: number
+  document_id?: string
+  file_title?: string
+  entity_name?: string
+  section_title?: string
+  source_type?: string
+  retrieval_path?: string
+  stage?: string
 }
 
 export interface QueryStatsRecord {
@@ -37,6 +52,8 @@ export interface QueryStatsRecord {
   total_ms: number
   status: string
   error_code: string
+  retrieved_chunks?: string
+  groundedness_score?: number | null
   created_at: string
 }
 
