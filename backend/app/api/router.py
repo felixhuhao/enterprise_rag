@@ -13,11 +13,13 @@ from app.api.query_chat import router as query_chat_router
 from app.api.query_stats import router as query_stats_router
 from app.api.retrieval_test import router as retrieval_test_router
 from app.api.auth_me import router as auth_me_router
+from app.api.admin_acl import router as admin_acl_router
 
 # 创建聚合路由器
 api_router = APIRouter()
 
 api_router.include_router(auth_me_router, tags=["auth"])
+api_router.include_router(admin_acl_router, tags=["admin"])
 api_router.include_router(settings_router, tags=["settings"])
 api_router.include_router(documents_router, tags=["documents"])
 api_router.include_router(query_chat_router, tags=["query"])

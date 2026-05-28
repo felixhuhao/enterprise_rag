@@ -36,6 +36,10 @@
           <template #icon><icon-settings /></template>
           系统设置
         </a-menu-item>
+        <a-menu-item v-if="authStore.isAdmin" key="/acl-audit">
+          <template #icon><icon-safe /></template>
+          权限审计
+        </a-menu-item>
       </a-menu>
       <!-- Demo 用户切换 -->
       <div class="sider-footer">
@@ -94,6 +98,7 @@ import {
   IconStorage,
   IconBarChart,
   IconSettings,
+  IconSafe,
   IconSearch,
 } from '@arco-design/web-vue/es/icon'
 
@@ -108,6 +113,7 @@ const pageMeta = computed(() => {
     '/retrieval-test': { title: '检索测试', subtitle: '只运行召回和重排，检查 Top K chunks 与检索策略。' },
     '/evaluate': { title: '评估看板', subtitle: '监控查询质量、失败率、回退情况和延迟。' },
     '/settings': { title: '系统设置', subtitle: '配置模型、检索和运行时行为。' },
+    '/acl-audit': { title: '权限审计', subtitle: '查看文档 ACL、owner/read 分配和清理状态。' },
   }
   return map[route.path] ?? { title: 'Enterprise RAG', subtitle: '知识库运行控制台。' }
 })

@@ -40,6 +40,11 @@ const router = createRouter({
       name: 'Settings',
       component: () => import('../components/settings/SettingsView.vue'),
     },
+    {
+      path: '/acl-audit',
+      name: 'AclAudit',
+      component: () => import('../components/admin/AclAuditView.vue'),
+    },
   ],
 })
 
