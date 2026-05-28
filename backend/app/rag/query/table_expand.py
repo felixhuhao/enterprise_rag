@@ -22,10 +22,12 @@ _EXPAND_FIELDS = [
     "table_tokens",
     "raw_table_path",
     "document_id",
+    "page",
     "file_title",
     "entity_name",
     "part",
     "chunk_id",
+    "table_title",
 ]
 
 
@@ -75,11 +77,14 @@ def table_expand_node(state: QueryState, config: RunnableConfig) -> dict:
             expanded.append({
                 "chunk_id": row.get("chunk_id"),
                 "document_id": row.get("document_id", ""),
+                "page": row.get("page"),
                 "file_title": row.get("file_title", ""),
+                "entity_name": row.get("entity_name", ""),
                 "title": row.get("title", ""),
                 "section_title": row.get("section_title", ""),
                 "source_type": row.get("source_type", ""),
                 "table_id": row.get("table_id", ""),
+                "table_title": row.get("table_title", ""),
                 "table_tokens": row.get("table_tokens"),
                 "raw_table_path": row.get("raw_table_path", ""),
                 "content": row.get("content", ""),

@@ -70,8 +70,10 @@ Prompts were generalized from financial-only wording to enterprise document word
 
 ## Golden Set And Demo Data
 
-Main demo corpus is 6 stock research report PDFs under data/stock reports.
-Main golden set is data/stock_reports_v2.jsonl with 17 questions: rule=10, llm_judge=5, no_answer=2.
+Main demo corpus is the Markdown enterprise document set under data/enterprise_docs.
+Main Markdown golden set is data/enterprise_docs_v1.jsonl.
+Legacy PDF demo corpus is 6 stock research report PDFs under data/stock reports.
+Legacy PDF golden set is data/stock_reports_v2.jsonl with 17 questions: rule=10, llm_judge=5, no_answer=2.
 
 Latest baseline: overall avg 0.960, pass_rate 100 percent. Rule avg 0.968. LLM judge avg 0.928. No-answer avg 1.000.
 

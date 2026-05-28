@@ -27,9 +27,11 @@ OUTPUT_FIELDS = [
     "table_tokens",
     "raw_table_path",
     "document_id",
+    "page",
     "file_title",
     "entity_name",
     "part",
+    "table_title",
     "image_paths",
 ]
 
@@ -124,11 +126,14 @@ def _parse_hits(hits) -> list[dict]:
         out.append({
             "chunk_id": hit.get("id") or hit.get("chunk_id") or entity.get("chunk_id"),
             "document_id": entity.get("document_id", ""),
+            "page": entity.get("page"),
             "file_title": entity.get("file_title", ""),
+            "entity_name": entity.get("entity_name", ""),
             "title": entity.get("title", ""),
             "section_title": entity.get("section_title", ""),
             "source_type": entity.get("source_type", ""),
             "table_id": entity.get("table_id", ""),
+            "table_title": entity.get("table_title", ""),
             "table_tokens": entity.get("table_tokens"),
             "raw_table_path": entity.get("raw_table_path", ""),
             "content": entity.get("content", ""),

@@ -14,14 +14,14 @@ cp .env.example .env
 # 2. Launch
 docker compose up -d --build
 
-# 3. Seed demo data (6 stock research reports)
+# 3. Seed demo data (fast Markdown enterprise corpus by default)
 docker compose exec backend python scripts/seed_demo.py
 
 # 4. Open
 # http://localhost:5173  —  default token: enterprise-rag-dev-token
 ```
 
-Milvus data persists in `./data/milvus`. Re-run `seed_demo.py` anytime — it skips already-completed documents.
+Milvus data persists in `./data/milvus`. Re-run `seed_demo.py` anytime — it skips already-completed documents. The default demo corpus is `data/enterprise_docs`; the legacy PDF stock-report demo is still available with `--data-dir "../data/stock reports"` and requires MinerU.
 
 If you change embedding models, reset the Milvus collection and re-process documents:
 
@@ -103,6 +103,7 @@ entity_confirm → rewrite → [dense+sparse search, HyDE] → RRF → table_exp
 - **Text-first multimodal** — images described and indexed as text, no separate VL embedding space
 - **Table-aware chunking** — small tables as full chunks, large tables as row groups
 - **Hybrid retrieval** — dense + BM25 sparse, RRF fusion, HyDE, LLM rerank
+- **Retrieval testing** — run recall and rerank without generation, with strategy and trace summary
 - **Streaming answers with citations** — numbered citations, image evidence, source validation
 - **Observability** — per-query trace, rerank scores, latency breakdown, error classification
 - **Evaluation** — golden set runner with rule / LLM-judge / no-answer scoring
@@ -136,7 +137,9 @@ enterprise_rag/
 │       ├── stores/
 │       └── styles/
 └── data/
-    └── stock reports/            # 6 demo PDFs + .entity file
+    ├── enterprise_docs/           # Fast Markdown demo corpus + .entity file
+    ├── enterprise_docs_v1.jsonl   # Markdown demo golden set
+    └── stock reports/             # Legacy PDF demo corpus
 ```
 
 ## Configuration

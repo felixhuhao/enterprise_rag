@@ -26,6 +26,11 @@ const router = createRouter({
       component: () => import('../components/documents/DocumentsView.vue'),
     },
     {
+      path: '/retrieval-test',
+      name: 'RetrievalTest',
+      component: () => import('../components/retrieval-test/RetrievalTestView.vue'),
+    },
+    {
       path: '/documents/:documentId',
       name: 'DocumentDetail',
       component: () => import('../components/documents/DocumentDetailView.vue'),

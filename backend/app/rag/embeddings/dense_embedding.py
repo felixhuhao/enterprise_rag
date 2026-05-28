@@ -10,9 +10,7 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 from pathlib import Path
-
-import torch
-from FlagEmbedding import BGEM3FlagModel
+from typing import Any
 
 from app.config import settings
 
@@ -20,7 +18,10 @@ logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
-def _get_model() -> BGEM3FlagModel:
+def _get_model() -> Any:
+    import torch
+    from FlagEmbedding import BGEM3FlagModel
+
     model_path = settings.EMBEDDING_MODEL_PATH
     if not Path(model_path).exists():
         raise RuntimeError(f"Embedding model path does not exist: {model_path}")

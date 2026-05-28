@@ -24,6 +24,10 @@
           <template #icon><icon-storage /></template>
           文档管理
         </a-menu-item>
+        <a-menu-item key="/retrieval-test">
+          <template #icon><icon-search /></template>
+          检索测试
+        </a-menu-item>
         <a-menu-item key="/evaluate">
           <template #icon><icon-bar-chart /></template>
           评估看板
@@ -64,7 +68,11 @@
         </div>
       </a-layout-header>
       <a-layout-content class="content">
-        <router-view />
+        <router-view v-slot="{ Component }">
+          <keep-alive :include="['RetrievalTestView']">
+            <component :is="Component" />
+          </keep-alive>
+        </router-view>
       </a-layout-content>
     </a-layout>
   </a-layout>
@@ -90,6 +98,7 @@ const pageMeta = computed(() => {
   const map: Record<string, { title: string; subtitle: string }> = {
     '/query-chat': { title: '知识查询', subtitle: '基于引用、检索链路和耗时追踪回答问题。' },
     '/documents': { title: '文档管理', subtitle: '上传、处理、重试和修复知识库文档。' },
+    '/retrieval-test': { title: '检索测试', subtitle: '只运行召回和重排，检查 Top K chunks 与检索策略。' },
     '/evaluate': { title: '评估看板', subtitle: '监控查询质量、失败率、回退情况和延迟。' },
     '/settings': { title: '系统设置', subtitle: '配置模型、检索和运行时行为。' },
   }

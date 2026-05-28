@@ -34,6 +34,10 @@ logs/
 # Local runtime data and generated artifacts
 data/*
 !data/
+!data/enterprise_docs/
+!data/enterprise_docs/*.md
+!data/enterprise_docs/.entity
+!data/enterprise_docs_v1.jsonl
 !data/stock reports/
 !data/stock reports/*.pdf
 !data/stock_reports_v2.jsonl
@@ -64,3 +68,4 @@ docs/archive/
 # Evaluation artifacts
 pdf_extract_output.txt
 FUTURE_PLAN.md
+.gstack/
