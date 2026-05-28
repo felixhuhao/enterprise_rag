@@ -26,13 +26,14 @@
           <template #cell="{ record }">
             <span
               class="mode-tag"
-              :class="{ fallback: isFallback(record.search_mode) }"
+              :class="modeClass(record.search_mode)"
               :title="record.search_mode || '—'"
             >
               {{ record.search_mode || '—' }}
             </span>
           </template>
         </a-table-column>
+        <a-table-column title="用户" data-index="user_id" :width="90" />
         <a-table-column title="结果" data-index="result_count" :width="70" />
         <a-table-column title="Rerank均值" :width="110">
           <template #cell="{ record }">
@@ -82,7 +83,7 @@
     <!-- 命中详情 Drawer -->
     <a-drawer
       :visible="drawerOpen"
-      :width="680"
+      :width="860"
       title="检索命中详情"
       @cancel="drawerOpen = false"
       :footer="false"
@@ -103,6 +104,10 @@
               {{ record.score?.toFixed(4) ?? '—' }}
             </template>
           </a-table-column>
+          <a-table-column title="Chunk" data-index="chunk_id" :width="80" />
+          <a-table-column title="Doc" data-index="document_id" :width="120"
+                          :ellipsis="true" />
+          <a-table-column title="来源" data-index="stage" :width="70" />
           <a-table-column title="文档" data-index="file_title" :ellipsis="true" />
           <a-table-column title="实体" data-index="entity_name" :width="100" />
           <a-table-column title="章节" data-index="section_title" :width="140" :ellipsis="true" />
@@ -188,8 +193,10 @@ function formatTime(value: string) {
   return `${match[1]}-${match[2]}-${match[3]} ${match[4]}:${match[5]}:${match[6]}`
 }
 
-function isFallback(searchMode: string): boolean {
-  return searchMode.includes('fallback')
+function modeClass(searchMode: string): string {
+  if (searchMode.includes('acl_empty')) return 'acl-empty'
+  if (searchMode.includes('fallback')) return 'fallback'
+  return ''
 }
 
 function formatMs(ms: number): string {
@@ -249,6 +256,11 @@ function statusClass(status: string): string {
   overflow: hidden;
   text-overflow: ellipsis;
   vertical-align: middle;
+}
+.mode-tag.acl-empty {
+  color: #c2410c;
+  border-color: #fdba74;
+  background: #fff7ed;
 }
 .mode-tag.fallback {
   color: var(--warning, #faad14);

@@ -33,8 +33,8 @@ export const useQueryStatsStore = defineStore('queryStats', () => {
     }
   }
 
-  async function fetchRecords(page: number) {
-    const r = await getQueryStatsRecords(page)
+  async function fetchRecords(page: number, filterUserId: string = '') {
+    const r = await getQueryStatsRecords(page, 20, filterUserId)
     records.value = r.records
     recordsTotal.value = r.total
   }

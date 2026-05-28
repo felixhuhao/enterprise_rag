@@ -54,6 +54,7 @@ export interface QueryStatsRecord {
   error_code: string
   retrieved_chunks?: string
   groundedness_score?: number | null
+  user_id: string
   created_at: string
 }
 
@@ -70,7 +71,10 @@ export async function getQueryStatsTrend(): Promise<QueryStatsTrend> {
 export async function getQueryStatsRecords(
   page: number = 1,
   pageSize: number = 20,
+  filterUserId: string = '',
 ): Promise<{ records: QueryStatsRecord[]; total: number; page: number; page_size: number }> {
-  const res = await apiClient.get('/query/stats/records', { params: { page, page_size: pageSize } })
+  const params: Record<string, string | number> = { page, page_size: pageSize }
+  if (filterUserId) params.filter_user_id = filterUserId
+  const res = await apiClient.get('/query/stats/records', { params })
   return res.data
 }

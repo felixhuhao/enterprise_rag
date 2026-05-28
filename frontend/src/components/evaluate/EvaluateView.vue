@@ -8,6 +8,13 @@
         <h3>查询质量与运行状态</h3>
         <p>跟踪成功率、未完成率、fallback、rerank 分数和端到端耗时。</p>
       </div>
+      <a-select v-if="authStore.isAdmin" v-model="filterUserId" :style="{ width: '160px' }" size="small"
+                placeholder="筛选记录用户" @change="onFilterChange" allow-clear>
+        <a-option value="">全部用户</a-option>
+        <a-option value="u_alice">Alice</a-option>
+        <a-option value="u_bob">Bob</a-option>
+        <a-option value="u_admin">Admin</a-option>
+      </a-select>
     </div>
     <a-spin :loading="queryStatsStore.loading" style="width: 100%">
       <QueryStatsCards :stats="queryStatsStore.stats" />
@@ -24,19 +31,27 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useQueryStatsStore } from '../../stores/queryStats'
+import { useAuthStore } from '../../stores/auth'
 import QueryStatsCards from './QueryStatsCards.vue'
 import QueryStatsRecords from './QueryStatsRecords.vue'
 
 const queryStatsStore = useQueryStatsStore()
+const authStore = useAuthStore()
 const currentPage = ref(1)
+const filterUserId = ref('')
 
 onMounted(() => {
   queryStatsStore.fetchAll()
 })
 
+async function onFilterChange() {
+  currentPage.value = 1
+  await queryStatsStore.fetchRecords(1, filterUserId.value)
+}
+
 async function onPageChange(page: number) {
   currentPage.value = page
-  await queryStatsStore.fetchRecords(page)
+  await queryStatsStore.fetchRecords(page, filterUserId.value)
 }
 </script>
 

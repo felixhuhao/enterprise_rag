@@ -29,5 +29,10 @@ async def get_query_stats_records(
     page: int = 1,
     page_size: int = 20,
     current_user: CurrentUser = Depends(verify_token),
+    filter_user_id: str = "",
 ):
-    return await query_stats_service.get_records(page, page_size, _user_filter(current_user))
+    """分页记录。admin 可传 filter_user_id 查看特定用户。"""
+    uid = _user_filter(current_user)
+    if current_user.role == "admin" and filter_user_id:
+        uid = filter_user_id
+    return await query_stats_service.get_records(page, page_size, uid)

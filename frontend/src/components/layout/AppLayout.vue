@@ -89,6 +89,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { useAuthStore } from '../../stores/auth'
 import {
   IconStorage,
   IconBarChart,
@@ -125,6 +126,8 @@ function onMenuClick(key: string) {
   router.push(key)
 }
 
+const authStore = useAuthStore()
+
 onMounted(() => {
   const stored = localStorage.getItem('api_token')
   if (stored) {
@@ -132,6 +135,7 @@ onMounted(() => {
   } else {
     localStorage.setItem('api_token', currentUserToken.value)
   }
+  authStore.fetchMe()
 })
 
 function switchUser(token: string) {
