@@ -24,6 +24,7 @@
         :current-page="currentPage"
         @page-change="onPageChange"
       />
+      <FeedbackRecords />
     </a-spin>
   </div>
 </template>
@@ -34,6 +35,7 @@ import { useQueryStatsStore } from '../../stores/queryStats'
 import { useAuthStore } from '../../stores/auth'
 import QueryStatsCards from './QueryStatsCards.vue'
 import QueryStatsRecords from './QueryStatsRecords.vue'
+import FeedbackRecords from './FeedbackRecords.vue'
 
 const queryStatsStore = useQueryStatsStore()
 const authStore = useAuthStore()

@@ -13,7 +13,7 @@
         <span>2025Q1 营收变化的主要原因是什么？</span>
       </div>
     </div>
-    <template v-for="msg in messages" :key="msg.id">
+    <template v-for="(msg, i) in messages" :key="msg.id">
       <!-- user 消息直接渲染 -->
       <div v-if="msg.role === 'user'" :class="['message-bubble', 'user']">
         <div class="avatar"><div class="avatar-user">U</div></div>
@@ -46,6 +46,11 @@
           <CitationCard v-if="msg.citations?.length" :citations="msg.citations" />
           <!-- 依据覆盖检查 -->
           <GroundednessCard v-if="msg.groundedness" :result="msg.groundedness" />
+          <!-- 反馈按钮 -->
+          <FeedbackButtons
+            v-if="msg.role === 'assistant' && msg.content && !store.isStreaming"
+            :payload="feedbackPayload(msg, i)"
+          />
         </div>
       </div>
     </template>
@@ -57,9 +62,14 @@ import { ref, nextTick, watch } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import type { QueryChatMessage } from '../../stores/queryChat'
+import { useQueryChatStore } from '../../stores/queryChat'
+import type { FeedbackPayload } from '../../api/queryFeedback'
 import RetrievalInfo from './RetrievalInfo.vue'
 import CitationCard from './CitationCard.vue'
 import GroundednessCard from './GroundednessCard.vue'
+import FeedbackButtons from './FeedbackButtons.vue'
+
+const store = useQueryChatStore()
 
 const props = defineProps<{
   messages: QueryChatMessage[]
@@ -71,6 +81,21 @@ const listRef = ref<HTMLElement | null>(null)
 function renderMarkdown(content: string) {
   if (!content) return '<span class="typing-hint">思考中...</span>'
   return DOMPurify.sanitize(marked.parse(content) as string)
+}
+
+/** 构造反馈 payload */
+function feedbackPayload(msg: QueryChatMessage, index: number): FeedbackPayload {
+  const userMsg = index > 0 ? props.messages[index - 1] : null
+  return {
+    session_id: store.sessionId,
+    message_id: msg.id,
+    query: userMsg?.role === 'user' ? userMsg.content : '',
+    answer: msg.content,
+    citations: msg.citations ?? [],
+    retrieved_chunks: [],  // TODO: push retrieved chunks from SSE into chat store
+    rating: '',
+    comment: '',
+  }
 }
 
 /** 自动滚动到底部 */

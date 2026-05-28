@@ -111,6 +111,22 @@ CREATE TABLE IF NOT EXISTS document_acl (
     PRIMARY KEY (document_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS idx_acl_user ON document_acl(user_id);
+
+CREATE TABLE IF NOT EXISTS query_feedback (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id       TEXT NOT NULL,
+    message_id       TEXT DEFAULT '',
+    query            TEXT NOT NULL,
+    answer           TEXT DEFAULT '',
+    citations        TEXT DEFAULT '[]',
+    retrieved_chunks TEXT DEFAULT '[]',
+    rating           TEXT NOT NULL,
+    comment          TEXT DEFAULT '',
+    user_id          TEXT DEFAULT '',
+    created_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_created ON query_feedback(created_at);
+CREATE INDEX IF NOT EXISTS idx_feedback_user ON query_feedback(user_id);
 """
 
 
