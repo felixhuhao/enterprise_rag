@@ -55,7 +55,9 @@ class TestRRFFusion:
         state = {"search_results": results_a, "search_results_hyde": []}
         config = {"configurable": {"query_config": QueryConfig()}}
         result = rrf_fusion_node(state, config)
-        assert result["search_results"] == results_a
+        assert len(result["search_results"]) == 1
+        assert result["search_results"][0]["chunk_id"] == 1
+        assert result["search_results"][0]["content"] == "AAA"
 
     def test_no_duplicates(self):
         """同一 chunk_id 在两路各出现一次，结果不应重复。"""

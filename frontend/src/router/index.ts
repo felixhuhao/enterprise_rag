@@ -21,6 +21,11 @@ const router = createRouter({
       component: () => import('../components/evaluate/EvaluateView.vue'),
     },
     {
+      path: '/evaluation',
+      name: 'Evaluation',
+      component: () => import('../components/evaluation/EvalView.vue'),
+    },
+    {
       path: '/documents',
       name: 'Documents',
       component: () => import('../components/documents/DocumentsView.vue'),
@@ -44,6 +49,11 @@ const router = createRouter({
       path: '/acl-audit',
       name: 'AclAudit',
       component: () => import('../components/admin/AclAuditView.vue'),
+    },
+    {
+      path: '/feedback',
+      name: 'Feedback',
+      component: () => import('../components/feedback/FeedbackView.vue'),
     },
   ],
 })

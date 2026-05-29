@@ -32,11 +32,23 @@ def _build_retrieved_chunks(search_results: list[dict]) -> str:
             "entity_name": r.get("entity_name", ""),
             "section_title": r.get("section_title", ""),
             "source_type": r.get("source_type", ""),
-            "retrieval_path": r.get("retrieval_path", ""),
+            "retrieval_path": _retrieval_path(r),
             "stage": "rerank",
         }
         for i, r in enumerate(search_results)
     ], ensure_ascii=False)
+
+
+def _retrieval_path(row: dict) -> str:
+    path = row.get("retrieval_path")
+    if path:
+        return path
+    paths = row.get("retrieval_paths")
+    if isinstance(paths, list) and paths:
+        return " + ".join(str(p) for p in paths if p)
+    if row.get("source_type", "").startswith("table_"):
+        return "table"
+    return "primary"
 
 
 class QueryChatRequest(BaseModel):
@@ -46,12 +58,19 @@ class QueryChatRequest(BaseModel):
 
 
 def _build_config(req: QueryChatRequest):
-    """从请求构建 QueryConfig。"""
-    from app.rag.query.config import QueryConfig, get_default_query_config
+    """从请求构建 QueryConfig。过滤非法 key，跳过类型不匹配的值。"""
+    from app.rag.query.config import QueryConfig, _cast_field, get_default_query_config
 
     if not req.config:
         return get_default_query_config()
-    valid = {k: v for k, v in req.config.items() if hasattr(QueryConfig, k)}
+    valid = {}
+    for k, v in req.config.items():
+        if not hasattr(QueryConfig, k):
+            continue
+        field = QueryConfig.__dataclass_fields__[k]
+        casted = _cast_field(k, str(v), field.type)
+        if casted is not None:
+            valid[k] = casted
     return QueryConfig(**valid)
 
 

@@ -171,7 +171,8 @@ def _run_multi_entity_dense_search(state: dict, cfg: QueryConfig, acl_filter: st
     query_dense = _embed_query(query)
 
     def _search_one(entity: str) -> tuple[str, list[dict], str]:
-        combined = _combine_acl(f'entity_name == "{entity}"', acl_filter)
+        from app.rag.query.filter_utils import build_entity_expr
+        combined = _combine_acl(build_entity_expr(entity), acl_filter)
         try:
             rows = _dense_only_search_limited(query_dense, combined, per_limit)
             return entity, rows, "dense_filtered"

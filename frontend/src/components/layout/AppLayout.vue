@@ -30,7 +30,7 @@
         </a-menu-item>
         <a-menu-item key="/evaluate">
           <template #icon><icon-bar-chart /></template>
-          评估看板
+          运行监控
         </a-menu-item>
         <a-menu-item key="/settings">
           <template #icon><icon-settings /></template>
@@ -39,6 +39,14 @@
         <a-menu-item v-if="authStore.isAdmin" key="/acl-audit">
           <template #icon><icon-safe /></template>
           权限审计
+        </a-menu-item>
+        <a-menu-item key="/evaluation">
+          <template #icon><icon-bar-chart /></template>
+          回归评测
+        </a-menu-item>
+        <a-menu-item v-if="authStore.isAdmin" key="/feedback">
+          <template #icon><icon-message /></template>
+          答案反馈
         </a-menu-item>
       </a-menu>
       <!-- Demo 用户切换 -->
@@ -98,6 +106,7 @@ import {
   IconStorage,
   IconBarChart,
   IconSettings,
+  IconMessage,
   IconSafe,
   IconSearch,
 } from '@arco-design/web-vue/es/icon'
@@ -111,9 +120,11 @@ const pageMeta = computed(() => {
     '/query-chat': { title: '知识查询', subtitle: '基于引用、检索链路和耗时追踪回答问题。' },
     '/documents': { title: '文档管理', subtitle: '上传、处理、重试和修复知识库文档。' },
     '/retrieval-test': { title: '检索测试', subtitle: '只运行召回和重排，检查 Top K chunks 与检索策略。' },
-    '/evaluate': { title: '评估看板', subtitle: '监控查询质量、失败率、回退情况和延迟。' },
+    '/evaluate': { title: '运行监控', subtitle: '查询成功率、延迟、fallback、命中分布。' },
+    '/evaluation': { title: '回归评测', subtitle: 'Golden Set 质量验证、pass rate、失败用例。' },
     '/settings': { title: '系统设置', subtitle: '配置模型、检索和运行时行为。' },
     '/acl-audit': { title: '权限审计', subtitle: '查看文档 ACL、owner/read 分配和清理状态。' },
+    '/feedback': { title: '答案反馈', subtitle: '用户反馈记录和 Golden Set 草稿管理。' },
   }
   return map[route.path] ?? { title: 'Enterprise RAG', subtitle: '知识库运行控制台。' }
 })

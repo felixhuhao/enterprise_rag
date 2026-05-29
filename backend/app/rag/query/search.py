@@ -10,7 +10,7 @@ from langgraph.graph.state import RunnableConfig
 
 from app.rag.embeddings.dense_embedding import dense_embedding
 from app.rag.query.config import QueryConfig, get_query_config
-from app.rag.query.filter_utils import build_acl_expr, combine_filters, get_allowed_ids
+from app.rag.query.filter_utils import build_acl_expr, build_entity_expr, combine_filters, get_allowed_ids
 from app.rag.query.scoring_utils import need_fallback
 from app.rag.query.state import QueryState
 from app.rag.vectorstores.general_milvus import COLLECTION_NAME, client
@@ -118,7 +118,7 @@ def _multi_entity_search(state: dict, config: RunnableConfig, query: str, cfg: Q
         raise RuntimeError(f"Embedding 失败: {e}") from e
 
     def _search_one(entity: str) -> tuple[str, list[dict], str]:
-        ef = combine_filters(f'entity_name == "{entity}"', acl_filter) or f'entity_name == "{entity}"'
+        ef = combine_filters(build_entity_expr(entity), acl_filter) or build_entity_expr(entity)
         try:
             results = _hybrid_search_limited(query_dense, query, ef, per_limit, cfg)
             return entity, results, "hybrid_filtered"

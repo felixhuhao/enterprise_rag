@@ -30,7 +30,16 @@ export async function submitFeedback(payload: FeedbackPayload): Promise<{ ok: bo
   return res.data
 }
 
-export async function listFeedback(): Promise<FeedbackRecord[]> {
-  const res = await apiClient.get('/query/feedback')
+export async function listFeedback(filterUserId: string = ''): Promise<FeedbackRecord[]> {
+  const params: Record<string, string> = {}
+  if (filterUserId) params.filter_user_id = filterUserId
+  const res = await apiClient.get('/query/feedback', { params })
+  return res.data
+}
+
+export async function promoteFeedbackToGoldenDraft(
+  feedbackId: number,
+): Promise<{ ok: boolean; status: string; path: string; draft: object }> {
+  const res = await apiClient.post(`/query/feedback/${feedbackId}/golden-draft`)
   return res.data
 }

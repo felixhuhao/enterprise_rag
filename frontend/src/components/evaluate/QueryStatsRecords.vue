@@ -112,7 +112,11 @@
           <a-table-column title="实体" data-index="entity_name" :width="100" />
           <a-table-column title="章节" data-index="section_title" :width="140" :ellipsis="true" />
           <a-table-column title="类型" data-index="source_type" :width="90" />
-          <a-table-column title="路径" data-index="retrieval_path" :width="120" :ellipsis="true" />
+          <a-table-column title="路径" :width="120" :ellipsis="true">
+            <template #cell="{ record }">
+              {{ record.retrieval_path || record.stage || '主检索' }}
+            </template>
+          </a-table-column>
           <a-table-column title="" :width="60" align="center">
             <template #cell="{ record }">
               <button

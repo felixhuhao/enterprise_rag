@@ -12,6 +12,7 @@ from __future__ import annotations
 from langgraph.graph.state import RunnableConfig
 
 from app.rag.query.config import QueryConfig, get_query_config
+from app.rag.query.filter_utils import build_entity_expr
 from app.rag.query.state import QueryState
 
 _BROAD_SIGNALS = [
@@ -63,7 +64,7 @@ def entity_confirm_node(state: QueryState, config: RunnableConfig) -> dict:
         entity = matched[0]
         return {
             "confirmed_entity": entity,
-            "entity_filter": f'entity_name == "{entity}"',
+            "entity_filter": build_entity_expr(entity),
             "entity_mode": "single",
             "matched_entities": [entity],
             "per_entity_counts": {},

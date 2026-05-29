@@ -77,6 +77,11 @@ def table_expand_node(state: QueryState, config: RunnableConfig) -> dict:
             expanded.append(hit)
             continue
 
+        base_paths = hit.get("retrieval_paths") or []
+        if not base_paths and hit.get("retrieval_path"):
+            base_paths = [hit["retrieval_path"]]
+        retrieval_paths = [*base_paths, "table_expand"]
+
         for row in rows:
             expanded.append({
                 "chunk_id": row.get("chunk_id"),
@@ -94,6 +99,8 @@ def table_expand_node(state: QueryState, config: RunnableConfig) -> dict:
                 "content": row.get("content", ""),
                 "part": row.get("part"),
                 "score": hit.get("score", 0),
+                "retrieval_paths": retrieval_paths,
+                "retrieval_path": " + ".join(retrieval_paths),
             })
 
         logger.debug("Expanded table %s → %d %s chunks", table_id, len(rows), target_type)
