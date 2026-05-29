@@ -22,6 +22,7 @@ class QueryConfig:
     use_rewrite: bool = True
     use_hyde: bool = True
     use_table_expand: bool = True
+    use_context_expand: bool = True
     use_rerank: bool = True
 
     # Search
@@ -43,6 +44,11 @@ class QueryConfig:
     table_full_token_limit: int = 2000
     table_medium_token_limit: int = 6000
     table_expand_limit: int = 20
+
+    # Context expansion (Small-to-Big)
+    context_expand_window: int = 1
+    context_expand_same_section: bool = True
+    context_expand_max_chars: int = 2400
 
     # Rerank
     rerank_batch_size: int = 10
@@ -82,6 +88,8 @@ class QueryConfig:
         _clamp(self, "table_expand_limit", 1, 50)
         _clamp(self, "table_full_token_limit", 50, 20000)
         _clamp(self, "table_medium_token_limit", 50, 20000)
+        _clamp(self, "context_expand_window", 0, 5)
+        _clamp(self, "context_expand_max_chars", 500, 8000)
         _clamp(self, "rerank_batch_size", 1, 20)
         _clamp(self, "rerank_max_top_k", 1, 30)
         _clamp(self, "rerank_min_top_k", 1, self.rerank_max_top_k)

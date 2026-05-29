@@ -96,7 +96,7 @@
                 </template>
               </a-table-column>
 
-              <a-table-column title="章节" data-index="section_title" :width="190">
+              <a-table-column title="章节" data-index="section_title" :width="230">
                 <template #cell="{ record }">
                   <span class="section-cell" :title="record.section_title || record.title">
                     {{ record.section_title || record.title || '—' }}
@@ -104,13 +104,13 @@
                 </template>
               </a-table-column>
 
-              <a-table-column title="页码" data-index="page" :width="70" align="center" :sortable="{ sortDirections: ['ascend', 'descend'] }">
+              <a-table-column title="页码" data-index="page" :width="84" align="center" :sortable="{ sortDirections: ['ascend', 'descend'] }">
                 <template #cell="{ record }">
                   {{ record.page ?? '—' }}
                 </template>
               </a-table-column>
 
-              <a-table-column title="类型" data-index="source_type" :width="110" align="center">
+              <a-table-column title="类型" data-index="source_type" :width="88" align="center">
                 <template #cell="{ record }">
                   <a-tag :color="sourceTypeColor(record.source_type)" size="small">
                     {{ sourceTypeLabel(record.source_type) }}
@@ -188,6 +188,7 @@ const expandedKeys = ref<Set<string>>(new Set())
 const PAGE_SIZE = 20
 const currentPage = ref(1)
 const highlightChunkId = ref<string | null>(null)
+const highlightChunkKey = ref<string | null>(null)
 const related = ref<Document[]>([])
 const relatedEntity = ref('')
 
@@ -244,10 +245,6 @@ function statusColor(status: string) {
   return STATUS_MAP[status]?.color ?? 'gray'
 }
 
-function sourceTypeColor(sourceType: string) {
-  return sourceType.startsWith('table_') ? 'orange' : 'arcoblue'
-}
-
 function sourceTypeLabel(sourceType: string) {
   const map: Record<string, string> = {
     text: '文本',
@@ -256,6 +253,10 @@ function sourceTypeLabel(sourceType: string) {
     table_row_group: '表格行组',
   }
   return map[sourceType] ?? sourceType
+}
+
+function sourceTypeColor(sourceType: string) {
+  return sourceType.startsWith('table_') ? 'orange' : 'arcoblue'
 }
 
 function formatTime(value: string) {
@@ -323,19 +324,25 @@ function onPageChange(page: number) {
 }
 
 function rowClass(record: DocumentChunk) {
-  if (highlightChunkId.value != null && String(record.milvus_chunk_id) === highlightChunkId.value) {
+  if (isHighlightedChunk(record)) {
     return 'chunk-row-highlight'
   }
   return ''
+}
+
+function isHighlightedChunk(record: DocumentChunk) {
+  return highlightChunkKey.value != null && record.chunk_key === highlightChunkKey.value
 }
 
 function applyHighlight() {
   const raw = route.query.highlight_chunk
   if (typeof raw !== 'string' || !raw) {
     highlightChunkId.value = null
+    highlightChunkKey.value = null
     return
   }
   highlightChunkId.value = raw
+  highlightChunkKey.value = null
   // 确保 keyword 不干扰高亮 chunk 的可见性
   keyword.value = ''
 
@@ -346,6 +353,7 @@ function applyHighlight() {
     // parsed artifact 或 chunk 不在列表中，静默忽略
     return
   }
+  highlightChunkKey.value = chunks.value[index].chunk_key
   const targetPage = Math.floor(index / PAGE_SIZE) + 1
   currentPage.value = targetPage
   nextTick(() => {
@@ -379,6 +387,7 @@ watch(() => route.params.documentId, () => {
   currentPage.value = 1
   keyword.value = ''
   highlightChunkId.value = null
+  highlightChunkKey.value = null
   loadDetail()
 })
 
@@ -529,10 +538,11 @@ onMounted(loadDetail)
 
 .section-cell {
   display: inline-block;
-  max-width: 170px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  max-width: 210px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  white-space: normal;
+  word-break: break-word;
 }
 .content-preview {
   display: flex;
@@ -631,8 +641,8 @@ onMounted(loadDetail)
 }
 
 :deep(.chunk-row-highlight) td {
-  background: var(--accent-subtle) !important;
-  box-shadow: inset 3px 0 0 var(--accent);
+  border-top: 1px solid var(--border-accent) !important;
+  border-bottom: 1px solid var(--border-accent) !important;
 }
 
 @media (max-width: 1100px) {

@@ -9,7 +9,7 @@
       <icon-down :class="{ rotated: expanded }" />
     </div>
     <div v-if="expanded" class="citation-list">
-      <div v-for="c in citations" :key="c.id" class="citation-item" :class="{ clickable: c.document_id }" @click="goToChunk(c)">
+      <div v-for="c in citations" :key="c.id" class="citation-item" :class="{ clickable: c.document_id }" @click="openDocument(c)">
         <span class="citation-id">{{ c.id }}</span>
         <span v-if="c.file_title" class="citation-field">{{ c.file_title }}</span>
         <span v-if="c.section_title" class="citation-field">{{ c.section_title }}</span>
@@ -50,13 +50,8 @@ const expanded = ref(false)
 const previewSrc = ref('')
 const router = useRouter()
 
-function goToChunk(citation: Citation) {
-  if (citation.document_id && citation.chunk_id != null) {
-    router.push({
-      path: `/documents/${citation.document_id}`,
-      query: { highlight_chunk: String(citation.chunk_id) },
-    })
-  } else if (citation.document_id) {
+function openDocument(citation: Citation) {
+  if (citation.document_id) {
     router.push({ path: `/documents/${citation.document_id}` })
   }
 }

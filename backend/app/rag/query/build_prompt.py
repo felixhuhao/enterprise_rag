@@ -88,6 +88,8 @@ def build_prompt_node(state: QueryState, config: RunnableConfig) -> dict:
             "source_type": result.get("source_type", ""),
             "table_id": result.get("table_id", ""),
             "image_paths": result.get("image_paths", []),
+            "context_expanded_chunk_ids": result.get("context_expanded_chunk_ids", []),
+            "context_expand_parts": result.get("context_expand_parts", []),
         }
         header = _build_header(result, cid, cfg)
         context_parts.append(f"{header}\n{result.get('content', '')}")

@@ -102,6 +102,11 @@ def run_retrieval_test(
         state["search_results"] = state.get("search_results", [])[:cfg.rerank_max_top_k]
         state["rerank_debug"] = []
     trace["rerank_ms"] = _tick_ms(t)
+
+    t = time.monotonic()
+    state.update(_context_expand_node(state, run_config))
+    trace["context_expand_ms"] = _tick_ms(t)
+
     trace["retrieval_wall_ms"] = _tick_ms(t0)
 
     results = [
@@ -338,6 +343,8 @@ def _format_result(row: dict, rank: int, *, use_rerank: bool) -> dict:
         "final_score": rerank.get("final_score") if use_rerank else None,
         "retrieval_path": row.get("retrieval_path", "未知"),
         "retrieval_paths": row.get("retrieval_paths", []),
+        "context_expanded_chunk_ids": row.get("context_expanded_chunk_ids", []),
+        "context_expand_parts": row.get("context_expand_parts", []),
         "content": content,
         "content_preview": content[:500],
     }
@@ -431,6 +438,12 @@ def _rerank_node(state: dict, config: dict) -> dict:
     from app.rag.query.rerank import rerank_node
 
     return rerank_node(state, config)
+
+
+def _context_expand_node(state: dict, config: dict) -> dict:
+    from app.rag.query.context_expand import context_expand_node
+
+    return context_expand_node(state, config)
 
 
 def _embed_query(query: str) -> list[float]:

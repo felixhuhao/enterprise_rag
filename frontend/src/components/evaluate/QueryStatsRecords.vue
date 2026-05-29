@@ -150,11 +150,11 @@
             <template #cell="{ record }">
               <button
                 class="jump-btn"
-                :disabled="!record.document_id || record.chunk_id == null"
-                :title="!record.document_id || record.chunk_id == null ? '缺少定位信息' : '查看文档'"
-                @click="jumpToChunk(record)"
+                :disabled="!record.document_id"
+                :title="!record.document_id ? '缺少文档信息' : '打开文档'"
+                @click="openDocument(record)"
               >
-                定位
+                打开
               </button>
             </template>
           </a-table-column>
@@ -210,12 +210,9 @@ function openHits(record: QueryStatsRecord) {
   drawerOpen.value = true
 }
 
-function jumpToChunk(chunk: RetrievedChunkItem) {
-  if (!chunk.document_id || chunk.chunk_id == null) return
-  router.push({
-    path: `/documents/${chunk.document_id}`,
-    query: { highlight_chunk: String(chunk.chunk_id) },
-  })
+function openDocument(chunk: RetrievedChunkItem) {
+  if (!chunk.document_id) return
+  router.push({ path: `/documents/${chunk.document_id}` })
 }
 
 function displayFileTitle(record: RetrievedChunkItem): string {

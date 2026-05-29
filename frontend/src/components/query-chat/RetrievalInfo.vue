@@ -194,6 +194,7 @@ const traceRows = computed<TraceRow[]>(() => {
   if (t.table_expand_ms != null) rows.push({ label: '表格扩展', ms: t.table_expand_ms })
   if (t.rerank_ms != null) rows.push({ label: 'Rerank', ms: t.rerank_ms })
   if (t.post_rerank_fallback_ms != null) rows.push({ label: 'Post-rerank Fallback', ms: t.post_rerank_fallback_ms })
+  if (t.context_expand_ms != null) rows.push({ label: '上下文扩展', ms: t.context_expand_ms })
   if (t.build_prompt_ms != null) rows.push({ label: 'Prompt 构建', ms: t.build_prompt_ms })
   return rows
 })

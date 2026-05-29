@@ -20,6 +20,8 @@ export interface Citation {
   table_id?: string
   source_type?: string
   image_paths?: string[]
+  context_expanded_chunk_ids?: number[]
+  context_expand_parts?: number[]
 }
 
 /** multi-hop trace entry */
@@ -96,6 +98,7 @@ export interface TraceData {
   rrf_fusion_ms?: number
   table_expand_ms?: number
   rerank_ms?: number
+  context_expand_ms?: number
   post_rerank_fallback_ms?: number
   build_prompt_ms?: number
   retrieval_wall_ms?: number

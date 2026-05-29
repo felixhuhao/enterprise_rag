@@ -23,6 +23,7 @@ htmlcov/
 
 # Node / frontend
 node_modules/
+node_modules/.cache/
 dist/
 dist-ssr/
 *.tsbuildinfo

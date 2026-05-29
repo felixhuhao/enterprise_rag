@@ -153,6 +153,7 @@
             <p v-else>展示检索、融合、表格展开和重排后的候选 chunks。</p>
           </div>
           <div class="trace-mini">
+            <span v-if="response.trace.context_expand_ms != null">上下文扩展 {{ response.trace.context_expand_ms }}ms</span>
             <span v-if="response.trace.multi_hop_ms != null">关联 {{ response.trace.multi_hop_ms }}ms</span>
             <span v-else>搜索 {{ response.trace.search_hyde_ms ?? 0 }}ms</span>
             <span v-if="response.trace.rrf_fusion_ms != null">融合 {{ response.trace.rrf_fusion_ms }}ms</span>
@@ -194,6 +195,13 @@
             <a-table-column title="路径" :width="170">
               <template #cell="{ record }">
                 <a-tag color="arcoblue" size="small">{{ record.retrieval_path }}</a-tag>
+                <a-tag
+                  v-if="record.context_expanded_chunk_ids?.length"
+                  color="green"
+                  size="small"
+                >
+                  扩展 {{ record.context_expanded_chunk_ids.join(', ') }}
+                </a-tag>
               </template>
             </a-table-column>
 

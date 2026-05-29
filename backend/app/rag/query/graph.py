@@ -1,7 +1,7 @@
 """LangGraph query workflow.
 
 START → entity_confirm → rewrite_query → [search, hyde_search] → rrf_fusion
-→ table_expand → rerank → build_prompt → generate_answer → validate_citations → END
+→ table_expand → rerank → context_expand → build_prompt → generate_answer → validate_citations → END
 """
 
 from langgraph.constants import END, START
@@ -9,6 +9,7 @@ from langgraph.graph import StateGraph
 
 from app.rag.query.build_prompt import build_prompt_node
 from app.rag.query.config import QueryConfig, get_default_query_config
+from app.rag.query.context_expand import context_expand_node
 from app.rag.query.entity_confirm import entity_confirm_node
 from app.rag.query.fallback import (
     REASON_LOW_SCORE_OR_INSUFFICIENT_HITS,
@@ -39,6 +40,7 @@ _builder.add_node("hyde_search", hyde_search_node)
 _builder.add_node("rrf_fusion", rrf_fusion_node)
 _builder.add_node("table_expand", table_expand_node)
 _builder.add_node("rerank", rerank_node)
+_builder.add_node("context_expand", context_expand_node)
 _builder.add_node("build_prompt", build_prompt_node)
 _builder.add_node("generate_answer", generate_answer_node)
 _builder.add_node("validate_citations", validate_citations_node)
@@ -55,7 +57,8 @@ _builder.add_edge("search", "rrf_fusion")
 _builder.add_edge("hyde_search", "rrf_fusion")
 _builder.add_edge("rrf_fusion", "table_expand")
 _builder.add_edge("table_expand", "rerank")
-_builder.add_edge("rerank", "build_prompt")
+_builder.add_edge("rerank", "context_expand")
+_builder.add_edge("context_expand", "build_prompt")
 _builder.add_edge("build_prompt", "generate_answer")
 _builder.add_edge("generate_answer", "validate_citations")
 _builder.add_edge("validate_citations", "groundedness_check")
@@ -124,6 +127,7 @@ def run_query_graph(query: str, query_config: QueryConfig | None = None, extra_c
                     fallback_blocked(entity_filter),
                 )
 
+    state.update(context_expand_node(state, config))
     state.update(build_prompt_node(state, config))
     state.update(generate_answer_node(state))
     state.update(validate_citations_node(state))

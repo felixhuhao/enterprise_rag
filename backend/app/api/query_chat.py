@@ -35,6 +35,8 @@ def _build_retrieved_chunks(search_results: list[dict]) -> str:
             "table_id": r.get("table_id", ""),
             "source_type": r.get("source_type", ""),
             "retrieval_path": _retrieval_path(r),
+            "context_expanded_chunk_ids": r.get("context_expanded_chunk_ids", []),
+            "context_expand_parts": r.get("context_expand_parts", []),
             "stage": "rerank",
             "content_preview": _content_preview(r),
         }
@@ -142,6 +144,7 @@ async def _stream_generator(session_id: str, query: str, query_config, allowed_i
     from app.rag.query.rrf_fusion import rrf_fusion_node
     from app.rag.query.table_expand import table_expand_node
     from app.rag.query.rerank import rerank_node
+    from app.rag.query.context_expand import context_expand_node
     from app.rag.query.build_prompt import build_prompt_node
     from app.rag.query.config import get_query_config
     from app.rag.query.generate import _chat_llm
@@ -199,6 +202,10 @@ async def _stream_generator(session_id: str, query: str, query_config, allowed_i
         else:
             # ── Direct path（含 post-rerank fallback）──
             _run_direct_with_fallback(state, run_config, trace)
+
+        t = time.monotonic()
+        state.update(context_expand_node(state, run_config))
+        trace["context_expand_ms"] = _tick_ms(t)
 
         t = time.monotonic()
         state.update(build_prompt_node(state, run_config))

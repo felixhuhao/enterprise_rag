@@ -75,6 +75,8 @@ export interface RetrievalResult {
   final_score?: number | null
   retrieval_path: string
   retrieval_paths: string[]
+  context_expanded_chunk_ids?: number[]
+  context_expand_parts?: number[]
   content: string
   content_preview: string
 }
