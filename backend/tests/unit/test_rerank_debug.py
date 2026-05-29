@@ -90,3 +90,49 @@ class TestRerankDebugStructure:
             for key in ("llm_score", "rrf_score", "final_score"):
                 val = item[key]
                 assert val == round(val, 3)
+
+
+class TestRerankBudget:
+    def test_final_context_k_caps_cliff_detect_result(self):
+        results = _make_results(10)
+        state = {
+            "search_results": results,
+            "query": "测试",
+            "query_plan": {
+                "budget": {
+                    "rerank_candidate_k": 10,
+                    "final_context_k": 3,
+                },
+            },
+        }
+        config = {"configurable": {"query_config": QueryConfig(rerank_batch_size=20)}}
+
+        with (
+            patch("app.rag.query.rerank._batch_rerank", return_value=[0.9] * 10),
+            patch("app.rag.query.rerank.cliff_detect", return_value=10),
+        ):
+            out = rerank_node(state, config)
+
+        assert len(out["search_results"]) == 3
+        assert len(out["rerank_debug"]) == 3
+
+    def test_missing_final_context_k_falls_back_to_cliff_detect(self):
+        results = _make_results(6)
+        state = {
+            "search_results": results,
+            "query": "测试",
+            "query_plan": {
+                "budget": {
+                    "rerank_candidate_k": 6,
+                },
+            },
+        }
+        config = {"configurable": {"query_config": QueryConfig(rerank_batch_size=20)}}
+
+        with (
+            patch("app.rag.query.rerank._batch_rerank", return_value=[0.9] * 6),
+            patch("app.rag.query.rerank.cliff_detect", return_value=4),
+        ):
+            out = rerank_node(state, config)
+
+        assert len(out["search_results"]) == 4

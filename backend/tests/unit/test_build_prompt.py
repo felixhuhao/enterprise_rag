@@ -1,5 +1,7 @@
 """Unit tests for build_prompt: three-tier table annotation, context numbering."""
 
+import logging
+
 from app.rag.query.build_prompt import build_prompt_node, _build_header
 from app.rag.query.config import QueryConfig
 
@@ -102,3 +104,59 @@ class TestBuildPromptNode:
         result = build_prompt_node(state, config)
         assert "当前模式禁止从实体范围扩大到全局资料" in result["context_text"]
         assert "证据不足" in result["context_text"]
+
+    def test_max_context_chars_truncates_on_chunk_boundary(self):
+        state = {
+            "query": "预算截断",
+            "query_plan": {"budget": {"max_context_chars": 5000}},
+            "search_results": [
+                {"content": "A" * 2000, "file_title": "a.pdf", "section_title": "s1", "source_type": "text"},
+                {"content": "B" * 2000, "file_title": "b.pdf", "section_title": "s2", "source_type": "text"},
+                {"content": "C" * 6000, "file_title": "c.pdf", "section_title": "s3", "source_type": "text"},
+            ],
+        }
+        config = {"configurable": {"query_config": QueryConfig()}}
+
+        result = build_prompt_node(state, config)
+
+        assert "[C1]" in result["context_text"]
+        assert "[C2]" in result["context_text"]
+        assert "[C3]" not in result["context_text"]
+        assert set(result["context_map"]) == {"C1", "C2"}
+        assert "C" * 100 not in result["context_text"]
+
+    def test_max_context_chars_warns_when_first_chunk_exceeds_budget(self, caplog):
+        caplog.set_level(logging.WARNING, logger="app.rag.query.build_prompt")
+        state = {
+            "query": "budget test",
+            "query_plan": {"budget": {"max_context_chars": 100}},
+            "search_results": [
+                {"content": "A" * 1000, "file_title": "a.pdf", "section_title": "s1", "source_type": "text"},
+            ],
+        }
+        config = {"configurable": {"query_config": QueryConfig()}}
+
+        result = build_prompt_node(state, config)
+
+        assert "A" * 100 not in result["context_text"]
+        assert result["context_map"] == {}
+        assert "kept zero chunks" in caplog.text
+
+    def test_max_context_chars_zero_keeps_all_chunks(self):
+        state = {
+            "query": "不截断",
+            "query_plan": {"budget": {"max_context_chars": 0}},
+            "search_results": [
+                {"content": "A" * 2000, "file_title": "a.pdf", "section_title": "s1", "source_type": "text"},
+                {"content": "B" * 2000, "file_title": "b.pdf", "section_title": "s2", "source_type": "text"},
+                {"content": "C" * 6000, "file_title": "c.pdf", "section_title": "s3", "source_type": "text"},
+            ],
+        }
+        config = {"configurable": {"query_config": QueryConfig()}}
+
+        result = build_prompt_node(state, config)
+
+        assert "[C1]" in result["context_text"]
+        assert "[C2]" in result["context_text"]
+        assert "[C3]" in result["context_text"]
+        assert set(result["context_map"]) == {"C1", "C2", "C3"}

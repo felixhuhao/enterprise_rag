@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import asdict, dataclass
 from typing import Literal
 
@@ -13,6 +14,10 @@ from app.rag.query.state import QueryState
 RetrievalFlavor = Literal["balanced", "exact", "recall", "discovery"]
 
 VALID_FLAVORS = {"balanced", "exact", "recall", "discovery"}
+
+MAX_SEARCH_LIMIT = 40
+MAX_RERANK_CANDIDATES = 30
+MAX_CONTEXT_CHARS = 16000
 
 
 @dataclass(frozen=True)
@@ -29,7 +34,8 @@ class RetrievalBudget:
     rerank_candidate_k: int
     final_context_k: int
     max_context_chars: int
-    reason: str
+    per_entity_min_k: int = 5
+    reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -70,12 +76,13 @@ def build_query_plan(query: str, entity_mode: str, cfg: QueryConfig) -> QueryPla
         use_multi_hop = False
         fallback_allowed = False
         budget = RetrievalBudget(
-            search_limit=min(cfg.search_limit, 8),
+            search_limit=8,
             hyde_limit=0,
-            rrf_top_k=min(cfg.rrf_max_results, 8),
-            rerank_candidate_k=min(cfg.rerank_max_top_k, 8),
-            final_context_k=min(cfg.rerank_max_top_k, 3),
+            rrf_top_k=8,
+            rerank_candidate_k=8,
+            final_context_k=3,
             max_context_chars=5000,
+            per_entity_min_k=3,
             reason="exact_precision",
         )
     elif flavor == "discovery":
@@ -89,21 +96,53 @@ def build_query_plan(query: str, entity_mode: str, cfg: QueryConfig) -> QueryPla
             rerank_candidate_k=cfg.rerank_max_top_k,
             final_context_k=cfg.rerank_max_top_k,
             max_context_chars=8000,
+            per_entity_min_k=5,
             reason="discovery_current_path",
+        )
+    elif flavor == "recall":
+        use_hyde = cfg.use_hyde
+        use_multi_hop = cfg.use_multi_hop
+        fallback_allowed = not strict
+        budget = RetrievalBudget(
+            search_limit=20,
+            hyde_limit=cfg.hyde_limit,
+            rrf_top_k=40,
+            rerank_candidate_k=30,
+            final_context_k=8,
+            max_context_chars=14000,
+            per_entity_min_k=8,
+            reason="recall_high_coverage",
         )
     else:
         use_hyde = cfg.use_hyde
         use_multi_hop = cfg.use_multi_hop
         fallback_allowed = not strict
-        budget = RetrievalBudget(
-            search_limit=cfg.search_limit,
-            hyde_limit=cfg.hyde_limit,
-            rrf_top_k=cfg.rrf_max_results,
-            rerank_candidate_k=cfg.rerank_max_top_k,
-            final_context_k=cfg.rerank_max_top_k,
-            max_context_chars=8000,
-            reason=f"{flavor}_current_defaults",
-        )
+        if entity_mode == "broad":
+            budget = RetrievalBudget(
+                search_limit=min(cfg.search_limit * 2, 24),
+                hyde_limit=cfg.hyde_limit,
+                rrf_top_k=min(cfg.rrf_max_results * 2, 32),
+                rerank_candidate_k=min(cfg.rerank_max_top_k * 2, 24),
+                final_context_k=min(cfg.rerank_max_top_k * 2, 8),
+                max_context_chars=12000,
+                per_entity_min_k=5,
+                reason="balanced_broad",
+            )
+        else:
+            budget = RetrievalBudget(
+                search_limit=cfg.search_limit,
+                hyde_limit=cfg.hyde_limit,
+                rrf_top_k=cfg.rrf_max_results,
+                rerank_candidate_k=cfg.rerank_max_top_k,
+                final_context_k=cfg.rerank_max_top_k,
+                max_context_chars=8000,
+                per_entity_min_k=5,
+                reason="balanced_current_defaults",
+            )
+
+    if entity_mode == "multi_explicit":
+        budget = dataclasses.replace(budget, per_entity_min_k=8)
+    budget = _clamp_budget(budget)
 
     fallback_policy = FallbackPolicy(
         entity_filter_to_global=fallback_allowed,
@@ -123,6 +162,17 @@ def build_query_plan(query: str, entity_mode: str, cfg: QueryConfig) -> QueryPla
         fallback_policy=fallback_policy,
         budget=budget,
         prompt_policy=prompt_policy,
+    )
+
+
+def _clamp_budget(budget: RetrievalBudget) -> RetrievalBudget:
+    return dataclasses.replace(
+        budget,
+        search_limit=min(budget.search_limit, MAX_SEARCH_LIMIT),
+        rrf_top_k=min(budget.rrf_top_k, MAX_SEARCH_LIMIT),
+        rerank_candidate_k=min(budget.rerank_candidate_k, MAX_RERANK_CANDIDATES),
+        final_context_k=min(budget.final_context_k, MAX_RERANK_CANDIDATES),
+        max_context_chars=min(budget.max_context_chars, MAX_CONTEXT_CHARS),
     )
 
 

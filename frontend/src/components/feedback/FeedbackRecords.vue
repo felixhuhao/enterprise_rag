@@ -4,13 +4,15 @@
     <div class="fb-title">答案反馈</div>
     <a-table :data="records" :pagination="{ pageSize: 20 }" row-key="id" size="small">
       <template #columns>
-        <a-table-column title="时间" :width="160">
-          <template #cell="{ record }">{{ formatTime(record.created_at) }}</template>
+        <a-table-column title="时间" :width="190">
+          <template #cell="{ record }">
+            <span class="nowrap-cell">{{ formatTime(record.created_at) }}</span>
+          </template>
         </a-table-column>
         <a-table-column title="用户" data-index="user_id" :width="80" />
-        <a-table-column title="评价" :width="70">
+        <a-table-column title="评价" :width="96">
           <template #cell="{ record }">
-            <span :class="record.rating === 'up' ? 'rate-up' : 'rate-down'">
+            <span class="rating-cell" :class="record.rating === 'up' ? 'rate-up' : 'rate-down'">
               {{ record.rating === 'up' ? '有帮助' : '无帮助' }}
             </span>
           </template>
@@ -112,6 +114,10 @@ async function promoteToDraft(record: FeedbackRecord) {
   font-weight: 700;
   color: var(--text-secondary);
   margin-bottom: 12px;
+}
+.nowrap-cell,
+.rating-cell {
+  white-space: nowrap;
 }
 .rate-up { color: #166534; }
 .rate-down { color: #991b1b; }

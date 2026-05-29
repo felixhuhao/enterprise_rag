@@ -29,6 +29,77 @@ _SAMPLE_HIT = {
 }
 
 
+def test_embedding_model_label_prefers_display_name(monkeypatch):
+    monkeypatch.setattr(svc.settings, "EMBEDDING_MODEL_NAME", "bge-m3")
+    monkeypatch.setattr(svc.settings, "EMBEDDING_MODEL_PATH", "/models/embedding")
+
+    assert svc._embedding_model_label() == "bge-m3"
+
+
+def test_discovery_runs_multi_hop_and_returns_trace(monkeypatch):
+    monkeypatch.setattr(svc, "get_default_query_config", lambda: QueryConfig(use_table_expand=False))
+    monkeypatch.setattr(svc, "_entity_confirm_node", lambda state, config: {
+        "confirmed_entity": "",
+        "entity_filter": "",
+        "entity_mode": "broad",
+        "matched_entities": [],
+        "per_entity_counts": {},
+    })
+    monkeypatch.setattr(svc, "_rewrite_query_node", lambda state, config: (_ for _ in ()).throw(AssertionError("no rewrite")))
+    monkeypatch.setattr(svc, "_table_expand_node", _noop_table_expand)
+
+    def fake_multi_hop(state, query, run_config, cfg, trace):
+        trace["multi_hop_ms"] = 12
+        return {
+            "search_results": [{
+                "chunk_id": 11,
+                "document_id": "doc-a",
+                "file_title": "实体A.md",
+                "entity_name": "实体A",
+                "source_type": "text",
+                "content": "实体A 提到了安全事件响应。",
+                "score": 0.91,
+            }],
+            "search_mode": "multi_hop",
+            "search_mode_hyde": "",
+            "entity_mode": "multi_hop",
+            "matched_entities": ["实体A"],
+            "per_entity_counts": {"实体A": 1},
+            "hop_plan": "discovery",
+            "hop_trace": [
+                {"hop": 1, "query": query, "result_count": 3, "status": "ok"},
+                {
+                    "hop": 2,
+                    "discovered_entities": ["实体A"],
+                    "per_entity_counts": {"实体A": 1},
+                    "result_count": 1,
+                    "status": "ok",
+                },
+            ],
+            "fallback_info": {},
+        }
+
+    monkeypatch.setattr(svc, "_run_multi_hop_search", fake_multi_hop)
+
+    payload = svc.run_retrieval_test(
+        "哪些公司提到了安全事件响应？",
+        top_k=4,
+        use_hybrid=True,
+        use_hyde=True,
+        use_rerank=False,
+        retrieval_flavor="discovery",
+    )
+
+    assert payload["entity_mode"] == "multi_hop"
+    assert payload["hop_plan"] == "discovery"
+    assert payload["hop_trace"][1]["discovered_entities"] == ["实体A"]
+    assert payload["per_entity_counts"] == {"实体A": 1}
+    assert payload["trace"]["multi_hop_ms"] == 12
+    assert payload["strategy"]["search_mode"] == "multi_hop"
+    assert payload["strategy"]["hyde"] is False
+    assert payload["results"][0]["retrieval_path"] == "Multi-hop"
+
+
 def test_run_retrieval_test_returns_strategy_and_paths(monkeypatch):
     monkeypatch.setattr(svc, "get_default_query_config", lambda: QueryConfig(use_table_expand=False))
     monkeypatch.setattr(svc, "_entity_confirm_node", _noop_entity_confirm)

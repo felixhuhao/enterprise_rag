@@ -14,35 +14,24 @@
         </a-button>
       </div>
 
+      <div class="mode-strip">
+        <button
+          v-for="mode in flavorModes"
+          :key="mode.id"
+          class="mode-card"
+          :class="{ active: retrievalFlavor === mode.id }"
+          type="button"
+          @click="retrievalFlavor = mode.id"
+        >
+          <span class="mode-name">{{ mode.name }}</span>
+          <span class="mode-desc">{{ mode.desc }}</span>
+        </button>
+      </div>
+
       <div class="control-row">
-        <label class="control-item">
-          <span>查找方式</span>
-          <a-select v-model="retrievalFlavor" size="small" class="flavor-select">
-            <a-option value="balanced">标准问答</a-option>
-            <a-option value="exact">精确查找</a-option>
-            <a-option value="recall">全面查找</a-option>
-            <a-option value="discovery">关联查找</a-option>
-          </a-select>
-        </label>
         <label class="control-item">
           <span>Top K</span>
           <a-input-number v-model="topK" :min="1" :max="30" size="small" />
-        </label>
-        <label class="switch-item">
-          <span>混合检索</span>
-          <a-switch v-model="useHybrid" size="small" />
-        </label>
-        <label class="switch-item">
-          <span>HyDE</span>
-          <a-switch v-model="useHyde" size="small" />
-        </label>
-        <label class="switch-item">
-          <span>重排</span>
-          <a-switch v-model="useRerank" size="small" />
-        </label>
-        <label class="switch-item">
-          <span>仅基于资料回答</span>
-          <a-switch v-model="strictEvidence" size="small" />
         </label>
       </div>
     </section>
@@ -81,14 +70,18 @@
           <div class="metric">
             <span>结果数</span>
             <strong>{{ response.result_count }}</strong>
+            <small v-if="queryBudget?.final_context_k">
+              上下文上限 {{ queryBudget.final_context_k }}
+            </small>
           </div>
           <div class="metric">
             <span>检索耗时</span>
             <strong>{{ response.trace.retrieval_wall_ms ?? 0 }}ms</strong>
           </div>
-          <div class="metric">
-            <span>实体路由</span>
-            <strong>{{ entityRouteLabel }}</strong>
+          <div class="metric entity-metric">
+            <span>匹配实体</span>
+            <strong>{{ entityModeLabel }}</strong>
+            <small v-if="matchedEntityText">{{ matchedEntityText }}</small>
           </div>
           <div class="metric">
             <span>Embedding</span>
@@ -97,6 +90,42 @@
           <div class="metric">
             <span>LLM</span>
             <strong>{{ response.strategy.chat_model }}</strong>
+          </div>
+        </div>
+
+        <div v-if="hopTrace.length" class="hop-panel">
+          <div class="hop-head">
+            <span>关联路径</span>
+            <strong>{{ hopTrace.length }} hops</strong>
+          </div>
+          <div class="hop-list">
+            <div v-for="hop in hopTrace" :key="hop.hop" class="hop-item">
+              <span class="hop-step">Hop {{ hop.hop }}</span>
+              <div class="hop-detail">
+                <span v-if="hop.query">查询：{{ hop.query }}</span>
+                <span v-if="hop.discovered_entities?.length">
+                  发现实体：{{ hop.discovered_entities.join(' / ') }}
+                </span>
+                <span v-if="formatHopCounts(hop)">
+                  命中：{{ formatHopCounts(hop) }}
+                </span>
+              </div>
+              <span class="hop-status">{{ hopStatusLabel(hop.status) }}</span>
+              <span class="hop-count">{{ hop.result_count }} 条</span>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="budgetEntries.length" class="budget-panel">
+          <div class="budget-head">
+            <span>检索预算</span>
+            <strong>{{ flavorLabel(response.retrieval_flavor) }}</strong>
+          </div>
+          <div class="budget-grid">
+            <div v-for="item in budgetEntries" :key="item.key" class="budget-item">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </div>
           </div>
         </div>
 
@@ -124,9 +153,10 @@
             <p v-else>展示检索、融合、表格展开和重排后的候选 chunks。</p>
           </div>
           <div class="trace-mini">
-            <span>搜索 {{ response.trace.search_hyde_ms ?? 0 }}ms</span>
-            <span>融合 {{ response.trace.rrf_fusion_ms ?? 0 }}ms</span>
-            <span>重排 {{ response.trace.rerank_ms ?? 0 }}ms</span>
+            <span v-if="response.trace.multi_hop_ms != null">关联 {{ response.trace.multi_hop_ms }}ms</span>
+            <span v-else>搜索 {{ response.trace.search_hyde_ms ?? 0 }}ms</span>
+            <span v-if="response.trace.rrf_fusion_ms != null">融合 {{ response.trace.rrf_fusion_ms }}ms</span>
+            <span v-if="response.trace.rerank_ms != null">重排 {{ response.trace.rerank_ms }}ms</span>
           </div>
         </div>
 
@@ -216,7 +246,7 @@ import { Message } from '@arco-design/web-vue'
 import { IconSearch } from '@arco-design/web-vue/es/icon'
 
 defineOptions({ name: 'RetrievalTestView' })
-import type { RetrievalTestResponse } from '../../api/retrievalTest'
+import type { HopTraceEntry, RetrievalBudget, RetrievalTestResponse } from '../../api/retrievalTest'
 import { runRetrievalTest } from '../../api/retrievalTest'
 
 const router = useRouter()
@@ -224,33 +254,69 @@ const router = useRouter()
 const query = ref('差旅报销需要哪些审批材料？')
 const topK = ref(10)
 const retrievalFlavor = ref('balanced')
-const useHybrid = ref(true)
-const useHyde = ref(true)
-const useRerank = ref(true)
-const strictEvidence = ref(false)
 const loading = ref(false)
 const errorMessage = ref('')
 const response = ref<RetrievalTestResponse | null>(null)
 const expandedKeys = ref<Set<number>>(new Set())
 
+const flavorModes = [
+  { id: 'balanced', name: '标准问答', desc: '平衡速度和准确率，适合日常资料问答' },
+  { id: 'exact', name: '精确查找', desc: '优先匹配条款、金额、日期和明确事实' },
+  { id: 'recall', name: '全面查找', desc: '扩大召回范围，适合模糊或同义表达' },
+  { id: 'discovery', name: '关联查找', desc: '先发现相关实体，再按实体查找证据' },
+]
+
+const budgetFields: Array<{ key: keyof RetrievalBudget; label: string }> = [
+  { key: 'search_limit', label: '主检索' },
+  { key: 'hyde_limit', label: 'HyDE' },
+  { key: 'rrf_top_k', label: '融合' },
+  { key: 'rerank_candidate_k', label: '重排候选' },
+  { key: 'final_context_k', label: '最终上下文' },
+  { key: 'max_context_chars', label: '上下文字符' },
+  { key: 'per_entity_min_k', label: '单实体保底' },
+]
+
 const strategyText = computed(() => {
   if (!response.value) return ''
   const s = response.value.strategy
   const weights = s.hybrid ? `Dense ${s.dense_weight} / Sparse ${s.sparse_weight}` : 'Dense 1.0'
-  return `Top ${s.top_k}，${weights}，主检索：${s.search_mode || '—'}，HyDE：${s.search_mode_hyde || '—'}`
+  const mode = flavorLabel(response.value.retrieval_flavor || s.retrieval_flavor)
+  return `${mode}，Top ${s.top_k}，${weights}，主检索：${s.search_mode || '—'}，HyDE：${s.search_mode_hyde || '—'}`
 })
 
-const entityRouteLabel = computed(() => {
+const queryBudget = computed<RetrievalBudget | null>(() => response.value?.query_plan?.budget ?? null)
+
+const budgetEntries = computed(() => {
+  const budget = queryBudget.value
+  if (!budget) return []
+  return budgetFields
+    .filter((item) => budget[item.key] !== undefined && budget[item.key] !== null)
+    .map((item) => ({
+      key: item.key,
+      label: item.label,
+      value: formatBudgetValue(budget[item.key]),
+    }))
+})
+
+const hopTrace = computed(() => response.value?.hop_trace ?? [])
+
+const entityModeLabel = computed(() => {
   if (!response.value) return '—'
-  const mode = response.value.entity_mode
-  const entity = response.value.confirmed_entity
-  if (mode === 'single') return entity || '—'
-  if (mode === 'multi_explicit') {
-    const entities = response.value.matched_entities ?? []
-    return entities.join(' / ')
+  const map: Record<string, string> = {
+    single: '单实体',
+    multi_explicit: '多实体',
+    broad: '宽泛查询',
+    multi_hop: '关联查找',
+    none: '全库',
   }
-  if (mode === 'broad') return '全局检索'
-  return entity || '全库'
+  return map[response.value.entity_mode] ?? response.value.entity_mode
+})
+
+const matchedEntityText = computed(() => {
+  if (!response.value) return ''
+  const entities = response.value.matched_entities ?? []
+  if (!entities.length) return ''
+  return entities.join(' / ')
 })
 
 const entityEntries = computed(() => {
@@ -279,11 +345,11 @@ async function runTest() {
     response.value = await runRetrievalTest({
       query: trimmed,
       top_k: topK.value,
-      use_hybrid: useHybrid.value,
-      use_hyde: useHyde.value,
-      use_rerank: useRerank.value,
+      use_hybrid: true,
+      use_hyde: true,
+      use_rerank: true,
       retrieval_flavor: retrievalFlavor.value,
-      strict_evidence: strictEvidence.value,
+      strict_evidence: false,
     })
   } catch (err: any) {
     const detail = err?.response?.data?.detail
@@ -311,6 +377,37 @@ function openDocument(documentId: string) {
 function formatScore(value: number | null | undefined) {
   if (value === null || value === undefined) return '—'
   return Number(value).toFixed(3)
+}
+
+function formatBudgetValue(value: RetrievalBudget[keyof RetrievalBudget]) {
+  if (typeof value === 'number') return value.toLocaleString('zh-CN')
+  return value || '—'
+}
+
+function formatHopCounts(hop: HopTraceEntry) {
+  const counts = hop.per_entity_counts
+  if (!counts || !Object.keys(counts).length) return ''
+  return Object.entries(counts).map(([name, count]) => `${name} ${count}`).join(' / ')
+}
+
+function hopStatusLabel(status: string) {
+  const map: Record<string, string> = {
+    ok: '完成',
+    no_entities_found: '未发现实体',
+    no_results: '无结果',
+    hop2_failed: '二跳失败',
+  }
+  return map[status] ?? status
+}
+
+function flavorLabel(flavor: string) {
+  const map: Record<string, string> = {
+    balanced: '标准问答',
+    exact: '精确查找',
+    recall: '全面查找',
+    discovery: '关联查找',
+  }
+  return map[flavor] ?? flavor
 }
 
 function sourceTypeColor(sourceType: string) {
@@ -360,26 +457,75 @@ function filterToScope(filter: string) {
 .control-row {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 12px;
   flex-wrap: wrap;
   margin-top: 14px;
 }
 
-.control-item,
-.switch-item {
+.control-item {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   color: var(--text-secondary);
   font-size: 13px;
+  white-space: nowrap;
 }
 
 .control-item :deep(.arco-input-number) {
   width: 92px;
 }
 
-.flavor-select {
-  width: 132px;
+.mode-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.mode-card {
+  min-height: 58px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.mode-card:hover {
+  border-color: var(--border-hover);
+  background: #f8fafc;
+}
+
+.mode-card.active {
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.mode-name {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.mode-card.active .mode-name {
+  color: var(--accent);
+}
+
+.mode-desc {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 15px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .error-panel {
@@ -451,6 +597,144 @@ function filterToScope(filter: string) {
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metric small {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entity-metric small {
+  max-width: 100%;
+}
+
+.hop-panel {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.hop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.hop-head strong {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hop-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.hop-item {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto auto;
+  align-items: start;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  font-size: 12px;
+}
+
+.hop-step {
+  color: var(--accent);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.hop-detail {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  color: var(--text-secondary);
+}
+
+.hop-detail span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hop-status,
+.hop-count {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.budget-panel {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #fbfdff;
+  padding: 12px;
+}
+
+.budget-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.budget-head strong {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.budget-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.budget-item {
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+}
+
+.budget-item span,
+.budget-item strong {
+  display: block;
+}
+
+.budget-item span {
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.budget-item strong {
+  margin-top: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -603,13 +887,34 @@ function filterToScope(filter: string) {
 }
 
 @media (max-width: 1100px) {
+  .mode-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .strategy-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .budget-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .hop-item {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .hop-status,
+  .hop-count {
+    justify-self: start;
   }
 }
 
 @media (max-width: 760px) {
   .query-area {
+    grid-template-columns: 1fr;
+  }
+
+  .mode-strip {
     grid-template-columns: 1fr;
   }
 
@@ -619,6 +924,10 @@ function filterToScope(filter: string) {
   }
 
   .strategy-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .budget-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

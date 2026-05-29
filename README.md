@@ -159,6 +159,7 @@ Optional:
 | Variable | Default | Description |
 |---|---|---|
 | `CHAT_MODEL` | `deepseek-v4-flash` | LLM model name |
+| `EMBEDDING_MODEL_NAME` | `bge-m3` | Display name for the embedding model in diagnostics |
 | `MINERU_API_TOKEN` | — | Required for PDF parsing |
 | `MILVUS_URI` | `http://localhost:19530` | Milvus connection |
 | `EMBEDDING_BATCH_SIZE` | `4` | Embedding batch size |

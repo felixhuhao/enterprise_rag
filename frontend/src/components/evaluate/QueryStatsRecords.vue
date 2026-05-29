@@ -16,13 +16,28 @@
       @page-change="onPageChange"
     >
       <template #columns>
-        <a-table-column title="时间" :width="180">
+        <a-table-column title="时间" :width="172">
           <template #cell="{ record }">
             <span class="time-cell">{{ formatTime(record.created_at) }}</span>
           </template>
         </a-table-column>
-        <a-table-column title="查询" data-index="query" :ellipsis="true" />
-        <a-table-column title="搜索模式" :width="180">
+        <a-table-column title="问题" :width="300" :ellipsis="true">
+          <template #cell="{ record }">
+            <span class="query-cell" :title="record.query">{{ record.query }}</span>
+          </template>
+        </a-table-column>
+        <a-table-column title="状态" :width="76">
+          <template #cell="{ record }">
+            <span
+              class="status-tag"
+              :class="statusClass(record.status)"
+              :title="record.error_code || undefined"
+            >
+              {{ statusLabel(record.status) }}
+            </span>
+          </template>
+        </a-table-column>
+        <a-table-column title="模式" :width="120">
           <template #cell="{ record }">
             <span
               class="mode-tag"
@@ -33,33 +48,18 @@
             </span>
           </template>
         </a-table-column>
-        <a-table-column title="用户" data-index="user_id" :width="90" />
-        <a-table-column title="结果" data-index="result_count" :width="70" />
-        <a-table-column title="Rerank均值" :width="110">
+        <a-table-column title="结果" data-index="result_count" :width="72" />
+        <a-table-column title="质量" :width="120">
           <template #cell="{ record }">
-            {{ record.rerank_avg_score.toFixed(3) }}
+            <span class="quality-cell">{{ formatQuality(record) }}</span>
           </template>
         </a-table-column>
-        <a-table-column title="Rerank最高" :width="110">
+        <a-table-column title="耗时" :width="68">
           <template #cell="{ record }">
-            {{ record.rerank_top_score.toFixed(3) }}
-          </template>
-        </a-table-column>
-        <a-table-column title="耗时" :width="90">
-          <template #cell="{ record }">
-            <span v-if="record.total_ms" class="time-ms">{{ formatMs(record.total_ms) }}</span>
-            <span v-else class="time-dash">—</span>
-          </template>
-        </a-table-column>
-        <a-table-column title="状态" :width="100">
-          <template #cell="{ record }">
-            <span
-              class="status-tag"
-              :class="statusClass(record.status)"
-              :title="record.error_code || undefined"
-            >
-              {{ statusLabel(record.status) }}
+            <span v-if="record.total_ms" class="time-ms" :title="timingTitle(record)">
+              {{ formatMs(record.total_ms) }}
             </span>
+            <span v-else class="time-dash">—</span>
           </template>
         </a-table-column>
         <a-table-column title="命中" :width="80" align="center">
@@ -83,7 +83,7 @@
     <!-- 命中详情 Drawer -->
     <a-drawer
       :visible="drawerOpen"
-      :width="860"
+      width="min(1280px, 94vw)"
       title="检索命中详情"
       @cancel="drawerOpen = false"
       :footer="false"
@@ -99,25 +99,54 @@
       >
         <template #columns>
           <a-table-column title="#" data-index="rank" :width="50" />
-          <a-table-column title="Score" :width="80">
+          <a-table-column title="命中信息" :width="300">
             <template #cell="{ record }">
-              {{ record.score?.toFixed(4) ?? '—' }}
+              <div class="hit-summary">
+                <div class="hit-title" :title="displayFileTitle(record)">
+                  {{ displayFileTitle(record) }}
+                </div>
+                <div class="hit-meta">
+                  <span class="meta-pill" :title="formatLocation(record)">
+                    {{ formatLocation(record) }}
+                  </span>
+                  <span v-if="record.entity_name" class="meta-pill" :title="record.entity_name">
+                    实体：{{ record.entity_name }}
+                  </span>
+                </div>
+              </div>
             </template>
           </a-table-column>
-          <a-table-column title="Chunk" data-index="chunk_id" :width="80" />
-          <a-table-column title="Doc" data-index="document_id" :width="120"
-                          :ellipsis="true" />
-          <a-table-column title="来源" data-index="stage" :width="70" />
-          <a-table-column title="文档" data-index="file_title" :ellipsis="true" />
-          <a-table-column title="实体" data-index="entity_name" :width="100" />
-          <a-table-column title="章节" data-index="section_title" :width="140" :ellipsis="true" />
-          <a-table-column title="类型" data-index="source_type" :width="90" />
-          <a-table-column title="路径" :width="120" :ellipsis="true">
+          <a-table-column title="召回路径" :width="90">
             <template #cell="{ record }">
-              {{ record.retrieval_path || record.stage || '主检索' }}
+              <span class="path-cell" :title="formatPath(record)">
+                {{ formatPath(record) }}
+              </span>
             </template>
           </a-table-column>
-          <a-table-column title="" :width="60" align="center">
+          <a-table-column title="分数" :width="82">
+            <template #cell="{ record }">
+              <span class="score-cell">{{ formatScore(record.score) }}</span>
+            </template>
+          </a-table-column>
+          <a-table-column title="内容预览" :width="430">
+            <template #cell="{ record }">
+              <div class="preview-cell" :class="{ muted: !record.content_preview }">
+                <div class="preview-text">
+                  {{ record.content_preview || '旧记录无预览' }}
+                </div>
+                <details v-if="hasTechnicalFields(record)" class="tech-details">
+                  <summary>技术字段</summary>
+                  <dl class="tech-grid">
+                    <template v-for="field in technicalFields(record)" :key="field.label">
+                      <dt>{{ field.label }}</dt>
+                      <dd :title="field.value">{{ field.value }}</dd>
+                    </template>
+                  </dl>
+                </details>
+              </div>
+            </template>
+          </a-table-column>
+          <a-table-column title="操作" :width="68" align="center">
             <template #cell="{ record }">
               <button
                 class="jump-btn"
@@ -189,6 +218,45 @@ function jumpToChunk(chunk: RetrievedChunkItem) {
   })
 }
 
+function displayFileTitle(record: RetrievedChunkItem): string {
+  return record.file_title || '未命名文档'
+}
+
+function formatLocation(record: RetrievedChunkItem): string {
+  const parts: string[] = []
+  if (record.section_title) parts.push(record.section_title)
+  if (record.page !== null && record.page !== undefined) parts.push(`第 ${record.page} 页`)
+  if (record.table_id) parts.push('表格')
+  return parts.join(' / ') || '未标注位置'
+}
+
+function formatPath(record: RetrievedChunkItem): string {
+  return record.retrieval_path || record.stage || '主检索'
+}
+
+function formatScore(score?: number | null): string {
+  return typeof score === 'number' ? score.toFixed(4) : '—'
+}
+
+function rawValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return ''
+  return String(value)
+}
+
+function technicalFields(record: RetrievedChunkItem): Array<{ label: string; value: string }> {
+  return [
+    { label: 'chunk_id', value: rawValue(record.chunk_id) },
+    { label: 'document_id', value: rawValue(record.document_id) },
+    { label: 'source_type', value: rawValue(record.source_type) },
+    { label: 'stage', value: rawValue(record.stage) },
+    { label: 'table_id', value: rawValue(record.table_id) },
+  ].filter((field) => field.value)
+}
+
+function hasTechnicalFields(record: RetrievedChunkItem): boolean {
+  return technicalFields(record).length > 0
+}
+
 function formatTime(value: string) {
   if (!value) return '—'
   const normalized = value.replace('T', ' ')
@@ -203,9 +271,24 @@ function modeClass(searchMode: string): string {
   return ''
 }
 
+function formatQuality(record: QueryStatsRecord): string {
+  if (record.groundedness_score !== null && record.groundedness_score !== undefined) {
+    return `依据 ${record.groundedness_score.toFixed(3)}`
+  }
+  return `Rerank ${record.rerank_avg_score.toFixed(3)}`
+}
+
 function formatMs(ms: number): string {
   if (ms >= 1000) return (ms / 1000).toFixed(1) + 's'
   return ms + 'ms'
+}
+
+function timingTitle(record: QueryStatsRecord): string {
+  return [
+    `检索 ${formatMs(record.retrieval_wall_ms || 0)}`,
+    `首Token ${formatMs(record.first_token_ms || 0)}`,
+    `生成 ${formatMs(record.generate_ms || 0)}`,
+  ].join(' / ')
 }
 
 function statusLabel(status: string): string {
@@ -246,9 +329,16 @@ function statusClass(status: string): string {
   font-variant-numeric: tabular-nums;
 }
 
+.query-cell {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .mode-tag {
   display: inline-block;
-  max-width: 150px;
+  max-width: 100px;
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 4px;
@@ -275,15 +365,121 @@ function statusClass(status: string): string {
 .time-ms {
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 .time-dash {
   color: var(--text-muted);
 }
 
+.quality-cell {
+  white-space: nowrap;
+}
+
+.hit-summary {
+  min-width: 0;
+}
+
+.hit-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.hit-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 5px;
+}
+
+.meta-pill {
+  max-width: 132px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+.path-cell {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.score-cell {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.preview-cell {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.preview-cell.muted {
+  color: var(--text-muted);
+}
+
+.preview-text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.tech-details {
+  margin-top: 6px;
+  color: var(--text-muted);
+}
+
+.tech-details summary {
+  width: max-content;
+  cursor: pointer;
+  font-size: 11px;
+  user-select: none;
+}
+
+.tech-grid {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 4px 8px;
+  margin: 6px 0 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-hover);
+}
+
+.tech-grid dt {
+  color: var(--text-muted);
+}
+
+.tech-grid dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
 .status-tag {
   display: inline-block;
   font-size: 11px;
-  padding: 2px 8px;
+  padding: 2px 6px;
   border-radius: 4px;
   font-family: var(--font-display);
   white-space: nowrap;

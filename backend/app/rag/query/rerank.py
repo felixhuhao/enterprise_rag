@@ -74,6 +74,8 @@ def rerank_node(state: QueryState, config: RunnableConfig) -> dict:
 
     # 4. 动态 Top-K (cliff detection)
     top_k = cliff_detect(results, cfg)
+    final_context_k = int(budget.get("final_context_k") or top_k)
+    top_k = min(top_k, final_context_k)
     results = results[:top_k]
 
     # 5. rerank_debug（无 content，只保留摘要）

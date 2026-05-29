@@ -30,6 +30,34 @@ export interface RetrievalStrategy {
   strict_evidence: boolean
 }
 
+export interface RetrievalBudget {
+  search_limit?: number
+  hyde_limit?: number
+  rrf_top_k?: number
+  rerank_candidate_k?: number
+  final_context_k?: number
+  max_context_chars?: number
+  per_entity_min_k?: number
+  reason?: string
+}
+
+export interface QueryPlan {
+  retrieval_flavor?: string
+  strict_evidence?: boolean
+  budget?: RetrievalBudget
+  [key: string]: unknown
+}
+
+export interface HopTraceEntry {
+  hop: number
+  query?: string
+  entity_filter?: string
+  result_count: number
+  status: string
+  discovered_entities?: string[]
+  per_entity_counts?: Record<string, number>
+}
+
 export interface RetrievalResult {
   rank: number
   chunk_id?: number | null
@@ -59,9 +87,11 @@ export interface RetrievalTestResponse {
   entity_mode: string
   matched_entities: string[]
   per_entity_counts: Record<string, number>
+  hop_plan?: string
+  hop_trace?: HopTraceEntry[]
   retrieval_flavor: string
   strict_evidence: boolean
-  query_plan: Record<string, unknown>
+  query_plan: QueryPlan
   fallback_info: {
     used: boolean
     blocked: boolean

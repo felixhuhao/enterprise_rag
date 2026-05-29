@@ -31,12 +31,23 @@ def _build_retrieved_chunks(search_results: list[dict]) -> str:
             "file_title": r.get("file_title", ""),
             "entity_name": r.get("entity_name", ""),
             "section_title": r.get("section_title", ""),
+            "page": r.get("page"),
+            "table_id": r.get("table_id", ""),
             "source_type": r.get("source_type", ""),
             "retrieval_path": _retrieval_path(r),
             "stage": "rerank",
+            "content_preview": _content_preview(r),
         }
         for i, r in enumerate(search_results)
     ], ensure_ascii=False)
+
+
+def _content_preview(row: dict, limit: int = 240) -> str:
+    text = str(row.get("content") or "")
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "..."
 
 
 def _retrieval_path(row: dict) -> str:

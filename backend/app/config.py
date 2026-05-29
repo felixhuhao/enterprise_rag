@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     LOCAL_MODEL_NAME: str = ""
 
     # ---- Embedding 配置 ----
+    EMBEDDING_MODEL_NAME: str = "bge-m3"
     EMBEDDING_MODEL_PATH: str = "D:/Models/BAAI/bge-m3"
     EMBEDDING_DIM: int = 1024
     EMBEDDING_BATCH_SIZE: int = 4

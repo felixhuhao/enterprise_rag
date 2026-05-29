@@ -150,7 +150,8 @@ def _multi_entity_search(state: dict, config: RunnableConfig, query: str, cfg: Q
     n = max(len(matched), 1)
     budget = plan_budget(state, config)
     search_limit = int(budget.get("search_limit") or cfg.search_limit)
-    per_limit = max(search_limit // n, 5)
+    per_entity_min_k = int(budget.get("per_entity_min_k") or 5)
+    per_limit = max(search_limit // n, per_entity_min_k)
 
     # embedding 只算一次
     try:

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
+
 from langgraph.graph.state import RunnableConfig
 
 from app.rag.query.config import QueryConfig, get_query_config
-from app.rag.query.planner import get_query_plan
+from app.rag.query.planner import get_query_plan, plan_budget
 from app.rag.query.state import QueryState
+
+logger = logging.getLogger(__name__)
 
 ANSWER_PROMPT = """\
 你是企业文档知识库助手。基于以下检索到的上下文回答用户问题。
@@ -88,6 +92,11 @@ def build_prompt_node(state: QueryState, config: RunnableConfig) -> dict:
         header = _build_header(result, cid, cfg)
         context_parts.append(f"{header}\n{result.get('content', '')}")
 
+    budget = plan_budget(state, config)
+    max_chars = int(budget.get("max_context_chars") or 0)
+    if max_chars > 0:
+        context_parts, context_map = _truncate_context_parts(context_parts, context_map, max_chars)
+
     context_text = "\n\n---\n\n".join(context_parts)
     query = state.get("rewritten_query") or state["query"]
 
@@ -111,6 +120,36 @@ def build_prompt_node(state: QueryState, config: RunnableConfig) -> dict:
         prompt += "\n\n严格证据模式：只能回答上下文直接支持的信息；证据不足时直接说明无法从资料确认。"
 
     return {"context_text": prompt, "context_map": context_map, "status": "prompted"}
+
+
+def _truncate_context_parts(
+    context_parts: list[str],
+    context_map: dict[str, dict],
+    max_chars: int,
+) -> tuple[list[str], dict[str, dict]]:
+    """Limit context by chunk boundary so chunk content is never cut mid-text."""
+    truncated_parts: list[str] = []
+    total = 0
+    separator_len = len("\n\n---\n\n")
+
+    for part in context_parts:
+        next_len = len(part) if not truncated_parts else separator_len + len(part)
+        if total + next_len > max_chars:
+            break
+        truncated_parts.append(part)
+        total += next_len
+
+    if context_parts and not truncated_parts:
+        logger.warning(
+            "Context budget kept zero chunks because first chunk exceeds max_context_chars: "
+            "max_context_chars=%d first_chunk_chars=%d",
+            max_chars,
+            len(context_parts[0]),
+        )
+
+    kept_ids = {f"C{i}" for i in range(1, len(truncated_parts) + 1)}
+    truncated_map = {cid: meta for cid, meta in context_map.items() if cid in kept_ids}
+    return truncated_parts, truncated_map
 
 
 def _build_header(result: dict, cid: str, cfg: QueryConfig) -> str:

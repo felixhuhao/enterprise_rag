@@ -49,40 +49,45 @@ def run_retrieval_test(
     t = time.monotonic()
     state.update(_query_plan_node(state, run_config))
     trace["query_plan_ms"] = _tick_ms(t)
-
-    t = time.monotonic()
-    state.update(_rewrite_query_node(state, run_config))
-    trace["rewrite_ms"] = _tick_ms(t)
-
-    t = time.monotonic()
-    primary = _run_primary_search(state, run_config, cfg, use_hybrid=use_hybrid)
     plan = state.get("query_plan", {})
-    hyde = _hyde_search_node(state, run_config) if plan.get("use_hyde") else {
-        "search_results_hyde": [],
-        "search_mode_hyde": "disabled",
-        "fallback_info": empty_fallback_info(),
-    }
-    fallback_info = merge_fallback_info(
-        primary.get("fallback_info"),
-        hyde.get("fallback_info"),
-    )
-    state.update(primary)
-    state.update(hyde)
-    state["fallback_info"] = fallback_info
-    trace["search_hyde_ms"] = _tick_ms(t)
 
-    path_map = _build_path_map(
-        _dedup_key,
-        state.get("search_results", []),
-        state.get("search_mode", ""),
-        state.get("search_results_hyde", []),
-        state.get("search_mode_hyde", ""),
-    )
+    if _should_run_multi_hop(state, query, plan):
+        state["rewritten_query"] = query
+        state.update(_run_multi_hop_search(state, query, run_config, cfg, trace))
+        _apply_default_path(state.get("search_results", []), "Multi-hop")
+    else:
+        t = time.monotonic()
+        state.update(_rewrite_query_node(state, run_config))
+        trace["rewrite_ms"] = _tick_ms(t)
 
-    t = time.monotonic()
-    state.update(rrf_fusion_node(state, run_config))
-    _apply_paths(_dedup_key, state.get("search_results", []), path_map)
-    trace["rrf_fusion_ms"] = _tick_ms(t)
+        t = time.monotonic()
+        primary = _run_primary_search(state, run_config, cfg, use_hybrid=use_hybrid)
+        hyde = _hyde_search_node(state, run_config) if plan.get("use_hyde") else {
+            "search_results_hyde": [],
+            "search_mode_hyde": "disabled",
+            "fallback_info": empty_fallback_info(),
+        }
+        fallback_info = merge_fallback_info(
+            primary.get("fallback_info"),
+            hyde.get("fallback_info"),
+        )
+        state.update(primary)
+        state.update(hyde)
+        state["fallback_info"] = fallback_info
+        trace["search_hyde_ms"] = _tick_ms(t)
+
+        path_map = _build_path_map(
+            _dedup_key,
+            state.get("search_results", []),
+            state.get("search_mode", ""),
+            state.get("search_results_hyde", []),
+            state.get("search_mode_hyde", ""),
+        )
+
+        t = time.monotonic()
+        state.update(rrf_fusion_node(state, run_config))
+        _apply_paths(_dedup_key, state.get("search_results", []), path_map)
+        trace["rrf_fusion_ms"] = _tick_ms(t)
 
     table_paths = _table_path_map(state.get("search_results", []))
     t = time.monotonic()
@@ -112,6 +117,8 @@ def run_retrieval_test(
         "entity_mode": state.get("entity_mode", "none"),
         "matched_entities": state.get("matched_entities", []),
         "per_entity_counts": state.get("per_entity_counts", {}),
+        "hop_plan": state.get("hop_plan", "direct"),
+        "hop_trace": state.get("hop_trace", []),
         "retrieval_flavor": state.get("query_plan", {}).get("retrieval_flavor", "balanced"),
         "strict_evidence": state.get("query_plan", {}).get("strict_evidence", False),
         "query_plan": state.get("query_plan", {}),
@@ -203,6 +210,18 @@ def _run_primary_search(state: dict, run_config: dict, cfg: QueryConfig, *, use_
     return {"search_results": results, "search_mode": mode, "fallback_info": info}
 
 
+def _should_run_multi_hop(state: dict, query: str, plan: dict) -> bool:
+    from app.rag.query.multi_hop import _decide_multi_hop
+
+    return bool(plan.get("use_multi_hop") and _decide_multi_hop(state.get("entity_mode", "none"), query))
+
+
+def _run_multi_hop_search(state: dict, query: str, run_config: dict, cfg: QueryConfig, trace: dict) -> dict:
+    from app.rag.query.multi_hop import run_multi_hop_search
+
+    return run_multi_hop_search(state, query, run_config, cfg, trace)
+
+
 def _run_multi_entity_dense_search(state: dict, cfg: QueryConfig, acl_filter: str | None = None) -> dict:
     """Dense-only variant of multi-entity retrieval for the retrieval test page."""
     from concurrent.futures import ThreadPoolExecutor
@@ -271,6 +290,14 @@ def _apply_paths(dedup_key, rows: list[dict], path_map: dict[str, set[str]]):
         row["retrieval_path"] = " + ".join(paths) if paths else "未知"
 
 
+def _apply_default_path(rows: list[dict], label: str):
+    for row in rows:
+        if row.get("retrieval_paths"):
+            continue
+        row["retrieval_paths"] = [label]
+        row["retrieval_path"] = label
+
+
 def _table_path_map(rows: list[dict]) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     for row in rows:
@@ -330,11 +357,18 @@ def _strategy_summary(cfg: QueryConfig, use_hybrid: bool, state: dict) -> dict:
         "search_mode_hyde": hyde_mode,
         "retrieval_flavor": state.get("query_plan", {}).get("retrieval_flavor", "balanced"),
         "strict_evidence": state.get("query_plan", {}).get("strict_evidence", False),
-        "embedding_model": Path(settings.EMBEDDING_MODEL_PATH).name or settings.EMBEDDING_MODEL_PATH,
+        "embedding_model": _embedding_model_label(),
         "chat_model": settings.LOCAL_MODEL_NAME or settings.CHAT_MODEL,
         "dense_weight": cfg.dense_weight if use_hybrid else 1.0,
         "sparse_weight": cfg.sparse_weight if use_hybrid else 0.0,
     }
+
+
+def _embedding_model_label() -> str:
+    name = settings.EMBEDDING_MODEL_NAME.strip()
+    if name:
+        return name
+    return Path(settings.EMBEDDING_MODEL_PATH).name or settings.EMBEDDING_MODEL_PATH
 
 
 def _mode_label(mode: str) -> str:

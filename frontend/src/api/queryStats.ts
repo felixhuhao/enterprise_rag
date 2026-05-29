@@ -32,9 +32,12 @@ export interface RetrievedChunkItem {
   file_title?: string
   entity_name?: string
   section_title?: string
+  page?: number | null
+  table_id?: string
   source_type?: string
   retrieval_path?: string
   stage?: string
+  content_preview?: string
 }
 
 export interface QueryStatsRecord {
