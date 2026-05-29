@@ -52,8 +52,17 @@ const router = useRouter()
 
 function openDocument(citation: Citation) {
   if (citation.document_id) {
-    router.push({ path: `/documents/${citation.document_id}` })
+    router.push({
+      path: `/documents/${citation.document_id}`,
+      query: highlightQuery(citation),
+    })
   }
+}
+
+function highlightQuery(citation: Citation) {
+  if (citation.chunk_key) return { highlight_chunk_key: citation.chunk_key }
+  if (citation.chunk_id != null) return { highlight_chunk: String(citation.chunk_id) }
+  return undefined
 }
 
 function assetUrl(documentId: string, imagePath: string): string {

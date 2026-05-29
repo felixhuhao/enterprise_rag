@@ -10,6 +10,7 @@ from pathlib import Path
 
 from app.config import settings
 from app.core.database import get_db
+from app.rag.chunking.chunk_keys import base_chunk_key
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,30 @@ async def get_document_chunks(document_id: str) -> dict | None:
             for idx, row in enumerate(_sort_chunks(chunks), start=1)
         ],
     }
+
+
+async def get_document_chunk_by_key(document_id: str, chunk_key: str) -> dict | None:
+    """Return one source chunk by stable chunk_key from Milvus or parsed artifacts."""
+    if not await get_document(document_id):
+        return None
+
+    try:
+        row = await asyncio.to_thread(_sync_query_milvus_chunk_by_key, document_id, chunk_key)
+        if row:
+            return _normalize_chunk(row, document_id, 1)
+    except Exception:
+        logger.warning(
+            "查询 Milvus chunk 失败 document_id=%s chunk_key=%s",
+            document_id,
+            chunk_key,
+            exc_info=True,
+        )
+
+    for idx, row in enumerate(_sort_chunks(_load_parsed_chunks(document_id)), start=1):
+        chunk = _normalize_chunk(row, document_id, idx)
+        if chunk.get("chunk_key") == chunk_key:
+            return chunk
+    return None
 
 
 _ALLOWED_STATUS_FIELDS = frozenset({
@@ -371,6 +396,12 @@ def _sync_query_milvus_chunks(document_id: str) -> list[dict]:
     return query_chunks_by_document_id(document_id)
 
 
+def _sync_query_milvus_chunk_by_key(document_id: str, chunk_key: str) -> dict | None:
+    from app.rag.vectorstores.general_milvus import query_chunk_by_key
+
+    return query_chunk_by_key(document_id, chunk_key)
+
+
 def _load_parsed_chunks(document_id: str) -> list[dict]:
     chunks_path = Path(settings.GENERAL_PARSED_DIR) / document_id / "chunks.json"
     if not chunks_path.is_file():
@@ -399,13 +430,8 @@ def _normalize_chunk(row: dict, document_id: str, sequence_index: int) -> dict:
     source_type = row.get("source_type", "text") or "text"
     table_id = row.get("table_id") or ""
     part = row.get("part")
-    chunk_key = row.get("chunk_key") or _derive_chunk_key(
-        document_id=document_id,
-        source_type=source_type,
-        table_id=table_id,
-        part=part,
-        sequence_index=sequence_index,
-    )
+    row_for_key = {**row, "document_id": row.get("document_id") or document_id}
+    chunk_key = row.get("chunk_key") or base_chunk_key(row_for_key)
 
     return {
         "chunk_key": chunk_key,
@@ -440,19 +466,6 @@ def _sort_chunks(chunks: list[dict]) -> list[dict]:
         return (page_key, chunk_key, id_key)
 
     return sorted(chunks, key=_key)
-
-
-def _derive_chunk_key(
-    document_id: str,
-    source_type: str,
-    table_id: str,
-    part: object,
-    sequence_index: int,
-) -> str:
-    part_value = "" if part is None else str(part)
-    return f"{document_id}:{source_type}:{table_id}:{part_value}:{sequence_index:04d}"
-
-
 def _invalidate_entity_cache():
     from app.rag.query.entity_cache import invalidate
     invalidate()

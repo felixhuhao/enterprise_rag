@@ -6,10 +6,11 @@ import logging
 
 from langgraph.graph.state import RunnableConfig
 
+from app.rag.chunking.chunk_keys import base_chunk_key
 from app.rag.query.config import get_query_config
 from app.rag.query.search import SEARCH_TIMEOUT
 from app.rag.query.state import QueryState
-from app.rag.vectorstores.general_milvus import COLLECTION_NAME, client
+from app.rag.vectorstores.general_milvus import COLLECTION_NAME, available_output_fields, client
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ _EXPAND_FIELDS = [
     "entity_name",
     "part",
     "chunk_id",
+    "chunk_key",
     "table_title",
 ]
 
@@ -64,7 +66,7 @@ def table_expand_node(state: QueryState, config: RunnableConfig) -> dict:
             rows = client.query(
                 collection_name=COLLECTION_NAME,
                 filter=filter_expr,
-                output_fields=_EXPAND_FIELDS,
+                output_fields=available_output_fields(_EXPAND_FIELDS),
                 limit=cfg.table_expand_limit,
                 timeout=SEARCH_TIMEOUT,
             )
@@ -85,6 +87,7 @@ def table_expand_node(state: QueryState, config: RunnableConfig) -> dict:
         for row in rows:
             expanded.append({
                 "chunk_id": row.get("chunk_id"),
+                "chunk_key": row.get("chunk_key") or _fallback_chunk_key(row),
                 "document_id": row.get("document_id", ""),
                 "page": row.get("page"),
                 "file_title": row.get("file_title", ""),
@@ -106,3 +109,14 @@ def table_expand_node(state: QueryState, config: RunnableConfig) -> dict:
         logger.debug("Expanded table %s → %d %s chunks", table_id, len(rows), target_type)
 
     return {"search_results": expanded}
+
+
+def _fallback_chunk_key(row: dict) -> str:
+    return base_chunk_key({
+        "document_id": row.get("document_id", ""),
+        "source_type": row.get("source_type", ""),
+        "table_id": row.get("table_id", ""),
+        "section_title": row.get("section_title", ""),
+        "part": row.get("part"),
+        "content": row.get("content", ""),
+    })

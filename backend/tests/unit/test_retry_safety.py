@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
+from app.rag.chunking.chunk_keys import base_chunk_key
 from app.services import document_service as svc
 
 
@@ -333,7 +334,14 @@ class TestDocumentChunks:
         assert payload["document"]["document_id"] == "doc-4"
         chunk = payload["chunks"][0]
         assert chunk["milvus_chunk_id"] == 123
-        assert chunk["chunk_key"] == "doc-4:text::0:0001"
+        assert chunk["chunk_key"] == base_chunk_key({
+            "document_id": "doc-4",
+            "source_type": "text",
+            "table_id": "",
+            "section_title": "Parent > Title",
+            "part": 0,
+            "content": "hello chunk",
+        })
         assert chunk["image_paths"] == ["images/a.png"]
         assert chunk["content_length"] == len("hello chunk")
 
@@ -358,9 +366,59 @@ class TestDocumentChunks:
 
         assert payload["chunks_source"] == "parsed_artifact"
         chunk = payload["chunks"][0]
-        assert chunk["chunk_key"] == "doc-4:table_summary:t1:1:0001"
+        assert chunk["chunk_key"] == base_chunk_key({
+            "document_id": "doc-4",
+            "source_type": "table_summary",
+            "table_id": "t1",
+            "section_title": "",
+            "part": 1,
+            "content": "parsed chunk",
+        })
         assert chunk["milvus_chunk_id"] is None
         assert chunk["content"] == "parsed chunk"
+
+    def test_get_chunk_by_key_from_milvus(self, db):
+        key = "ck_milvus"
+        with patch("app.services.document_service._sync_query_milvus_chunk_by_key", return_value={
+            "chunk_id": 123,
+            "chunk_key": key,
+            "document_id": "doc-4",
+            "content": "full source",
+            "source_type": "text",
+            "part": 1,
+            "image_paths": "[]",
+        }):
+            chunk = asyncio.run(svc.get_document_chunk_by_key("doc-4", key))
+
+        assert chunk["chunk_key"] == key
+        assert chunk["content"] == "full source"
+        assert chunk["milvus_chunk_id"] == 123
+
+    def test_get_chunk_by_key_falls_back_to_parsed_chunks(self, db, tmp_path, monkeypatch):
+        row = {
+            "document_id": "doc-4",
+            "content": "parsed source",
+            "source_type": "text",
+            "section_title": "S",
+            "part": 1,
+        }
+        key = base_chunk_key(row)
+        parsed_dir = tmp_path / "doc-4"
+        parsed_dir.mkdir()
+        (parsed_dir / "chunks.json").write_text(json.dumps([row], ensure_ascii=False), encoding="utf-8")
+        monkeypatch.setattr(svc.settings, "GENERAL_PARSED_DIR", str(tmp_path))
+
+        with patch("app.services.document_service._sync_query_milvus_chunk_by_key", return_value=None):
+            chunk = asyncio.run(svc.get_document_chunk_by_key("doc-4", key))
+
+        assert chunk["chunk_key"] == key
+        assert chunk["content"] == "parsed source"
+
+    def test_get_chunk_by_key_returns_none_for_missing(self, db):
+        with patch("app.services.document_service._sync_query_milvus_chunk_by_key", return_value=None):
+            chunk = asyncio.run(svc.get_document_chunk_by_key("doc-4", "ck_missing"))
+
+        assert chunk is None
 
     def test_missing_document_returns_none(self, db):
         payload = asyncio.run(svc.get_document_chunks("missing"))

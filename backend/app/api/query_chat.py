@@ -25,6 +25,7 @@ def _build_retrieved_chunks(search_results: list[dict]) -> str:
     return json.dumps([
         {
             "chunk_id": r.get("chunk_id"),
+            "chunk_key": r.get("chunk_key", ""),
             "rank": i + 1,
             "score": r.get("score", 0),
             "document_id": r.get("document_id", ""),

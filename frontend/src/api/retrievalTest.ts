@@ -61,6 +61,7 @@ export interface HopTraceEntry {
 export interface RetrievalResult {
   rank: number
   chunk_id?: number | null
+  chunk_key?: string
   document_id: string
   file_title: string
   entity_name: string

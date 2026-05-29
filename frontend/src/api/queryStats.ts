@@ -26,6 +26,7 @@ export interface QueryStatsTrend {
 
 export interface RetrievedChunkItem {
   chunk_id?: number | null
+  chunk_key?: string
   rank: number
   score: number
   document_id?: string

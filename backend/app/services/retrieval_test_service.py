@@ -263,7 +263,7 @@ def _run_multi_entity_dense_search(state: dict, cfg: QueryConfig, acl_filter: st
 
     seen: dict[str, dict] = {}
     for row in all_results:
-        key = str(row.get("chunk_id") or f"{row.get('document_id')}|{row.get('source_type')}|{row.get('part')}")
+        key = str(row.get("chunk_key") or row.get("chunk_id") or f"{row.get('document_id')}|{row.get('source_type')}|{row.get('part')}")
         if key not in seen or row["score"] > seen[key]["score"]:
             seen[key] = row
 
@@ -329,6 +329,7 @@ def _format_result(row: dict, rank: int, *, use_rerank: bool) -> dict:
     return {
         "rank": rank,
         "chunk_id": row.get("chunk_id"),
+        "chunk_key": row.get("chunk_key", ""),
         "document_id": row.get("document_id", ""),
         "file_title": row.get("file_title", ""),
         "entity_name": row.get("entity_name", ""),

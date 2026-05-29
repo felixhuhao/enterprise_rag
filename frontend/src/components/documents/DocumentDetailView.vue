@@ -90,13 +90,13 @@
             class="chunk-table"
           >
             <template #columns>
-              <a-table-column title="#" :width="56" align="center">
+              <a-table-column title="#" :width="56" align="center" :body-cell-class="bodyCellClass">
                 <template #cell="{ record }">
                   {{ record.sequence }}
                 </template>
               </a-table-column>
 
-              <a-table-column title="章节" data-index="section_title" :width="230">
+              <a-table-column title="章节" data-index="section_title" :width="230" :body-cell-class="bodyCellClass">
                 <template #cell="{ record }">
                   <span class="section-cell" :title="record.section_title || record.title">
                     {{ record.section_title || record.title || '—' }}
@@ -104,13 +104,13 @@
                 </template>
               </a-table-column>
 
-              <a-table-column title="页码" data-index="page" :width="84" align="center" :sortable="{ sortDirections: ['ascend', 'descend'] }">
+              <a-table-column title="页码" data-index="page" :width="84" align="center" :sortable="{ sortDirections: ['ascend', 'descend'] }" :body-cell-class="bodyCellClass">
                 <template #cell="{ record }">
                   {{ record.page ?? '—' }}
                 </template>
               </a-table-column>
 
-              <a-table-column title="类型" data-index="source_type" :width="88" align="center">
+              <a-table-column title="类型" data-index="source_type" :width="88" align="center" :body-cell-class="bodyCellClass">
                 <template #cell="{ record }">
                   <a-tag :color="sourceTypeColor(record.source_type)" size="small">
                     {{ sourceTypeLabel(record.source_type) }}
@@ -118,9 +118,9 @@
                 </template>
               </a-table-column>
 
-              <a-table-column title="长度" data-index="content_length" :width="82" align="center" :sortable="{ sortDirections: ['ascend', 'descend'] }" />
+              <a-table-column title="长度" data-index="content_length" :width="82" align="center" :sortable="{ sortDirections: ['ascend', 'descend'] }" :body-cell-class="bodyCellClass" />
 
-              <a-table-column title="内容预览" data-index="content">
+              <a-table-column title="内容预览" data-index="content" :body-cell-class="bodyCellClass">
                 <template #cell="{ record }">
                   <div class="content-preview">
                     <p>{{ preview(record.content) }}</p>
@@ -137,7 +137,7 @@
                 </template>
               </a-table-column>
 
-              <a-table-column title="图片" data-index="image_paths" :width="70" align="center">
+              <a-table-column title="图片" data-index="image_paths" :width="70" align="center" :body-cell-class="bodyCellClass">
                 <template #cell="{ record }">
                   <a-badge v-if="record.image_paths?.length" :count="record.image_paths.length" />
                   <span v-else>—</span>
@@ -171,7 +171,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { Message } from '@arco-design/web-vue'
 import { IconFile, IconLeft } from '@arco-design/web-vue/es/icon'
+import type { TableData } from '@arco-design/web-vue/es/table/interface'
 import type { Document, DocumentChunk, DocumentChunksSource } from '../../api/documents'
 import { getDocumentChunks, getRelatedDocuments } from '../../api/documents'
 import { ERROR_HINTS } from '../../utils/errorHints'
@@ -330,42 +332,70 @@ function rowClass(record: DocumentChunk) {
   return ''
 }
 
+function bodyCellClass(record: TableData) {
+  if (isHighlightedChunkKey(record.chunk_key)) {
+    return 'chunk-cell-highlight'
+  }
+  return ''
+}
+
 function isHighlightedChunk(record: DocumentChunk) {
-  return highlightChunkKey.value != null && record.chunk_key === highlightChunkKey.value
+  return isHighlightedChunkKey(record.chunk_key)
+}
+
+function isHighlightedChunkKey(chunkKey: unknown) {
+  return highlightChunkKey.value != null && String(chunkKey || '') === highlightChunkKey.value
 }
 
 function applyHighlight() {
-  const raw = route.query.highlight_chunk
-  if (typeof raw !== 'string' || !raw) {
+  const rawKey = route.query.highlight_chunk_key
+  const rawLegacyId = route.query.highlight_chunk
+  const requestedKey = typeof rawKey === 'string' ? rawKey : ''
+  const requestedLegacyId = typeof rawLegacyId === 'string' ? rawLegacyId : ''
+  if (!requestedKey && !requestedLegacyId) {
     highlightChunkId.value = null
     highlightChunkKey.value = null
     return
   }
-  highlightChunkId.value = raw
+  highlightChunkId.value = requestedLegacyId || requestedKey
   highlightChunkKey.value = null
   // 确保 keyword 不干扰高亮 chunk 的可见性
   keyword.value = ''
 
-  const index = chunks.value.findIndex(
-    (c) => c.milvus_chunk_id != null && String(c.milvus_chunk_id) === raw,
-  )
+  let index = -1
+  if (requestedKey) {
+    index = chunks.value.findIndex((c) => c.chunk_key === requestedKey)
+  }
+  if (index === -1 && requestedLegacyId) {
+    index = chunks.value.findIndex(
+      (c) => c.milvus_chunk_id != null && String(c.milvus_chunk_id) === requestedLegacyId,
+    )
+  }
   if (index === -1) {
-    // parsed artifact 或 chunk 不在列表中，静默忽略
+    Message.warning('未找到对应 chunk，可能索引已重建或链接来自旧记录。')
     return
   }
   highlightChunkKey.value = chunks.value[index].chunk_key
   const targetPage = Math.floor(index / PAGE_SIZE) + 1
   currentPage.value = targetPage
+  scrollToHighlightedChunk()
+}
+
+function scrollToHighlightedChunk() {
   nextTick(() => {
-    const row = window.document.querySelector('.chunk-row-highlight') as HTMLElement | null
-    if (row) {
-      row.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }
+    window.requestAnimationFrame(() => {
+      const row = window.document.querySelector('.chunk-row-highlight') as HTMLElement | null
+      const cell = window.document.querySelector('.chunk-cell-highlight') as HTMLElement | null
+      const target = row || cell?.closest('tr') || cell
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    })
   })
 }
 
 // route 变化时重新应用高亮（route.params 不变时组件可能复用）
-watch(() => route.query.highlight_chunk, () => {
+watch(() => [route.query.highlight_chunk_key, route.query.highlight_chunk], () => {
   if (chunks.value.length > 0) {
     applyHighlight()
   }
@@ -640,9 +670,16 @@ onMounted(loadDetail)
   white-space: nowrap;
 }
 
-:deep(.chunk-row-highlight) td {
-  border-top: 1px solid var(--border-accent) !important;
-  border-bottom: 1px solid var(--border-accent) !important;
+:deep(.chunk-row-highlight .arco-table-td),
+:deep(.chunk-cell-highlight) {
+  background: #fff7ed !important;
+  border-top: 1px solid #fdba74 !important;
+  border-bottom: 1px solid #fdba74 !important;
+}
+
+:deep(.chunk-row-highlight .arco-table-td:first-child),
+:deep(.chunk-cell-highlight:first-child) {
+  box-shadow: inset 3px 0 0 #f97316;
 }
 
 @media (max-width: 1100px) {

@@ -42,7 +42,7 @@ class TestBuildPromptNode:
         state = {
             "query": "毛利率",
             "search_results": [
-                {"content": "毛利率 52%", "file_title": "年报.pdf", "section_title": "财务", "source_type": "text", "table_tokens": 0},
+                {"content": "毛利率 52%", "chunk_key": "ck_1", "file_title": "年报.pdf", "section_title": "财务", "source_type": "text", "table_tokens": 0},
                 {"content": "营收 100亿", "file_title": "年报.pdf", "section_title": "营收", "source_type": "text", "table_tokens": 0},
             ],
         }
@@ -52,6 +52,7 @@ class TestBuildPromptNode:
         assert "[C2]" in result["context_text"]
         assert "C1" in result["context_map"]
         assert "C2" in result["context_map"]
+        assert result["context_map"]["C1"]["chunk_key"] == "ck_1"
 
     def test_empty_results(self):
         state = {"query": "test", "search_results": []}

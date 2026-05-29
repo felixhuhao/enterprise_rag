@@ -49,11 +49,11 @@ def _discover_entities(
 def _merge_results(
     hop1: list[dict], hop2: list[dict], limit: int,
 ) -> list[dict]:
-    """Merge hop1 + hop2 results, deduplicate by chunk_id, sort by score desc."""
+    """Merge hop1 + hop2 results, deduplicate by stable chunk_key/chunk_id, sort by score desc."""
     seen: set[int | str] = set()
     merged = []
     for r in sorted(hop1 + hop2, key=lambda r: r.get("score", 0), reverse=True):
-        cid = r.get("chunk_id")
+        cid = r.get("chunk_key") or r.get("chunk_id")
         if cid is None:
             cid = r.get("content", "")[:40]
         if cid in seen:

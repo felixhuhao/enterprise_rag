@@ -9,6 +9,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph.state import RunnableConfig
 
 from app.config import settings
+from app.rag.chunking.chunk_keys import base_chunk_key
 from app.rag.embeddings.dense_embedding import dense_embedding
 from app.rag.query.config import get_query_config
 from app.rag.query.fallback import (
@@ -21,11 +22,12 @@ from app.rag.query.filter_utils import build_acl_expr, combine_filters, get_allo
 from app.rag.query.planner import get_query_plan, plan_allows_entity_fallback, plan_budget
 from app.rag.query.search import SEARCH_TIMEOUT
 from app.rag.query.state import QueryState
-from app.rag.vectorstores.general_milvus import COLLECTION_NAME, client
+from app.rag.vectorstores.general_milvus import COLLECTION_NAME, available_output_fields, client
 
 logger = logging.getLogger(__name__)
 
 OUTPUT_FIELDS = [
+    "chunk_key",
     "content",
     "title",
     "section_title",
@@ -105,7 +107,7 @@ def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
             search_params={"metric_type": "COSINE"},
             limit=hyde_limit,
             filter=entity_filter,
-            output_fields=OUTPUT_FIELDS,
+            output_fields=available_output_fields(OUTPUT_FIELDS),
             timeout=SEARCH_TIMEOUT,
         )
         hits = _parse_hits(results[0])
@@ -128,7 +130,7 @@ def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
                     search_params={"metric_type": "COSINE"},
                     limit=hyde_limit,
                     filter=acl_filter,
-                    output_fields=OUTPUT_FIELDS,
+                    output_fields=available_output_fields(OUTPUT_FIELDS),
                     timeout=SEARCH_TIMEOUT,
                 )
                 hits = _parse_hits(results[0])
@@ -148,8 +150,10 @@ def _parse_hits(hits) -> list[dict]:
     out = []
     for hit in hits:
         entity = hit["entity"]
+        chunk_id = hit.get("id") or hit.get("chunk_id") or entity.get("chunk_id")
         out.append({
-            "chunk_id": hit.get("id") or hit.get("chunk_id") or entity.get("chunk_id"),
+            "chunk_id": chunk_id,
+            "chunk_key": entity.get("chunk_key") or _fallback_chunk_key(entity),
             "document_id": entity.get("document_id", ""),
             "page": entity.get("page"),
             "file_title": entity.get("file_title", ""),
@@ -166,3 +170,14 @@ def _parse_hits(hits) -> list[dict]:
             "score": hit["distance"],
         })
     return out
+
+
+def _fallback_chunk_key(entity: dict) -> str:
+    return base_chunk_key({
+        "document_id": entity.get("document_id", ""),
+        "source_type": entity.get("source_type", ""),
+        "table_id": entity.get("table_id", ""),
+        "section_title": entity.get("section_title", ""),
+        "part": entity.get("part"),
+        "content": entity.get("content", ""),
+    })

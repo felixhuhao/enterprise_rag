@@ -178,7 +178,7 @@
             <a-table-column title="来源" :width="260">
               <template #cell="{ record }">
                 <div class="source-cell">
-                  <button type="button" @click="openDocument(record.document_id)">
+                  <button type="button" @click="openDocument(record)">
                     {{ record.file_title || record.document_id }}
                   </button>
                   <span>{{ record.section_title || '—' }}</span>
@@ -377,9 +377,18 @@ function toggleExpand(rank: number) {
   expandedKeys.value = next
 }
 
-function openDocument(documentId: string) {
-  if (!documentId) return
-  router.push(`/documents/${documentId}`)
+function openDocument(record: RetrievalTestResponse['results'][number]) {
+  if (!record.document_id) return
+  router.push({
+    path: `/documents/${record.document_id}`,
+    query: highlightQuery(record),
+  })
+}
+
+function highlightQuery(record: RetrievalTestResponse['results'][number]) {
+  if (record.chunk_key) return { highlight_chunk_key: record.chunk_key }
+  if (record.chunk_id != null) return { highlight_chunk: String(record.chunk_id) }
+  return undefined
 }
 
 function formatScore(value: number | null | undefined) {

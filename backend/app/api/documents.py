@@ -172,6 +172,21 @@ async def get_document_chunks(document_id: str, current_user: CurrentUser = Depe
     return payload
 
 
+@router.get("/documents/{document_id}/chunks/by-key/{chunk_key}")
+async def get_document_chunk_by_key(
+    document_id: str,
+    chunk_key: str,
+    current_user: CurrentUser = Depends(verify_token),
+):
+    """按 stable chunk_key 获取单个源 chunk 完整内容。"""
+    if not await has_permission(current_user, document_id, "read"):
+        raise HTTPException(status_code=404, detail="文档不存在")
+    chunk = await document_service.get_document_chunk_by_key(document_id, chunk_key)
+    if not chunk:
+        raise HTTPException(status_code=404, detail="当前索引或解析产物中未找到该 chunk")
+    return chunk
+
+
 @router.get("/documents/{document_id}/related")
 async def get_related_documents(document_id: str, current_user: CurrentUser = Depends(verify_token)):
     """返回同 entity 且用户可见的相关文档列表。"""

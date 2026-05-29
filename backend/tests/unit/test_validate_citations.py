@@ -70,6 +70,7 @@ class TestValidateCitations:
             "context_map": {
                 "C1": {
                     "chunk_id": 456,
+                    "chunk_key": "ck_456",
                     "document_id": "doc-001",
                     "file_title": "年报.pdf",
                     "entity_name": "中芯国际",
@@ -84,5 +85,6 @@ class TestValidateCitations:
         result = validate_citations_node(state)
         c = result["citations"][0]
         assert c["chunk_id"] == 456
+        assert c["chunk_key"] == "ck_456"
         assert c["page"] == 12
         assert c["entity_name"] == "中芯国际"

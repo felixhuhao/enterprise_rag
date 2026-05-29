@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
+from app.rag.chunking.chunk_keys import assign_chunk_keys
 from app.rag.ingestion.config import IngestionConfig
 
 logger = logging.getLogger(__name__)
@@ -142,6 +143,8 @@ def split_markdown_document(
         i += 1
 
     flush_text()
+
+    assign_chunk_keys(chunks)
 
     chunks_path = os.path.join(parsed_dir, "chunks.json")
     Path(chunks_path).write_text(json.dumps(chunks, ensure_ascii=False, indent=2), encoding="utf-8")

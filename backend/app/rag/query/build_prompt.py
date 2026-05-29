@@ -80,6 +80,7 @@ def build_prompt_node(state: QueryState, config: RunnableConfig) -> dict:
         cid = f"C{i}"
         context_map[cid] = {
             "chunk_id": result.get("chunk_id"),
+            "chunk_key": result.get("chunk_key", ""),
             "document_id": result.get("document_id", ""),
             "file_title": result.get("file_title", ""),
             "entity_name": result.get("entity_name", ""),

@@ -99,7 +99,7 @@
       >
         <template #columns>
           <a-table-column title="#" data-index="rank" :width="50" />
-          <a-table-column title="命中信息" :width="300">
+          <a-table-column title="命中信息" :width="232">
             <template #cell="{ record }">
               <div class="hit-summary">
                 <div class="hit-title" :title="displayFileTitle(record)">
@@ -128,6 +128,18 @@
               <span class="score-cell">{{ formatScore(record.score) }}</span>
             </template>
           </a-table-column>
+          <a-table-column title="定位" :width="68" align="center">
+            <template #cell="{ record }">
+              <button
+                class="jump-btn"
+                :disabled="!record.document_id"
+                :title="!record.document_id ? '缺少文档信息' : '打开文档并定位到命中 chunk'"
+                @click="openDocument(record)"
+              >
+                定位
+              </button>
+            </template>
+          </a-table-column>
           <a-table-column title="内容预览" :width="430">
             <template #cell="{ record }">
               <div class="preview-cell" :class="{ muted: !record.content_preview }">
@@ -144,18 +156,6 @@
                   </dl>
                 </details>
               </div>
-            </template>
-          </a-table-column>
-          <a-table-column title="操作" :width="68" align="center">
-            <template #cell="{ record }">
-              <button
-                class="jump-btn"
-                :disabled="!record.document_id"
-                :title="!record.document_id ? '缺少文档信息' : '打开文档'"
-                @click="openDocument(record)"
-              >
-                打开
-              </button>
             </template>
           </a-table-column>
         </template>
@@ -212,7 +212,16 @@ function openHits(record: QueryStatsRecord) {
 
 function openDocument(chunk: RetrievedChunkItem) {
   if (!chunk.document_id) return
-  router.push({ path: `/documents/${chunk.document_id}` })
+  router.push({
+    path: `/documents/${chunk.document_id}`,
+    query: highlightQuery(chunk),
+  })
+}
+
+function highlightQuery(chunk: RetrievedChunkItem) {
+  if (chunk.chunk_key) return { highlight_chunk_key: chunk.chunk_key }
+  if (chunk.chunk_id != null) return { highlight_chunk: String(chunk.chunk_id) }
+  return undefined
 }
 
 function displayFileTitle(record: RetrievedChunkItem): string {
@@ -243,6 +252,7 @@ function rawValue(value: unknown): string {
 function technicalFields(record: RetrievedChunkItem): Array<{ label: string; value: string }> {
   return [
     { label: 'chunk_id', value: rawValue(record.chunk_id) },
+    { label: 'chunk_key', value: rawValue(record.chunk_key) },
     { label: 'document_id', value: rawValue(record.document_id) },
     { label: 'source_type', value: rawValue(record.source_type) },
     { label: 'stage', value: rawValue(record.stage) },
@@ -545,4 +555,5 @@ function statusClass(status: string): string {
   opacity: 0.4;
   cursor: not-allowed;
 }
+
 </style>

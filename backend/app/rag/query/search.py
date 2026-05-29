@@ -8,6 +8,7 @@ import logging
 from pymilvus import AnnSearchRequest, WeightedRanker
 from langgraph.graph.state import RunnableConfig
 
+from app.rag.chunking.chunk_keys import base_chunk_key
 from app.rag.embeddings.dense_embedding import dense_embedding
 from app.rag.query.config import QueryConfig, get_query_config
 from app.rag.query.fallback import (
@@ -20,7 +21,7 @@ from app.rag.query.filter_utils import build_acl_expr, build_entity_expr, combin
 from app.rag.query.planner import plan_allows_entity_fallback, plan_budget
 from app.rag.query.scoring_utils import need_fallback
 from app.rag.query.state import QueryState
-from app.rag.vectorstores.general_milvus import COLLECTION_NAME, client
+from app.rag.vectorstores.general_milvus import COLLECTION_NAME, available_output_fields, client
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ SEARCH_TIMEOUT = 30  # seconds
 
 
 OUTPUT_FIELDS = [
+    "chunk_key",
     "content",
     "title",
     "section_title",
@@ -195,7 +197,7 @@ def _multi_entity_search(state: dict, config: RunnableConfig, query: str, cfg: Q
     # 按 chunk_id 去重，保留最高分；不过早截断，留给 RRF/rerank
     seen: dict[str, dict] = {}
     for r in all_results:
-        key = str(r.get("chunk_id") or f"{r.get('document_id')}|{r.get('source_type')}|{r.get('part')}")
+        key = str(r.get("chunk_key") or r.get("chunk_id") or f"{r.get('document_id')}|{r.get('source_type')}|{r.get('part')}")
         if key not in seen or r["score"] > seen[key]["score"]:
             seen[key] = r
 
@@ -236,7 +238,7 @@ def _hybrid_search_limited(query_dense, query_text, entity_filter, limit: int, c
         reqs=[dense_req, sparse_req],
         ranker=WeightedRanker(cfg.dense_weight, cfg.sparse_weight),
         limit=limit,
-        output_fields=OUTPUT_FIELDS,
+        output_fields=available_output_fields(OUTPUT_FIELDS),
         timeout=SEARCH_TIMEOUT,
     )
     return _parse_hits(results[0])
@@ -251,7 +253,7 @@ def _dense_only_search_limited(query_dense, entity_filter, limit: int):
         search_params={"metric_type": "COSINE"},
         limit=limit,
         filter=entity_filter,
-        output_fields=OUTPUT_FIELDS,
+        output_fields=available_output_fields(OUTPUT_FIELDS),
         timeout=SEARCH_TIMEOUT,
     )
     return _parse_hits(results[0])
@@ -278,7 +280,7 @@ def _hybrid_search(query_dense, query_text, entity_filter, cfg: QueryConfig, lim
         reqs=[dense_req, sparse_req],
         ranker=WeightedRanker(cfg.dense_weight, cfg.sparse_weight),
         limit=limit,
-        output_fields=OUTPUT_FIELDS,
+        output_fields=available_output_fields(OUTPUT_FIELDS),
         timeout=SEARCH_TIMEOUT,
     )
     return _parse_hits(results[0])
@@ -293,7 +295,7 @@ def _dense_only_search(query_dense, entity_filter, cfg: QueryConfig, limit: int 
         search_params={"metric_type": "COSINE"},
         limit=limit,
         filter=entity_filter,
-        output_fields=OUTPUT_FIELDS,
+        output_fields=available_output_fields(OUTPUT_FIELDS),
         timeout=SEARCH_TIMEOUT,
     )
     return _parse_hits(results[0])
@@ -303,8 +305,10 @@ def _parse_hits(hits) -> list[dict]:
     out = []
     for hit in hits:
         entity = hit["entity"]
+        chunk_id = hit.get("id") or hit.get("chunk_id") or entity.get("chunk_id")
         out.append({
-            "chunk_id": hit.get("id") or hit.get("chunk_id") or entity.get("chunk_id"),
+            "chunk_id": chunk_id,
+            "chunk_key": entity.get("chunk_key") or _fallback_chunk_key(entity),
             "document_id": entity.get("document_id", ""),
             "page": entity.get("page"),
             "file_title": entity.get("file_title", ""),
@@ -322,3 +326,14 @@ def _parse_hits(hits) -> list[dict]:
             "score": hit["distance"],
         })
     return out
+
+
+def _fallback_chunk_key(entity: dict) -> str:
+    return base_chunk_key({
+        "document_id": entity.get("document_id", ""),
+        "source_type": entity.get("source_type", ""),
+        "table_id": entity.get("table_id", ""),
+        "section_title": entity.get("section_title", ""),
+        "part": entity.get("part"),
+        "content": entity.get("content", ""),
+    })

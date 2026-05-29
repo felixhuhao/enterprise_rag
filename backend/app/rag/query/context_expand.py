@@ -10,11 +10,11 @@ from app.rag.query.config import get_query_config
 from app.rag.query.filter_utils import escape_milvus_string
 from app.rag.query.search import SEARCH_TIMEOUT
 from app.rag.query.state import QueryState
-from app.rag.vectorstores.general_milvus import COLLECTION_NAME, client
+from app.rag.vectorstores.general_milvus import COLLECTION_NAME, available_output_fields, client
 
 logger = logging.getLogger(__name__)
 
-_EXPAND_FIELDS = ["chunk_id", "content", "part", "section_title"]
+_EXPAND_FIELDS = ["chunk_id", "chunk_key", "content", "part", "section_title"]
 
 
 def context_expand_node(state: QueryState, config: RunnableConfig) -> dict:
@@ -33,6 +33,7 @@ def context_expand_node(state: QueryState, config: RunnableConfig) -> dict:
 
     expanded_results = [dict(row) for row in results]
     anchor_chunk_ids = {row.get("chunk_id") for row in expanded_results if row.get("chunk_id") is not None}
+    anchor_chunk_keys = {row.get("chunk_key") for row in expanded_results if row.get("chunk_key")}
     groups: dict[tuple[str, str], dict] = {}
 
     for idx, row in enumerate(expanded_results):
@@ -61,7 +62,7 @@ def context_expand_node(state: QueryState, config: RunnableConfig) -> dict:
         by_part: dict[int, dict] = {}
         for row in rows:
             part = _int_part(row.get("part"))
-            if part is None or row.get("chunk_id") in anchor_chunk_ids:
+            if part is None or row.get("chunk_id") in anchor_chunk_ids or row.get("chunk_key") in anchor_chunk_keys:
                 continue
             by_part[part] = row
         neighbors_by_group[group_key] = by_part
@@ -122,7 +123,7 @@ def _query_neighbors(group_key: tuple[str, str], parts: list[int], *, same_secti
         rows = client.query(
             collection_name=COLLECTION_NAME,
             filter=filter_expr,
-            output_fields=_EXPAND_FIELDS,
+            output_fields=available_output_fields(_EXPAND_FIELDS),
             limit=max(len(parts) * 4, 10),
             timeout=SEARCH_TIMEOUT,
         )

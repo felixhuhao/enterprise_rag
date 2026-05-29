@@ -6,6 +6,7 @@ import logging
 from pymilvus import DataType, Function, FunctionType, MilvusClient
 
 from app.config import settings
+from app.rag.query.filter_utils import escape_milvus_string
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,7 @@ QUERY_TIMEOUT = 30
 
 CHUNK_OUTPUT_FIELDS = [
     "chunk_id",
+    "chunk_key",
     "content",
     "title",
     "parent_title",
@@ -33,14 +35,19 @@ CHUNK_OUTPUT_FIELDS = [
     "entity_name",
 ]
 
+OPTIONAL_OUTPUT_FIELDS = {"chunk_key"}
+_FIELD_NAMES_CACHE: set[str] | None = None
+
 
 def ensure_collection():
     """Create general_documents collection if it does not exist."""
+    global _FIELD_NAMES_CACHE
     if client.has_collection(collection_name=COLLECTION_NAME):
         return
 
     schema = client.create_schema()
     schema.add_field(field_name="chunk_id", datatype=DataType.INT64, is_primary=True, auto_id=True)
+    schema.add_field(field_name="chunk_key", datatype=DataType.VARCHAR, max_length=80, nullable=True)
     schema.add_field(
         field_name="content",
         datatype=DataType.VARCHAR,
@@ -103,7 +110,61 @@ def ensure_collection():
         schema=schema,
         index_params=index_params,
     )
+    _FIELD_NAMES_CACHE = set(CHUNK_OUTPUT_FIELDS) | {"dense", "sparse"}
     logger.info("创建 collection '%s' 成功 (dim=%d)", COLLECTION_NAME, settings.EMBEDDING_DIM)
+
+
+def collection_field_names() -> set[str]:
+    """Return current collection field names, tolerant of old Milvus SDK shapes."""
+    global _FIELD_NAMES_CACHE
+    if _FIELD_NAMES_CACHE is not None:
+        return _FIELD_NAMES_CACHE
+    if not client.has_collection(collection_name=COLLECTION_NAME):
+        _FIELD_NAMES_CACHE = set()
+        return _FIELD_NAMES_CACHE
+
+    desc = client.describe_collection(collection_name=COLLECTION_NAME)
+    if isinstance(desc, dict):
+        fields = desc.get("fields")
+        if fields is None and isinstance(desc.get("schema"), dict):
+            fields = desc["schema"].get("fields")
+    else:
+        fields = getattr(desc, "fields", None)
+        schema = getattr(desc, "schema", None)
+        if fields is None and schema is not None:
+            fields = getattr(schema, "fields", None)
+
+    names: set[str] = set()
+    for field in fields or []:
+        if isinstance(field, dict):
+            name = field.get("name") or field.get("field_name")
+        else:
+            name = getattr(field, "name", None) or getattr(field, "field_name", None)
+        if name:
+            names.add(str(name))
+
+    _FIELD_NAMES_CACHE = names
+    return names
+
+
+def collection_has_field(field_name: str) -> bool:
+    try:
+        return field_name in collection_field_names()
+    except Exception:
+        logger.warning("Failed to inspect Milvus collection schema", exc_info=True)
+        return False
+
+
+def available_output_fields(fields: list[str]) -> list[str]:
+    """Remove optional fields missing from old collections."""
+    try:
+        names = collection_field_names()
+    except Exception:
+        logger.warning("Failed to inspect Milvus collection schema", exc_info=True)
+        return [field for field in fields if field not in OPTIONAL_OUTPUT_FIELDS]
+    if not names:
+        return [field for field in fields if field not in OPTIONAL_OUTPUT_FIELDS]
+    return [field for field in fields if field in names or field not in OPTIONAL_OUTPUT_FIELDS]
 
 
 def delete_by_document_id(document_id: str):
@@ -127,11 +188,30 @@ def query_chunks_by_document_id(document_id: str, limit: int = 10000) -> list[di
     rows = client.query(
         collection_name=COLLECTION_NAME,
         filter=f'document_id == "{document_id}"',
-        output_fields=CHUNK_OUTPUT_FIELDS,
+        output_fields=available_output_fields(CHUNK_OUTPUT_FIELDS),
         limit=limit,
         timeout=QUERY_TIMEOUT,
     )
     return rows or []
+
+
+def query_chunk_by_key(document_id: str, chunk_key: str) -> dict | None:
+    """Return one chunk by stable chunk_key from Milvus, or None on old schema/miss."""
+    if not client.has_collection(collection_name=COLLECTION_NAME):
+        return None
+    if not collection_has_field("chunk_key"):
+        return None
+
+    doc = escape_milvus_string(document_id)
+    key = escape_milvus_string(chunk_key)
+    rows = client.query(
+        collection_name=COLLECTION_NAME,
+        filter=f'document_id == "{doc}" and chunk_key == "{key}"',
+        output_fields=available_output_fields(CHUNK_OUTPUT_FIELDS),
+        limit=1,
+        timeout=QUERY_TIMEOUT,
+    )
+    return (rows or [None])[0]
 
 
 def upsert_document_chunks(document_id: str, chunks: list[dict]):
@@ -141,14 +221,15 @@ def upsert_document_chunks(document_id: str, chunks: list[dict]):
     if not chunks:
         return {"insert_count": 0}
 
-    records = [_to_milvus_row(chunk) for chunk in chunks]
+    include_chunk_key = collection_has_field("chunk_key")
+    records = [_to_milvus_row(chunk, include_chunk_key=include_chunk_key) for chunk in chunks]
     result = client.insert(collection_name=COLLECTION_NAME, data=records)
     client.flush(collection_name=COLLECTION_NAME)
     return result
 
 
-def _to_milvus_row(chunk: dict) -> dict:
-    return {
+def _to_milvus_row(chunk: dict, *, include_chunk_key: bool = True) -> dict:
+    row = {
         "content": chunk.get("content", ""),
         "title": chunk.get("title", ""),
         "parent_title": chunk.get("parent_title", ""),
@@ -167,3 +248,6 @@ def _to_milvus_row(chunk: dict) -> dict:
         "entity_name": chunk.get("entity_name"),
         "dense": chunk["dense"],
     }
+    if include_chunk_key:
+        row["chunk_key"] = chunk.get("chunk_key", "")
+    return row

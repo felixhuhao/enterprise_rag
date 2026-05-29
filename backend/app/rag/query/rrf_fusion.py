@@ -52,7 +52,9 @@ def rrf_fusion_node(state: QueryState, config: RunnableConfig) -> dict:
 
 
 def _dedup_key(doc: dict) -> str:
-    """Prefer chunk_id, then fall back to stable metadata."""
+    """Prefer stable chunk_key, then Milvus chunk_id, then stable-ish metadata."""
+    if doc.get("chunk_key"):
+        return str(doc["chunk_key"])
     if doc.get("chunk_id") is not None:
         return str(doc["chunk_id"])
     return f"{doc.get('document_id', '')}|{doc.get('source_type', '')}|{doc.get('table_id', '')}|{doc.get('part', '')}"
