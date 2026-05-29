@@ -10,6 +10,7 @@ class TestQueryConfigDefaults:
         assert cfg.strict_evidence is False
         assert cfg.use_entity_confirm is True
         assert cfg.use_hyde is True
+        assert cfg.use_query_expansion is True
         assert cfg.use_table_expand is True
         assert cfg.use_context_expand is True
         assert cfg.use_rerank is True
@@ -17,6 +18,7 @@ class TestQueryConfigDefaults:
         assert cfg.context_expand_window == 1
         assert cfg.context_expand_same_section is True
         assert cfg.context_expand_max_chars == 2400
+        assert cfg.query_expansion_count == 3
 
     def test_toggle_off_individually(self):
         """每个 toggle 可以独立关闭。"""
@@ -109,6 +111,10 @@ class TestQueryConfigClamp:
         assert QueryConfig(context_expand_window=100).context_expand_window == 5
         assert QueryConfig(context_expand_max_chars=100).context_expand_max_chars == 500
         assert QueryConfig(context_expand_max_chars=50000).context_expand_max_chars == 8000
+
+    def test_query_expansion_count_clamped(self):
+        assert QueryConfig(query_expansion_count=1).query_expansion_count == 2
+        assert QueryConfig(query_expansion_count=99).query_expansion_count == 4
 
     def test_defaults_unchanged(self):
         """Default values should all be within range (no clamping needed)."""

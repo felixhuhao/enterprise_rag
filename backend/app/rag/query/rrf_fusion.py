@@ -1,4 +1,4 @@
-"""RRF (Reciprocal Rank Fusion) for merging search + HyDE results."""
+"""RRF (Reciprocal Rank Fusion) for merging retrieval result sets."""
 
 from __future__ import annotations
 
@@ -10,35 +10,30 @@ from app.rag.query.state import QueryState
 
 
 def rrf_fusion_node(state: QueryState, config: RunnableConfig) -> dict:
-    """Merge primary search and HyDE results with RRF."""
+    """Merge primary, HyDE, and expanded-query results with RRF."""
     cfg = get_query_config(config)
     budget = plan_budget(state, config)
-    results_a = state.get("search_results", [])
-    results_b = state.get("search_results_hyde", [])
-    mode_a = _mode_label(state.get("search_mode", ""))
-    mode_b = _mode_label(state.get("search_mode_hyde", ""))
+    all_sets = _collect_result_sets(state)
 
-    if not results_b:
-        return {"search_results": [_with_paths(doc, [mode_a]) for doc in results_a]}
+    if not all_sets:
+        return {"search_results": []}
+
+    if len(all_sets) == 1:
+        _, results, label = all_sets[0]
+        return {"search_results": [_with_paths(doc, [label]) for doc in results]}
 
     k = cfg.rrf_k
     scores: dict[str, float] = {}
     doc_map: dict[str, dict] = {}
     path_map: dict[str, set[str]] = {}
 
-    for rank, doc in enumerate(results_a):
-        key = _dedup_key(doc)
-        scores[key] = scores.get(key, 0) + 1.0 / (k + rank + 1)
-        path_map.setdefault(key, set()).add(mode_a)
-        if key not in doc_map:
-            doc_map[key] = doc
-
-    for rank, doc in enumerate(results_b):
-        key = _dedup_key(doc)
-        scores[key] = scores.get(key, 0) + 1.0 / (k + rank + 1)
-        path_map.setdefault(key, set()).add(mode_b)
-        if key not in doc_map:
-            doc_map[key] = doc
+    for _, results, label in all_sets:
+        for rank, doc in enumerate(results):
+            key = _dedup_key(doc)
+            scores[key] = scores.get(key, 0) + 1.0 / (k + rank + 1)
+            path_map.setdefault(key, set()).add(label)
+            if key not in doc_map:
+                doc_map[key] = doc
 
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     fused = []
@@ -49,6 +44,33 @@ def rrf_fusion_node(state: QueryState, config: RunnableConfig) -> dict:
         fused.append(_with_paths(doc, sorted(path_map.get(key, set()))))
 
     return {"search_results": fused}
+
+
+def _collect_result_sets(state: QueryState) -> list[tuple[str, list[dict], str]]:
+    sets: list[tuple[str, list[dict], str]] = []
+    primary = state.get("search_results", [])
+    if primary:
+        sets.append(("primary", primary, _mode_label(state.get("search_mode", ""))))
+
+    hyde = state.get("search_results_hyde", [])
+    if hyde:
+        sets.append(("hyde", hyde, _mode_label(state.get("search_mode_hyde", ""))))
+
+    expanded_sets = state.get("search_results_expanded", []) or []
+    expanded_modes = state.get("search_modes_expanded", []) or []
+    for i, results in enumerate(expanded_sets):
+        if not results:
+            continue
+        mode = expanded_modes[i] if i < len(expanded_modes) else ""
+        sets.append((f"expanded_{i}", results, _expanded_label(i, mode)))
+    return sets
+
+
+def _expanded_label(index: int, mode: str) -> str:
+    label = f"expanded_{index + 1}"
+    if "fallback" in mode:
+        return f"{label}_fallback"
+    return label
 
 
 def _dedup_key(doc: dict) -> str:

@@ -25,7 +25,7 @@ def run_retrieval_test(
     allowed_document_ids: list[str] | None = None,
 ) -> dict:
     """Run the query pipeline up to rerank, without prompt building or generation."""
-    from app.rag.query.rrf_fusion import _dedup_key, rrf_fusion_node
+    from app.rag.query.direct_search import run_direct_search
 
     cfg = _build_config(
         top_k=top_k,
@@ -61,33 +61,16 @@ def run_retrieval_test(
         trace["rewrite_ms"] = _tick_ms(t)
 
         t = time.monotonic()
-        primary = _run_primary_search(state, run_config, cfg, use_hybrid=use_hybrid)
-        hyde = _hyde_search_node(state, run_config) if plan.get("use_hyde") else {
-            "search_results_hyde": [],
-            "search_mode_hyde": "disabled",
-            "fallback_info": empty_fallback_info(),
-        }
-        fallback_info = merge_fallback_info(
-            primary.get("fallback_info"),
-            hyde.get("fallback_info"),
+        direct = run_direct_search(
+            state,
+            run_config,
+            search_fn=lambda st, conf: _run_primary_search(st, conf, cfg, use_hybrid=use_hybrid),
+            hyde_fn=_hyde_search_node,
         )
-        state.update(primary)
-        state.update(hyde)
-        state["fallback_info"] = fallback_info
         trace["search_hyde_ms"] = _tick_ms(t)
-
-        path_map = _build_path_map(
-            _dedup_key,
-            state.get("search_results", []),
-            state.get("search_mode", ""),
-            state.get("search_results_hyde", []),
-            state.get("search_mode_hyde", ""),
-        )
-
-        t = time.monotonic()
-        state.update(rrf_fusion_node(state, run_config))
-        _apply_paths(_dedup_key, state.get("search_results", []), path_map)
-        trace["rrf_fusion_ms"] = _tick_ms(t)
+        trace["rrf_fusion_ms"] = direct.pop("_rrf_fusion_ms", 0)
+        state.update(direct)
+        _localize_retrieval_paths(state.get("search_results", []))
 
     table_paths = _table_path_map(state.get("search_results", []))
     t = time.monotonic()
@@ -122,6 +105,9 @@ def run_retrieval_test(
         "entity_mode": state.get("entity_mode", "none"),
         "matched_entities": state.get("matched_entities", []),
         "per_entity_counts": state.get("per_entity_counts", {}),
+        "expanded_queries": state.get("expanded_queries", []),
+        "per_query_counts": state.get("per_query_counts", {}),
+        "query_expansion_trace": state.get("query_expansion_trace", []),
         "hop_plan": state.get("hop_plan", "direct"),
         "hop_trace": state.get("hop_trace", []),
         "retrieval_flavor": state.get("query_plan", {}).get("retrieval_flavor", "balanced"),
@@ -303,6 +289,15 @@ def _apply_default_path(rows: list[dict], label: str):
         row["retrieval_path"] = label
 
 
+def _localize_retrieval_paths(rows: list[dict]):
+    for row in rows:
+        paths = row.get("retrieval_paths") or []
+        mapped = [_mode_label(str(path)) for path in paths if path]
+        if mapped:
+            row["retrieval_paths"] = mapped
+            row["retrieval_path"] = " + ".join(mapped)
+
+
 def _table_path_map(rows: list[dict]) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     for row in rows:
@@ -354,13 +349,19 @@ def _format_result(row: dict, rank: int, *, use_rerank: bool) -> dict:
 def _strategy_summary(cfg: QueryConfig, use_hybrid: bool, state: dict) -> dict:
     search_mode = state.get("search_mode", "")
     hyde_mode = state.get("search_mode_hyde", "")
+    expanded_modes = state.get("search_modes_expanded", []) or []
+    fallback_info = state.get("fallback_info", {}) or {}
     return {
         "top_k": cfg.rerank_max_top_k,
         "hybrid": use_hybrid,
         "hyde": bool(state.get("query_plan", {}).get("use_hyde", cfg.use_hyde)),
+        "query_expansion": bool(state.get("query_plan", {}).get("use_query_expansion", False)),
         "rerank": cfg.use_rerank,
         "table_expand": cfg.use_table_expand,
-        "fallback": "fallback" in search_mode or "fallback" in hyde_mode,
+        "fallback": bool(fallback_info.get("used"))
+        or "fallback" in search_mode
+        or "fallback" in hyde_mode
+        or any("fallback" in mode for mode in expanded_modes),
         "search_mode": search_mode,
         "search_mode_hyde": hyde_mode,
         "retrieval_flavor": state.get("query_plan", {}).get("retrieval_flavor", "balanced"),

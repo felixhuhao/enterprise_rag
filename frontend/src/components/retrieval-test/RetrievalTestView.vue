@@ -54,6 +54,9 @@
             <a-tag :color="response.strategy.hyde ? 'purple' : 'gray'">
               HyDE {{ response.strategy.hyde ? '开启' : '关闭' }}
             </a-tag>
+            <a-tag v-if="response.strategy.query_expansion" color="arcoblue">
+              扩展查询 {{ queryExpansionCount }}
+            </a-tag>
             <a-tag :color="response.strategy.rerank ? 'green' : 'gray'">
               重排 {{ response.strategy.rerank ? '开启' : '关闭' }}
             </a-tag>
@@ -112,6 +115,20 @@
               </div>
               <span class="hop-status">{{ hopStatusLabel(hop.status) }}</span>
               <span class="hop-count">{{ hop.result_count }} 条</span>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="queryExpansionEntries.length" class="expansion-panel">
+          <div class="expansion-head">
+            <span>扩展查询</span>
+            <strong>{{ queryExpansionCount }} 条</strong>
+          </div>
+          <div class="expansion-list">
+            <div v-for="row in queryExpansionEntries" :key="row.label" class="expansion-item">
+              <span class="expansion-label">{{ row.label }}</span>
+              <span class="expansion-query">{{ row.query }}</span>
+              <span class="expansion-count">{{ row.count }} 条命中</span>
             </div>
           </div>
         </div>
@@ -267,6 +284,12 @@ const errorMessage = ref('')
 const response = ref<RetrievalTestResponse | null>(null)
 const expandedKeys = ref<Set<number>>(new Set())
 
+interface QueryExpansionRow {
+  label: string
+  query: string
+  count: number
+}
+
 const flavorModes = [
   { id: 'balanced', name: '标准问答', desc: '平衡速度和准确率，适合日常资料问答' },
   { id: 'exact', name: '精确查找', desc: '优先匹配条款、金额、日期和明确事实' },
@@ -307,6 +330,27 @@ const budgetEntries = computed(() => {
 })
 
 const hopTrace = computed(() => response.value?.hop_trace ?? [])
+
+const queryExpansionCount = computed(() => response.value?.expanded_queries?.length ?? 0)
+
+const queryExpansionEntries = computed<QueryExpansionRow[]>(() => {
+  const current = response.value
+  if (!current) return []
+  const trace = current.query_expansion_trace ?? []
+  if (trace.length) {
+    return trace.map(row => ({
+      label: expansionLabel(row.label),
+      query: row.query,
+      count: row.count,
+    }))
+  }
+  const counts = current.per_query_counts ?? {}
+  return (current.expanded_queries ?? []).map((query, index) => ({
+    label: `扩展查询 ${index + 1}`,
+    query,
+    count: counts[`expanded_${index}`] ?? 0,
+  }))
+})
 
 const entityModeLabel = computed(() => {
   if (!response.value) return '—'
@@ -415,6 +459,13 @@ function hopStatusLabel(status: string) {
     hop2_failed: '二跳失败',
   }
   return map[status] ?? status
+}
+
+function expansionLabel(label: string) {
+  if (label === 'original') return '原始查询'
+  const matched = label.match(/^expanded_(\d+)$/)
+  if (matched) return `扩展查询 ${matched[1]}`
+  return label
 }
 
 function flavorLabel(flavor: string) {
@@ -694,6 +745,63 @@ function filterToScope(filter: string) {
 
 .hop-status,
 .hop-count {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.expansion-panel {
+  margin-top: 14px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-md);
+  background: #eff6ff;
+  padding: 12px;
+}
+
+.expansion-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #1d4ed8;
+  font-size: 12px;
+}
+
+.expansion-head strong {
+  color: #1e3a8a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.expansion-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.expansion-item {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid #dbeafe;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  font-size: 12px;
+}
+
+.expansion-label {
+  color: #1d4ed8;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.expansion-query {
+  color: var(--text-secondary);
+  min-width: 0;
+}
+
+.expansion-count {
   color: var(--text-muted);
   white-space: nowrap;
 }

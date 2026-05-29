@@ -21,6 +21,7 @@ class QueryConfig:
     use_entity_confirm: bool = True
     use_rewrite: bool = True
     use_hyde: bool = True
+    use_query_expansion: bool = True
     use_table_expand: bool = True
     use_context_expand: bool = True
     use_rerank: bool = True
@@ -35,6 +36,9 @@ class QueryConfig:
 
     # HyDE
     hyde_limit: int = 10
+
+    # Query expansion
+    query_expansion_count: int = 3
 
     # RRF
     rrf_k: int = 60
@@ -83,6 +87,7 @@ class QueryConfig:
             self.retrieval_flavor = "balanced"
         _clamp(self, "search_limit", 1, 50)
         _clamp(self, "hyde_limit", 1, 50)
+        _clamp(self, "query_expansion_count", 2, 4)
         _clamp(self, "rrf_k", 1, 200)
         _clamp(self, "rrf_max_results", 1, 50)
         _clamp(self, "table_expand_limit", 1, 50)

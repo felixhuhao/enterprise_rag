@@ -21,8 +21,13 @@ class QueryState(TypedDict, total=False):
     # 搜索结果
     search_results: list[dict]
     search_results_hyde: list[dict]
+    search_results_expanded: list[list[dict]]
     search_mode: str
     search_mode_hyde: str
+    search_modes_expanded: list[str]
+    expanded_queries: list[str]
+    per_query_counts: dict[str, int]
+    query_expansion_trace: list[dict]
     fallback_info: dict
     rerank_debug: list[dict]
     context_map: dict[str, dict]  # "C1" -> {document_id, file_title, ...}

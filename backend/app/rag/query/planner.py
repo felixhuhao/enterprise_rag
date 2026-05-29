@@ -73,6 +73,7 @@ def build_query_plan(query: str, entity_mode: str, cfg: QueryConfig) -> QueryPla
 
     if flavor == "exact":
         use_hyde = False
+        use_query_expansion = False
         use_multi_hop = False
         fallback_allowed = False
         budget = RetrievalBudget(
@@ -87,6 +88,7 @@ def build_query_plan(query: str, entity_mode: str, cfg: QueryConfig) -> QueryPla
         )
     elif flavor == "discovery":
         use_hyde = False
+        use_query_expansion = False
         use_multi_hop = True
         fallback_allowed = False
         budget = RetrievalBudget(
@@ -100,12 +102,13 @@ def build_query_plan(query: str, entity_mode: str, cfg: QueryConfig) -> QueryPla
             reason="discovery_current_path",
         )
     elif flavor == "recall":
-        use_hyde = cfg.use_hyde
+        use_hyde = False
+        use_query_expansion = cfg.use_query_expansion
         use_multi_hop = cfg.use_multi_hop
         fallback_allowed = not strict
         budget = RetrievalBudget(
             search_limit=20,
-            hyde_limit=cfg.hyde_limit,
+            hyde_limit=0,
             rrf_top_k=40,
             rerank_candidate_k=30,
             final_context_k=8,
@@ -115,6 +118,7 @@ def build_query_plan(query: str, entity_mode: str, cfg: QueryConfig) -> QueryPla
         )
     else:
         use_hyde = cfg.use_hyde
+        use_query_expansion = False
         use_multi_hop = cfg.use_multi_hop
         fallback_allowed = not strict
         if entity_mode == "broad":
@@ -157,7 +161,7 @@ def build_query_plan(query: str, entity_mode: str, cfg: QueryConfig) -> QueryPla
         retrieval_flavor=flavor,
         strict_evidence=strict,
         use_hyde=use_hyde,
-        use_query_expansion=False,
+        use_query_expansion=use_query_expansion,
         use_multi_hop=use_multi_hop,
         fallback_policy=fallback_policy,
         budget=budget,

@@ -44,6 +44,12 @@ export interface FallbackInfo {
   original_filter: string
 }
 
+export interface QueryExpansionTraceEntry {
+  label: string
+  query: string
+  count: number
+}
+
 /** 检索步骤信息 */
 export interface RetrievalInfo {
   results_count: number
@@ -54,6 +60,9 @@ export interface RetrievalInfo {
   entity_mode: string
   matched_entities: string[]
   per_entity_counts: Record<string, number>
+  expanded_queries?: string[]
+  per_query_counts?: Record<string, number>
+  query_expansion_trace?: QueryExpansionTraceEntry[]
   hop_plan?: string
   hop_trace?: HopTraceEntry[]
   retrieval_flavor?: string
@@ -234,6 +243,9 @@ export const useQueryChatStore = defineStore('queryChat', () => {
             entity_mode: (event as any).entity_mode ?? 'none',
             matched_entities: (event as any).matched_entities ?? [],
             per_entity_counts: (event as any).per_entity_counts ?? {},
+            expanded_queries: (event as any).expanded_queries ?? [],
+            per_query_counts: (event as any).per_query_counts ?? {},
+            query_expansion_trace: (event as any).query_expansion_trace ?? [],
             hop_plan: (event as any).hop_plan ?? 'direct',
             hop_trace: (event as any).hop_trace ?? [],
             retrieval_flavor: (event as any).retrieval_flavor ?? 'balanced',

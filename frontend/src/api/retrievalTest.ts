@@ -17,6 +17,7 @@ export interface RetrievalStrategy {
   top_k: number
   hybrid: boolean
   hyde: boolean
+  query_expansion?: boolean
   rerank: boolean
   table_expand: boolean
   fallback: boolean
@@ -58,6 +59,12 @@ export interface HopTraceEntry {
   per_entity_counts?: Record<string, number>
 }
 
+export interface QueryExpansionTraceEntry {
+  label: string
+  query: string
+  count: number
+}
+
 export interface RetrievalResult {
   rank: number
   chunk_id?: number | null
@@ -90,6 +97,9 @@ export interface RetrievalTestResponse {
   entity_mode: string
   matched_entities: string[]
   per_entity_counts: Record<string, number>
+  expanded_queries?: string[]
+  per_query_counts?: Record<string, number>
+  query_expansion_trace?: QueryExpansionTraceEntry[]
   hop_plan?: string
   hop_trace?: HopTraceEntry[]
   retrieval_flavor: string

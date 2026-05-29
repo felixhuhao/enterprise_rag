@@ -52,6 +52,7 @@ def test_exact_disables_hyde_multi_hop_and_fallback():
 
     assert plan.retrieval_flavor == "exact"
     assert plan.use_hyde is False
+    assert plan.use_query_expansion is False
     assert plan.use_multi_hop is False
     assert plan.fallback_policy.entity_filter_to_global is False
     assert plan.budget.search_limit == 8
@@ -68,10 +69,11 @@ def test_recall_uses_high_coverage_budget():
     plan = build_query_plan("有哪些相关制度？", "none", cfg)
 
     assert plan.retrieval_flavor == "recall"
-    assert plan.use_hyde is True
-    assert plan.use_query_expansion is False
+    assert plan.use_hyde is False
+    assert plan.use_query_expansion is True
     assert plan.use_multi_hop is True
     assert plan.budget.search_limit == 20
+    assert plan.budget.hyde_limit == 0
     assert plan.budget.rrf_top_k == 40
     assert plan.budget.rerank_candidate_k == 30
     assert plan.budget.final_context_k == 8
@@ -86,6 +88,7 @@ def test_discovery_forces_current_multi_hop_path():
 
     assert plan.retrieval_flavor == "discovery"
     assert plan.use_hyde is False
+    assert plan.use_query_expansion is False
     assert plan.use_multi_hop is True
     assert plan.fallback_policy.entity_filter_to_global is False
     assert plan.prompt_policy.template == "broad"
@@ -243,3 +246,12 @@ def test_discovery_with_strict_evidence_disables_fallback():
     assert plan.strict_evidence is True
     assert plan.fallback_policy.entity_filter_to_global is False
     assert plan.use_multi_hop is True
+
+
+def test_recall_query_expansion_can_be_disabled_by_config():
+    cfg = QueryConfig(retrieval_flavor="recall", use_query_expansion=False, use_hyde=True)
+
+    plan = build_query_plan("模糊制度查询", "none", cfg)
+
+    assert plan.use_hyde is False
+    assert plan.use_query_expansion is False

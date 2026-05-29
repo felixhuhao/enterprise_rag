@@ -132,8 +132,7 @@ async def _stream_generator(session_id: str, query: str, query_config, allowed_i
     """两阶段 SSE 生成器。所有路径（成功/失败/中断）均落库 query_run_stats。"""
     from app.rag.query.entity_confirm import entity_confirm_node
     from app.rag.query.rewrite_query import rewrite_query_node
-    from app.rag.query.search import search_node
-    from app.rag.query.hyde_search import hyde_search_node
+    from app.rag.query.direct_search import run_direct_search
     from app.rag.query.fallback import (
         REASON_LOW_SCORE_OR_INSUFFICIENT_HITS,
         fallback_blocked,
@@ -142,7 +141,6 @@ async def _stream_generator(session_id: str, query: str, query_config, allowed_i
         state_fallback_info,
     )
     from app.rag.query.planner import get_query_plan, plan_allows_entity_fallback, query_plan_node
-    from app.rag.query.rrf_fusion import rrf_fusion_node
     from app.rag.query.table_expand import table_expand_node
     from app.rag.query.rerank import rerank_node
     from app.rag.query.context_expand import context_expand_node
@@ -152,7 +150,6 @@ async def _stream_generator(session_id: str, query: str, query_config, allowed_i
     from app.rag.query.validate_citations import validate_citations_node
     from app.errors import classify_error
     from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
-    from concurrent.futures import ThreadPoolExecutor
     import threading
 
     # RunnableConfig for nodes
@@ -223,23 +220,10 @@ async def _stream_generator(session_id: str, query: str, query_config, allowed_i
         trace["rewrite_ms"] = _tick_ms(t)
 
         t = time.monotonic()
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            f1 = pool.submit(search_node, st, cfg_dict)
-            f2 = pool.submit(hyde_search_node, st, cfg_dict)
-            primary = f1.result()
-            hyde = f2.result()
-            fallback_info = merge_fallback_info(
-                primary.get("fallback_info"),
-                hyde.get("fallback_info"),
-            )
-            st.update(primary)
-            st.update(hyde)
-            st["fallback_info"] = fallback_info
+        direct = run_direct_search(st, cfg_dict)
         trace["search_hyde_ms"] = _tick_ms(t)
-
-        t = time.monotonic()
-        st.update(rrf_fusion_node(st, cfg_dict))
-        trace["rrf_fusion_ms"] = _tick_ms(t)
+        trace["rrf_fusion_ms"] = direct.pop("_rrf_fusion_ms", 0)
+        st.update(direct)
 
         return st
 
@@ -258,8 +242,10 @@ async def _stream_generator(session_id: str, query: str, query_config, allowed_i
         # Post-rerank fallback：rerank 后 top_score 仍低 → 去掉 filter 重搜
         entity_filter = st.get("entity_filter")
         already_fell_back = (
-            "fallback" in st.get("search_mode", "")
+            state_fallback_info(st).get("used")
+            or "fallback" in st.get("search_mode", "")
             or "fallback" in st.get("search_mode_hyde", "")
+            or any("fallback" in mode for mode in st.get("search_modes_expanded", []))
         )
         results = st.get("search_results", [])
         if entity_filter and not already_fell_back and results:
@@ -317,6 +303,9 @@ async def _stream_generator(session_id: str, query: str, query_config, allowed_i
             "entity_mode": state.get("entity_mode", "none"),
             "matched_entities": state.get("matched_entities", []),
             "per_entity_counts": state.get("per_entity_counts", {}),
+            "expanded_queries": state.get("expanded_queries", []),
+            "per_query_counts": state.get("per_query_counts", {}),
+            "query_expansion_trace": state.get("query_expansion_trace", []),
             "hop_plan": state.get("hop_plan", "direct"),
             "hop_trace": state.get("hop_trace", []),
             "retrieval_flavor": state.get("query_plan", {}).get("retrieval_flavor", "balanced"),

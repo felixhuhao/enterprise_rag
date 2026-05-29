@@ -11,6 +11,7 @@
     <span v-if="info.search_mode" class="tag" :class="{ warn: combinedWarn }">
       {{ combinedSearchModeLabel }}
     </span>
+    <span v-if="expansionCount" class="tag accent">扩展查询 {{ expansionCount }}</span>
     <span v-if="fallbackTag.text" class="tag" :class="fallbackTag.cls">
       {{ fallbackTag.text }}
     </span>
@@ -49,6 +50,14 @@
       <!-- Trace 链路 -->
       <div v-if="fallbackDetail" class="fallback-panel" :class="{ blocked: info.fallback_info?.blocked }">
         {{ fallbackDetail }}
+      </div>
+
+      <div v-if="queryExpansionEntries.length" class="expansion-panel">
+        <div class="expansion-row" v-for="row in queryExpansionEntries" :key="row.label">
+          <span class="expansion-label">{{ row.label }}</span>
+          <span class="expansion-query">{{ row.query }}</span>
+          <span class="expansion-count">{{ row.count }} 条</span>
+        </div>
       </div>
 
       <div v-if="traceRows.length" class="trace-panel">
@@ -183,13 +192,46 @@ interface TraceRow {
   ms?: number
 }
 
+interface QueryExpansionRow {
+  label: string
+  query: string
+  count: number
+}
+
+const expansionCount = computed(() => props.info.expanded_queries?.length ?? 0)
+
+const queryExpansionEntries = computed<QueryExpansionRow[]>(() => {
+  const trace = props.info.query_expansion_trace ?? []
+  if (trace.length) {
+    return trace.map(row => ({
+      label: expansionLabel(row.label),
+      query: row.query,
+      count: row.count,
+    }))
+  }
+  const expanded = props.info.expanded_queries ?? []
+  const counts = props.info.per_query_counts ?? {}
+  return expanded.map((query, index) => ({
+    label: `扩展查询 ${index + 1}`,
+    query,
+    count: counts[`expanded_${index}`] ?? 0,
+  }))
+})
+
+function expansionLabel(label: string) {
+  if (label === 'original') return '原始查询'
+  const matched = label.match(/^expanded_(\d+)$/)
+  if (matched) return `扩展查询 ${matched[1]}`
+  return label
+}
+
 const traceRows = computed<TraceRow[]>(() => {
   const t = props.trace
   if (!t) return []
   const rows: TraceRow[] = []
   if (t.entity_confirm_ms != null) rows.push({ label: '主体确认', value: entityTag.value.text || undefined, ms: t.entity_confirm_ms })
   if (t.rewrite_ms != null) rows.push({ label: '查询改写', value: props.info.rewritten_query || undefined, ms: t.rewrite_ms })
-  if (t.search_hyde_ms != null) rows.push({ label: '搜索 + HyDE (并行)', ms: t.search_hyde_ms })
+  if (t.search_hyde_ms != null) rows.push({ label: expansionCount.value ? '搜索 + 扩展查询' : '搜索 + HyDE (并行)', ms: t.search_hyde_ms })
   if (t.rrf_fusion_ms != null) rows.push({ label: 'RRF 融合', ms: t.rrf_fusion_ms })
   if (t.table_expand_ms != null) rows.push({ label: '表格扩展', ms: t.table_expand_ms })
   if (t.rerank_ms != null) rows.push({ label: 'Rerank', ms: t.rerank_ms })
@@ -259,6 +301,39 @@ const traceRows = computed<TraceRow[]>(() => {
   border-color: #fecaca;
   background: #fef2f2;
   color: #991b1b;
+}
+
+.expansion-panel {
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 12px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-md);
+}
+
+.expansion-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 12px;
+}
+
+.expansion-label {
+  min-width: 72px;
+  color: #1d4ed8;
+  font-weight: 600;
+}
+
+.expansion-query {
+  flex: 1;
+  color: var(--text-secondary);
+}
+
+.expansion-count {
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .trace-panel {
