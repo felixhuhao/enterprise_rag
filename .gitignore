@@ -38,6 +38,7 @@ data/*
 !data/enterprise_docs/*.md
 !data/enterprise_docs/.entity
 !data/enterprise_docs_v1.jsonl
+!data/challenge_golden_set_v1.jsonl
 !data/eval_results/
 data/eval_results/*
 !data/eval_results/.gitkeep
@@ -64,6 +65,7 @@ docs/*
 !docs/architecture.md
 !docs/evaluation.md
 !docs/DEVELOPMENT_CONTEXT.md
+!docs/query_flavor_roadmap.md
 !docs/images/
 !docs/images/*.png
 docs/archive/

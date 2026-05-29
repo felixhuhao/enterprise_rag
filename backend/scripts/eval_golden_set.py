@@ -204,29 +204,132 @@ def score_numeric(answer: str, numeric_expectations: list[dict]) -> dict:
 
 
 def score_citation(citations: list, expected_documents: list,
-                   min_expected_citations: int = 1) -> dict:
-    """Score citation recall against expected documents."""
+                   min_expected_citations: int = 1, item: dict = None) -> dict:
+    """Score citation recall against expected documents.
+
+    Extended with section matching and anchor text tracking.
+    - citation_doc_score: document-level match (existing logic)
+    - section_hit: whether expected_sections appear in citation section_titles
+    - anchor_hit: null (requires chunk content not available in citation)
+    """
     if not expected_documents:
-        return {"citation_score": 1.0, "doc_hits": 0, "matched_docs": []}
+        result = {"citation_score": 1.0, "doc_hits": 0, "matched_docs": []}
+    else:
+        cited_files = set()
+        for c in citations:
+            ft = c.get("file_title", "") or c.get("source", "") or ""
+            cited_files.add(ft)
 
-    cited_files = set()
-    for c in citations:
-        ft = c.get("file_title", "") or c.get("source", "") or ""
-        cited_files.add(ft)
+        matched = []
+        for ed in expected_documents:
+            for cf in cited_files:
+                if ed in cf or cf in ed:
+                    matched.append(ed)
+                    break
 
-    matched = []
+        score = min(len(matched) / min_expected_citations, 1.0)
+        result = {
+            "citation_score": round(score, 4),
+            "citation_doc_score": round(score, 4),
+            "doc_hits": len(matched),
+            "matched_docs": matched,
+        }
+
+    # Section matching (from citation section_title)
+    if item and item.get("expected_sections"):
+        expected_sections = item["expected_sections"]
+        cited_sections = {c.get("section_title", "") for c in citations}
+        section_matched = []
+        section_missed = []
+        for es in expected_sections:
+            if any(es in cs for cs in cited_sections):
+                section_matched.append(es)
+            else:
+                section_missed.append(es)
+        result["section_hit"] = len(section_matched) > 0
+        result["section_matched"] = section_matched
+        result["section_missed"] = section_missed
+
+    # Anchor text — not available in citation metadata, record as skipped
+    if item and item.get("expected_anchor_text"):
+        result["anchor_hit"] = None  # requires chunk content, not available
+        result["anchor_matched"] = []
+        result["anchor_missed"] = item["expected_anchor_text"]
+
+    return result
+
+
+def _citation_output_fields(cite: dict) -> dict:
+    """Normalize citation scoring details for result rows."""
+    return {
+        "citation_doc_score": cite.get("citation_doc_score", cite.get("citation_score")),
+        "citation_section_hit": cite.get("section_hit"),
+        "citation_section_matched": cite.get("section_matched", []),
+        "citation_section_missed": cite.get("section_missed", []),
+        "citation_anchor_hit": cite.get("anchor_hit"),
+        "citation_anchor_matched": cite.get("anchor_matched", []),
+        "citation_anchor_missed": cite.get("anchor_missed", []),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Hit@K from rerank results
+# ---------------------------------------------------------------------------
+
+
+def compute_hit_at_k(rerank_results: list[dict], expected_documents: list[str],
+                     k: int = 5) -> bool:
+    """Check if any expected_document appears in top-k reranked results."""
+    if not expected_documents or not rerank_results:
+        return False
+    top_k = rerank_results[:k]
+    top_k_docs = {r.get("file_title", "") or r.get("source", "") for r in top_k}
     for ed in expected_documents:
-        for cf in cited_files:
-            if ed in cf or cf in ed:
-                matched.append(ed)
+        if any(ed in doc or doc in ed for doc in top_k_docs):
+            return True
+    return False
+
+
+def is_hit_metric_applicable(item: dict) -> bool:
+    """Hit@K applies only to answerable cases with explicit expected docs."""
+    return bool(item.get("expected_documents")) and item.get("should_answer", True)
+
+
+# ---------------------------------------------------------------------------
+# Slice filtering
+# ---------------------------------------------------------------------------
+
+
+def filter_by_slice(golden_set: list[dict], slices: list[str]) -> list[dict]:
+    """Filter golden set items by slice tags.
+
+    Matching logic:
+    - slice value matches item's preferred_flavor
+    - slice value appears in item's tags
+    - special slice 'strict' matches strict_evidence == True
+    Multiple slices take union.
+    """
+    if not slices:
+        return golden_set
+
+    filtered = []
+    for item in golden_set:
+        flavor = item.get("preferred_flavor", "")
+        tags = item.get("tags", [])
+        strict = item.get("strict_evidence", False)
+
+        for s in slices:
+            if s == "strict" and strict:
+                filtered.append(item)
+                break
+            elif s == flavor:
+                filtered.append(item)
+                break
+            elif s in tags:
+                filtered.append(item)
                 break
 
-    score = min(len(matched) / min_expected_citations, 1.0)
-    return {
-        "citation_score": round(score, 4),
-        "doc_hits": len(matched),
-        "matched_docs": matched,
-    }
+    return filtered
 
 
 # ---------------------------------------------------------------------------
@@ -267,6 +370,7 @@ def score_rule(answer: str, citations: list, item: dict) -> dict:
             "keyword_score": round(kw_score, 4),
             "citation_doc_hits": cite["doc_hits"],
             "citation_matched": cite["matched_docs"],
+            **_citation_output_fields(cite),
             "scoring_version": "legacy",
         }
 
@@ -287,7 +391,7 @@ def score_rule(answer: str, citations: list, item: dict) -> dict:
         answer_score = 0.75 * must_score + 0.25 * nice_score
 
     # Citation + final
-    cite = score_citation(citations, expected_docs, min_citations)
+    cite = score_citation(citations, expected_docs, min_citations, item=item)
     final = 0.75 * answer_score + 0.25 * cite["citation_score"]
 
     return {
@@ -303,6 +407,7 @@ def score_rule(answer: str, citations: list, item: dict) -> dict:
         "nice_hits": nice_hits,
         "citation_doc_hits": cite["doc_hits"],
         "citation_matched": cite["matched_docs"],
+        **_citation_output_fields(cite),
         "scoring_version": "v2",
     }
 
@@ -574,7 +679,19 @@ def run_eval(golden_set: list[dict], api_base: str, token: str, delay: float = 1
             "rerank_results": rag["rerank_results"],
             "search_mode": rag["search_mode"],
             "error": rag["error"],
+            # New fields passthrough
+            "preferred_flavor": item.get("preferred_flavor"),
+            "strict_evidence": item.get("strict_evidence", False),
+            "tags": item.get("tags", []),
+            "should_answer": item.get("should_answer", True),
         }
+
+        # Hit@K from rerank results
+        expected_docs = item.get("expected_documents", [])
+        hit_applicable = is_hit_metric_applicable(item)
+        row["hit_metric_applicable"] = hit_applicable
+        row["hit_at_5"] = compute_hit_at_k(rag["rerank_results"], expected_docs, k=5) if hit_applicable else None
+        row["hit_at_10"] = compute_hit_at_k(rag["rerank_results"], expected_docs, k=10) if hit_applicable else None
 
         if rag["error"]:
             row["final_score"] = 0.0
@@ -604,10 +721,12 @@ def run_eval(golden_set: list[dict], api_base: str, token: str, delay: float = 1
                 rag["citations"],
                 item.get("expected_documents", []),
                 item.get("min_expected_citations", 1),
+                item=item,
             )
             row["citation_score"] = cite["citation_score"]
             row["citation_doc_hits"] = cite["doc_hits"]
             row["citation_matched"] = cite["matched_docs"]
+            row.update(_citation_output_fields(cite))
             row["expected_points"] = item.get("expected_points", [])
             row["final_score"] = None  # pending judge
             print(f"  [answer] {rag['answer'][:200].replace(chr(10), ' ')}...")
@@ -634,11 +753,21 @@ def build_summary(results: list[dict]) -> dict:
         return {"overall": {"count": 0}, "per_breakdown": {}, "low_score_cases": []}
 
     scores = [r["final_score"] for r in scored]
+    hit_scored = [r for r in scored if r.get("hit_metric_applicable")]
     overall = {
         "count": len(scored),
         "avg_score": round(sum(scores) / len(scores), 4),
         "pass_rate": round(sum(1 for s in scores if s >= 0.8) / len(scores), 4),
+        "hit_eval_count": len(hit_scored),
+        "hit_at_5_rate": round(sum(1 for r in hit_scored if r.get("hit_at_5")) / len(hit_scored), 4) if hit_scored else None,
+        "hit_at_10_rate": round(sum(1 for r in hit_scored if r.get("hit_at_10")) / len(hit_scored), 4) if hit_scored else None,
     }
+
+    # p95 latency from trace
+    latencies = sorted(r.get("trace", {}).get("total_ms", 0) for r in scored if r.get("trace", {}).get("total_ms"))
+    if latencies:
+        p95_idx = min(int(len(latencies) * 0.95), len(latencies) - 1)
+        overall["p95_latency_ms"] = latencies[p95_idx]
 
     per_breakdown = {}
     for etype in ["rule", "llm_judge", "no_answer"]:
@@ -650,6 +779,56 @@ def build_summary(results: list[dict]) -> dict:
             "count": len(tr),
             "avg_score": round(sum(ts) / len(ts), 4),
             "pass_rate": round(sum(1 for s in ts if s >= 0.8) / len(ts), 4),
+        }
+
+    # Per-flavor breakdown
+    per_flavor = {}
+    for flavor in ["balanced", "exact", "recall", "discovery"]:
+        fr = [r for r in scored if r.get("preferred_flavor") == flavor]
+        if not fr:
+            continue
+        fs = [r["final_score"] for r in fr]
+        fr_hit = [r for r in fr if r.get("hit_metric_applicable")]
+        per_flavor[flavor] = {
+            "count": len(fr),
+            "avg_score": round(sum(fs) / len(fs), 4),
+            "pass_rate": round(sum(1 for s in fs if s >= 0.8) / len(fs), 4),
+            "hit_eval_count": len(fr_hit),
+            "hit_at_5_rate": round(sum(1 for r in fr_hit if r.get("hit_at_5")) / len(fr_hit), 4) if fr_hit else None,
+            "hit_at_10_rate": round(sum(1 for r in fr_hit if r.get("hit_at_10")) / len(fr_hit), 4) if fr_hit else None,
+        }
+
+    # Per-tag breakdown
+    all_tags = sorted({t for r in scored for t in r.get("tags", [])})
+    per_tag = {}
+    for tag in all_tags:
+        tr = [r for r in scored if tag in r.get("tags", [])]
+        if not tr:
+            continue
+        ts = [r["final_score"] for r in tr]
+        tr_hit = [r for r in tr if r.get("hit_metric_applicable")]
+        per_tag[tag] = {
+            "count": len(tr),
+            "avg_score": round(sum(ts) / len(ts), 4),
+            "pass_rate": round(sum(1 for s in ts if s >= 0.8) / len(ts), 4),
+            "hit_eval_count": len(tr_hit),
+            "hit_at_5_rate": round(sum(1 for r in tr_hit if r.get("hit_at_5")) / len(tr_hit), 4) if tr_hit else None,
+            "hit_at_10_rate": round(sum(1 for r in tr_hit if r.get("hit_at_10")) / len(tr_hit), 4) if tr_hit else None,
+        }
+
+    # Strict evidence slice
+    strict_r = [r for r in scored if r.get("strict_evidence")]
+    per_strict = {}
+    if strict_r:
+        ss = [r["final_score"] for r in strict_r]
+        strict_hit = [r for r in strict_r if r.get("hit_metric_applicable")]
+        per_strict = {
+            "count": len(strict_r),
+            "avg_score": round(sum(ss) / len(ss), 4),
+            "pass_rate": round(sum(1 for s in ss if s >= 0.8) / len(ss), 4),
+            "hit_eval_count": len(strict_hit),
+            "hit_at_5_rate": round(sum(1 for r in strict_hit if r.get("hit_at_5")) / len(strict_hit), 4) if strict_hit else None,
+            "hit_at_10_rate": round(sum(1 for r in strict_hit if r.get("hit_at_10")) / len(strict_hit), 4) if strict_hit else None,
         }
 
     low = [r for r in scored if r["final_score"] < 0.6]
@@ -671,6 +850,9 @@ def build_summary(results: list[dict]) -> dict:
     return {
         "overall": overall,
         "per_breakdown": per_breakdown,
+        "per_flavor": per_flavor,
+        "per_tag": per_tag,
+        "per_strict": per_strict,
         "low_score_cases": low_cases,
     }
 
@@ -685,12 +867,41 @@ def print_summary(results: list[dict]):
 
     o = summary["overall"]
     print(f"\n  Overall: {o['count']} questions, "
-          f"avg={o['avg_score']:.3f}, pass_rate={o['pass_rate']:.1%}")
+          f"avg={o['avg_score']:.3f}, pass_rate={o['pass_rate']:.1%}, "
+          f"hit@5={_fmt_rate(o.get('hit_at_5_rate'))}, "
+          f"hit@10={_fmt_rate(o.get('hit_at_10_rate'))}, "
+          f"hit_n={o.get('hit_eval_count', 0)}")
+    if o.get("p95_latency_ms"):
+        print(f"    p95 latency: {o['p95_latency_ms']}ms")
 
     for etype, bd in summary["per_breakdown"].items():
         print(f"\n  --- {etype} ---")
         print(f"    count={bd['count']}, avg={bd['avg_score']:.3f}, "
               f"pass_rate={bd['pass_rate']:.1%}")
+
+    # Per-flavor summary
+    if summary.get("per_flavor"):
+        print(f"\n  --- per flavor ---")
+        for flavor, fd in summary["per_flavor"].items():
+            print(f"    {flavor}: count={fd['count']}, avg={fd['avg_score']:.3f}, "
+                  f"pass={fd['pass_rate']:.1%}, "
+                  f"hit@5={_fmt_rate(fd.get('hit_at_5_rate'))}, "
+                  f"hit@10={_fmt_rate(fd.get('hit_at_10_rate'))}, "
+                  f"hit_n={fd.get('hit_eval_count', 0)}")
+
+    # Per-tag summary
+    if summary.get("per_tag"):
+        print(f"\n  --- per tag ---")
+        for tag, td in summary["per_tag"].items():
+            print(f"    {tag}: count={td['count']}, avg={td['avg_score']:.3f}, "
+                  f"pass={td['pass_rate']:.1%}")
+
+    # Strict evidence slice
+    if summary.get("per_strict"):
+        sd = summary["per_strict"]
+        print(f"\n  --- strict_evidence ---")
+        print(f"    count={sd['count']}, avg={sd['avg_score']:.3f}, "
+              f"pass={sd['pass_rate']:.1%}")
 
     if summary["low_score_cases"]:
         print(f"\n  Low score (<0.6):")
@@ -703,6 +914,10 @@ def print_summary(results: list[dict]):
         print(f"\n  Pending LLM judge: {len(pending)} questions (use --judge)")
 
     print()
+
+
+def _fmt_rate(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.1%}"
 
 
 # ---------------------------------------------------------------------------
@@ -720,6 +935,8 @@ def main():
     parser.add_argument("--delay", type=float, default=1.0, help="每题间隔秒数")
     parser.add_argument("--judge", action="store_true", help="启用 LLM judge")
     parser.add_argument("--judge-model", default=None, help="Judge 模型")
+    parser.add_argument("--slice", action="append", default=[],
+                        help="按 tag/flavor/strict 过滤: --slice exact --slice recall --slice strict")
     args = parser.parse_args()
 
     # --- Token ---
@@ -747,6 +964,14 @@ def main():
     types = Counter(_get_eval_type(item) for item in golden_set)
     print(f"Loaded {len(golden_set)} questions from {args.golden_set}")
     print(f"  Types: {dict(types)}")
+
+    # --- Slice filtering ---
+    if args.slice:
+        golden_set = filter_by_slice(golden_set, args.slice)
+        print(f"  Filtered by slice {args.slice}: {len(golden_set)} questions remain")
+        if not golden_set:
+            print("Error: no questions match the specified slice(s)")
+            sys.exit(0)
 
     # --- Run eval ---
     results = run_eval(golden_set, args.api_base, token, delay=args.delay)
