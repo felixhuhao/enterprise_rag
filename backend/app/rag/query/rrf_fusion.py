@@ -5,12 +5,14 @@ from __future__ import annotations
 from langgraph.graph.state import RunnableConfig
 
 from app.rag.query.config import get_query_config
+from app.rag.query.planner import plan_budget
 from app.rag.query.state import QueryState
 
 
 def rrf_fusion_node(state: QueryState, config: RunnableConfig) -> dict:
     """Merge primary search and HyDE results with RRF."""
     cfg = get_query_config(config)
+    budget = plan_budget(state, config)
     results_a = state.get("search_results", [])
     results_b = state.get("search_results_hyde", [])
     mode_a = _mode_label(state.get("search_mode", ""))
@@ -40,7 +42,8 @@ def rrf_fusion_node(state: QueryState, config: RunnableConfig) -> dict:
 
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     fused = []
-    for key, score in ranked[:cfg.rrf_max_results]:
+    limit = int(budget.get("rrf_top_k") or cfg.rrf_max_results)
+    for key, score in ranked[:limit]:
         doc = doc_map[key].copy()
         doc["score"] = score
         fused.append(_with_paths(doc, sorted(path_map.get(key, set()))))

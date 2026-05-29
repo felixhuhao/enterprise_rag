@@ -45,6 +45,9 @@ export interface RetrievalInfo {
   per_entity_counts: Record<string, number>
   hop_plan?: string
   hop_trace?: HopTraceEntry[]
+  retrieval_flavor?: string
+  strict_evidence?: boolean
+  query_plan?: Record<string, unknown>
 }
 
 /** groundedness claim */
@@ -131,7 +134,8 @@ export const useQueryChatStore = defineStore('queryChat', () => {
 
   /** Query debug config — 本次会话级别，不持久化 */
   const debugConfig = ref({
-    use_multi_hop: false,
+    retrieval_flavor: 'balanced',
+    strict_evidence: false,
     use_groundedness: false,
   })
 
@@ -184,7 +188,8 @@ export const useQueryChatStore = defineStore('queryChat', () => {
         session_id: sessionId.value,
         query: query.trim(),
         config: {
-          use_multi_hop: debugConfig.value.use_multi_hop,
+          retrieval_flavor: debugConfig.value.retrieval_flavor,
+          strict_evidence: debugConfig.value.strict_evidence,
           use_groundedness: debugConfig.value.use_groundedness,
         },
       },
@@ -218,6 +223,9 @@ export const useQueryChatStore = defineStore('queryChat', () => {
             per_entity_counts: (event as any).per_entity_counts ?? {},
             hop_plan: (event as any).hop_plan ?? 'direct',
             hop_trace: (event as any).hop_trace ?? [],
+            retrieval_flavor: (event as any).retrieval_flavor ?? 'balanced',
+            strict_evidence: (event as any).strict_evidence ?? false,
+            query_plan: (event as any).query_plan ?? {},
           },
         })
         break

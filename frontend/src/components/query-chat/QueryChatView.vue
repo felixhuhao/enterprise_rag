@@ -6,17 +6,39 @@
 <template>
   <div class="chat-container">
     <div class="chat-toolbar">
-      <div>
-        <div class="toolbar-title">知识库问答工作台</div>
-        <div class="toolbar-subtitle">回答会附带引用来源、检索链路和耗时追踪。</div>
-      </div>
-      <div class="toolbar-actions">
-        <button class="debug-toggle" :class="{ active: showDebug }" @click="showDebug = !showDebug">
-          调试
-        </button>
-        <div class="toolbar-pill">
-          <span class="dot" :class="{ active: store.isStreaming }"></span>
-          {{ store.isStreaming ? '生成中' : '就绪' }}
+      <div class="toolbar-content">
+        <div class="toolbar-head">
+          <div>
+            <div class="toolbar-title">知识库问答工作台</div>
+            <div class="toolbar-subtitle">回答会附带引用来源、检索链路和耗时追踪。</div>
+          </div>
+          <div class="toolbar-actions">
+            <button class="debug-toggle" :class="{ active: showDebug }" @click="showDebug = !showDebug">
+              调试
+            </button>
+            <div class="toolbar-pill">
+              <span class="dot" :class="{ active: store.isStreaming }"></span>
+              {{ store.isStreaming ? '生成中' : '就绪' }}
+            </div>
+          </div>
+        </div>
+        <div class="mode-strip">
+          <button
+            v-for="mode in flavorModes"
+            :key="mode.id"
+            class="mode-card"
+            :class="{ active: store.debugConfig.retrieval_flavor === mode.id }"
+            type="button"
+            @click="store.debugConfig.retrieval_flavor = mode.id"
+          >
+            <span class="mode-name">{{ mode.name }}</span>
+            <span class="mode-desc">{{ mode.desc }}</span>
+          </button>
+          <label class="evidence-toggle">
+            <span>仅基于资料回答</span>
+            <a-switch :model-value="store.debugConfig.strict_evidence"
+                      @change="store.debugConfig.strict_evidence = $event as boolean" size="small" />
+          </label>
         </div>
       </div>
     </div>
@@ -24,11 +46,6 @@
     <!-- Query Debug Panel -->
     <div v-if="showDebug" class="debug-panel">
       <div class="debug-title">检索调试</div>
-      <label class="debug-row">
-        <span>Multi-hop 实体发现</span>
-        <a-switch :model-value="store.debugConfig.use_multi_hop"
-                  @change="store.debugConfig.use_multi_hop = $event as boolean" size="small" />
-      </label>
       <label class="debug-row">
         <span>Groundedness 检查</span>
         <a-switch :model-value="store.debugConfig.use_groundedness"
@@ -66,6 +83,12 @@ import QueryChatInput from './QueryChatInput.vue'
 const store = useQueryChatStore()
 const showDetail = ref(false)
 const showDebug = ref(false)
+const flavorModes = [
+  { id: 'balanced', name: '标准问答', desc: '平衡速度和准确率，适合日常资料问答' },
+  { id: 'exact', name: '精确查找', desc: '优先匹配条款、金额、日期和明确事实' },
+  { id: 'recall', name: '全面查找', desc: '扩大召回范围，适合模糊或同义表达' },
+  { id: 'discovery', name: '关联查找', desc: '先发现相关实体，再按实体查找证据' },
+]
 
 function onSend(text: string) {
   store.sendMessage(text)
@@ -124,15 +147,23 @@ onBeforeUnmount(() => {
 }
 
 .chat-toolbar {
-  min-height: 58px;
   padding: 12px 18px;
   border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.toolbar-content {
+  display: grid;
+  gap: 10px;
+}
+
+.toolbar-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  background: var(--bg-surface);
 }
+
 .toolbar-title {
   font-size: 13px;
   font-weight: 700;
@@ -171,6 +202,73 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
+.evidence-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 58px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+  background: var(--bg-hover);
+}
+
+.mode-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(118px, 1fr)) auto;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.mode-card {
+  min-height: 58px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.mode-card:hover {
+  border-color: var(--border-hover);
+  background: #f8fafc;
+}
+
+.mode-card.active {
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+}
+
+.mode-name {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.mode-card.active .mode-name {
+  color: var(--accent);
+}
+
+.mode-desc {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 15px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .debug-toggle {
   border: 1px solid var(--border);
   background: var(--bg-surface);
@@ -188,7 +286,7 @@ onBeforeUnmount(() => {
 }
 
 .debug-panel {
-  margin: 0 18px 10px;
+  margin: 10px 18px 0;
   padding: 10px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -206,20 +304,33 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   padding: 4px 0;
   font-size: 12px;
   color: var(--text-primary);
-  cursor: pointer;
+}
+
+.debug-row > span {
+  white-space: nowrap;
 }
 
 @media (max-width: 760px) {
-  .chat-toolbar {
+  .toolbar-head {
     align-items: flex-start;
     flex-direction: column;
   }
 
   .toolbar-pill {
     align-self: flex-start;
+  }
+
+  .mode-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .evidence-toggle {
+    justify-content: space-between;
+    grid-column: 1 / -1;
   }
 }
 </style>

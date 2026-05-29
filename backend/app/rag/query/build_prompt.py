@@ -5,6 +5,7 @@ from __future__ import annotations
 from langgraph.graph.state import RunnableConfig
 
 from app.rag.query.config import QueryConfig, get_query_config
+from app.rag.query.planner import get_query_plan
 from app.rag.query.state import QueryState
 
 ANSWER_PROMPT = """\
@@ -80,15 +81,19 @@ def build_prompt_node(state: QueryState, config: RunnableConfig) -> dict:
     context_text = "\n\n---\n\n".join(context_parts)
     query = state.get("rewritten_query") or state["query"]
 
-    entity_mode = state.get("entity_mode", "none")
-    if entity_mode == "multi_explicit":
+    plan = get_query_plan(state, config)
+    prompt_policy = plan.get("prompt_policy") or {}
+    template_name = prompt_policy.get("template")
+    if template_name == "multi_entity":
         template = ANSWER_PROMPT_MULTI
-    elif entity_mode == "broad":
+    elif template_name == "broad":
         template = ANSWER_PROMPT_BROAD
     else:
         template = ANSWER_PROMPT
 
     prompt = template.format(context=context_text, query=query)
+    if prompt_policy.get("strict_evidence"):
+        prompt += "\n\n严格证据模式：只能回答上下文直接支持的信息；证据不足时直接说明无法从资料确认。"
 
     return {"context_text": prompt, "context_map": context_map, "status": "prompted"}
 

@@ -11,6 +11,7 @@ from langgraph.graph.state import RunnableConfig
 
 from app.config import settings
 from app.rag.query.config import get_query_config
+from app.rag.query.planner import plan_budget
 from app.rag.query.scoring_utils import cliff_detect
 from app.rag.query.state import QueryState
 
@@ -44,7 +45,9 @@ def rerank_node(state: QueryState, config: RunnableConfig) -> dict:
     if not cfg.use_rerank:
         return {"search_results": state.get("search_results", [])}
 
-    results = state.get("search_results", [])
+    budget = plan_budget(state, config)
+    candidate_k = int(budget.get("rerank_candidate_k") or cfg.rerank_max_top_k)
+    results = state.get("search_results", [])[:candidate_k]
     query = state.get("rewritten_query") or state["query"]
 
     if not results:

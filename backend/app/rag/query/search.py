@@ -11,6 +11,7 @@ from langgraph.graph.state import RunnableConfig
 from app.rag.embeddings.dense_embedding import dense_embedding
 from app.rag.query.config import QueryConfig, get_query_config
 from app.rag.query.filter_utils import build_acl_expr, build_entity_expr, combine_filters, get_allowed_ids
+from app.rag.query.planner import plan_allows_entity_fallback, plan_budget
 from app.rag.query.scoring_utils import need_fallback
 from app.rag.query.state import QueryState
 from app.rag.vectorstores.general_milvus import COLLECTION_NAME, client
@@ -61,12 +62,30 @@ def search_node(state: QueryState, config: RunnableConfig) -> dict:
         return _multi_entity_search(state, config, query, cfg, combined)
 
     # single / broad / none: 原有逻辑
-    return _single_search(query, entity_filter, cfg, acl_filter=acl_filter)
+    fallback_allowed = plan_allows_entity_fallback(state, config)
+    budget = plan_budget(state, config)
+    search_limit = int(budget.get("search_limit") or cfg.search_limit)
+    return _single_search(
+        query,
+        entity_filter,
+        cfg,
+        acl_filter=acl_filter,
+        fallback_allowed=fallback_allowed,
+        search_limit=search_limit,
+    )
 
 
-def _single_search(query: str, entity_filter: str | None, cfg: QueryConfig, acl_filter: str | None = None) -> dict:
+def _single_search(
+    query: str,
+    entity_filter: str | None,
+    cfg: QueryConfig,
+    acl_filter: str | None = None,
+    fallback_allowed: bool = True,
+    search_limit: int | None = None,
+) -> dict:
     """单 entity / 无 filter 的搜索。acl_filter 在 fallback 时保留。"""
     combined = combine_filters(entity_filter, acl_filter)
+    limit = search_limit or cfg.search_limit
 
     try:
         query_dense = dense_embedding.embed_query(query)
@@ -74,11 +93,11 @@ def _single_search(query: str, entity_filter: str | None, cfg: QueryConfig, acl_
         raise RuntimeError(f"Embedding 失败: {e}") from e
 
     try:
-        results = _hybrid_search(query_dense, query, combined, cfg)
-        if need_fallback(results, combined, cfg):
+        results = _hybrid_search(query_dense, query, combined, cfg, limit=limit)
+        if fallback_allowed and need_fallback(results, combined, cfg):
             logger.info("Filtered hybrid: %d results, max_score=%.3f, retrying unfiltered",
                         len(results), max((r["score"] for r in results), default=0))
-            results = _hybrid_search(query_dense, query, acl_filter, cfg)
+            results = _hybrid_search(query_dense, query, acl_filter, cfg, limit=limit)
             mode = "hybrid_filtered_fallback_unfiltered"
         else:
             mode = "hybrid_filtered" if combined else "hybrid"
@@ -88,11 +107,11 @@ def _single_search(query: str, entity_filter: str | None, cfg: QueryConfig, acl_
         logger.warning("Hybrid search failed: %s, falling back to dense_only", e)
 
     try:
-        results = _dense_only_search(query_dense, combined, cfg)
-        if need_fallback(results, combined, cfg):
+        results = _dense_only_search(query_dense, combined, cfg, limit=limit)
+        if fallback_allowed and need_fallback(results, combined, cfg):
             logger.info("Filtered dense: %d results, max_score=%.3f, retrying unfiltered",
                         len(results), max((r["score"] for r in results), default=0))
-            results = _dense_only_search(query_dense, acl_filter, cfg)
+            results = _dense_only_search(query_dense, acl_filter, cfg, limit=limit)
             mode = "dense_filtered_fallback_unfiltered"
         else:
             mode = "dense_filtered" if combined else "dense"
@@ -109,7 +128,9 @@ def _multi_entity_search(state: dict, config: RunnableConfig, query: str, cfg: Q
 
     matched = state.get("matched_entities", [])
     n = max(len(matched), 1)
-    per_limit = max(cfg.search_limit // n, 5)
+    budget = plan_budget(state, config)
+    search_limit = int(budget.get("search_limit") or cfg.search_limit)
+    per_limit = max(search_limit // n, 5)
 
     # embedding 只算一次
     try:
@@ -158,7 +179,7 @@ def _multi_entity_search(state: dict, config: RunnableConfig, query: str, cfg: Q
             seen[key] = r
 
     # 保留上限放宽到 2x，保证每个 entity 都有机会进入 rerank
-    cap = min(len(seen), cfg.search_limit * 2)
+    cap = min(len(seen), search_limit * 2)
     merged = sorted(seen.values(), key=lambda x: x["score"], reverse=True)[:cap]
     mode = "multi_" + "+".join(sorted(modes))
 
@@ -214,39 +235,41 @@ def _dense_only_search_limited(query_dense, entity_filter, limit: int):
     return _parse_hits(results[0])
 
 
-def _hybrid_search(query_dense, query_text, entity_filter, cfg: QueryConfig):
+def _hybrid_search(query_dense, query_text, entity_filter, cfg: QueryConfig, limit: int | None = None):
+    limit = limit or cfg.search_limit
     dense_req = AnnSearchRequest(
         data=[query_dense],
         anns_field="dense",
         param={"metric_type": "COSINE"},
-        limit=cfg.search_limit,
+        limit=limit,
         expr=entity_filter,
     )
     sparse_req = AnnSearchRequest(
         data=[query_text],
         anns_field="sparse",
         param={"metric_type": "BM25"},
-        limit=cfg.search_limit,
+        limit=limit,
         expr=entity_filter,
     )
     results = client.hybrid_search(
         collection_name=COLLECTION_NAME,
         reqs=[dense_req, sparse_req],
         ranker=WeightedRanker(cfg.dense_weight, cfg.sparse_weight),
-        limit=cfg.search_limit,
+        limit=limit,
         output_fields=OUTPUT_FIELDS,
         timeout=SEARCH_TIMEOUT,
     )
     return _parse_hits(results[0])
 
 
-def _dense_only_search(query_dense, entity_filter, cfg: QueryConfig):
+def _dense_only_search(query_dense, entity_filter, cfg: QueryConfig, limit: int | None = None):
+    limit = limit or cfg.search_limit
     results = client.search(
         collection_name=COLLECTION_NAME,
         data=[query_dense],
         anns_field="dense",
         search_params={"metric_type": "COSINE"},
-        limit=cfg.search_limit,
+        limit=limit,
         filter=entity_filter,
         output_fields=OUTPUT_FIELDS,
         timeout=SEARCH_TIMEOUT,

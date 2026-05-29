@@ -12,6 +12,7 @@ from app.config import settings
 from app.rag.embeddings.dense_embedding import dense_embedding
 from app.rag.query.config import get_query_config
 from app.rag.query.filter_utils import build_acl_expr, combine_filters, get_allowed_ids
+from app.rag.query.planner import get_query_plan, plan_allows_entity_fallback, plan_budget
 from app.rag.query.search import SEARCH_TIMEOUT
 from app.rag.query.state import QueryState
 from app.rag.vectorstores.general_milvus import COLLECTION_NAME, client
@@ -52,7 +53,8 @@ HYDE_PROMPT = (
 def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
     """LLM 生成假设文档 → embedding → dense search。multi_explicit 模式下关闭。"""
     cfg = get_query_config(config)
-    if not cfg.use_hyde:
+    plan = get_query_plan(state, config)
+    if not plan.get("use_hyde", cfg.use_hyde):
         return {"search_results_hyde": [], "search_mode_hyde": "disabled"}
 
     # multi_explicit: HyDE 无法按 entity 分流，跳过
@@ -61,6 +63,8 @@ def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
 
     query = state.get("rewritten_query") or state["query"]
     entity_filter = state.get("entity_filter") or None
+    budget = plan_budget(state, config)
+    hyde_limit = int(budget.get("hyde_limit") or cfg.hyde_limit)
 
     # ACL filter
     allowed = get_allowed_ids(config)
@@ -92,14 +96,14 @@ def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
             data=[hyde_dense],
             anns_field="dense",
             search_params={"metric_type": "COSINE"},
-            limit=cfg.hyde_limit,
+            limit=hyde_limit,
             filter=entity_filter,
             output_fields=OUTPUT_FIELDS,
             timeout=SEARCH_TIMEOUT,
         )
         hits = _parse_hits(results[0])
         mode = "hyde_filtered" if entity_filter else "hyde"
-        need_fb = entity_filter and (
+        need_fb = plan_allows_entity_fallback(state, config) and entity_filter and (
             len(hits) < cfg.entity_filter_min_results
             or max((h["score"] for h in hits), default=0) < cfg.entity_filter_min_score
         )
@@ -113,7 +117,7 @@ def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
                 data=[hyde_dense],
                 anns_field="dense",
                 search_params={"metric_type": "COSINE"},
-                limit=cfg.hyde_limit,
+                limit=hyde_limit,
                 filter=acl_filter,
                 output_fields=OUTPUT_FIELDS,
                 timeout=SEARCH_TIMEOUT,

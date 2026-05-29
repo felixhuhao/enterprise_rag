@@ -9,6 +9,8 @@ export interface RetrievalTestRequest {
   use_hybrid: boolean
   use_hyde: boolean
   use_rerank: boolean
+  retrieval_flavor?: string
+  strict_evidence?: boolean
 }
 
 export interface RetrievalStrategy {
@@ -24,6 +26,8 @@ export interface RetrievalStrategy {
   chat_model: string
   dense_weight: number
   sparse_weight: number
+  retrieval_flavor: string
+  strict_evidence: boolean
 }
 
 export interface RetrievalResult {
@@ -55,6 +59,9 @@ export interface RetrievalTestResponse {
   entity_mode: string
   matched_entities: string[]
   per_entity_counts: Record<string, number>
+  retrieval_flavor: string
+  strict_evidence: boolean
+  query_plan: Record<string, unknown>
   result_count: number
   trace: Record<string, number>
   strategy: RetrievalStrategy

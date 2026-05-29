@@ -13,6 +13,10 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class QueryConfig:
+    # Intent controls
+    retrieval_flavor: str = "balanced"
+    strict_evidence: bool = False
+
     # Feature toggles
     use_entity_confirm: bool = True
     use_rewrite: bool = True
@@ -68,6 +72,9 @@ class QueryConfig:
 
     def clamp(self):
         """Clamp numeric fields to safe ranges. Call after any bulk setattr."""
+        if self.retrieval_flavor not in {"balanced", "exact", "recall", "discovery"}:
+            logger.warning("Invalid retrieval_flavor=%r, falling back to balanced", self.retrieval_flavor)
+            self.retrieval_flavor = "balanced"
         _clamp(self, "search_limit", 1, 50)
         _clamp(self, "hyde_limit", 1, 50)
         _clamp(self, "rrf_k", 1, 200)
@@ -132,7 +139,7 @@ def get_default_query_config() -> QueryConfig:
 def _cast_field(name: str, raw: str, type_hint) -> Any:
     """将字符串值转为目标类型，非法值返回 None。"""
     # from __future__ import annotations makes type_hint a string
-    type_map = {"bool": bool, "int": int, "float": float}
+    type_map = {"bool": bool, "int": int, "float": float, "str": str}
     resolved = type_map.get(type_hint) if isinstance(type_hint, str) else type_hint
     try:
         if resolved is bool:
@@ -146,6 +153,8 @@ def _cast_field(name: str, raw: str, type_hint) -> Any:
             return int(raw)
         if resolved is float:
             return float(raw)
+        if resolved is str:
+            return raw
     except (ValueError, TypeError):
         logger.warning("Invalid settings value for query.%s: %r", name, raw)
     return None

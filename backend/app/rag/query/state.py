@@ -16,6 +16,7 @@ class QueryState(TypedDict, total=False):
 
     # query
     rewritten_query: str
+    query_plan: dict
 
     # 搜索结果
     search_results: list[dict]

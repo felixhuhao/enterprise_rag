@@ -120,6 +120,7 @@ async def _stream_generator(session_id: str, query: str, query_config, allowed_i
     from app.rag.query.rewrite_query import rewrite_query_node
     from app.rag.query.search import search_node
     from app.rag.query.hyde_search import hyde_search_node
+    from app.rag.query.planner import get_query_plan, plan_allows_entity_fallback, query_plan_node
     from app.rag.query.rrf_fusion import rrf_fusion_node
     from app.rag.query.table_expand import table_expand_node
     from app.rag.query.rerank import rerank_node
@@ -157,10 +158,15 @@ async def _stream_generator(session_id: str, query: str, query_config, allowed_i
         state.update(entity_confirm_node(state, run_config))
         trace["entity_confirm_ms"] = _tick_ms(t)
 
+        t = time.monotonic()
+        state.update(query_plan_node(state, run_config))
+        trace["query_plan_ms"] = _tick_ms(t)
+
         cfg = get_query_config(run_config)
         from app.rag.query.multi_hop import _decide_multi_hop
 
-        if cfg.use_multi_hop and _decide_multi_hop(state.get("entity_mode", "none"), query):
+        plan = get_query_plan(state, run_config)
+        if plan.get("use_multi_hop") and _decide_multi_hop(state.get("entity_mode", "none"), query):
             # ── Discovery path ──
             from app.rag.query.multi_hop import run_multi_hop_search
             state.update(run_multi_hop_search(state, query, run_config, cfg, trace))
@@ -223,7 +229,7 @@ async def _stream_generator(session_id: str, query: str, query_config, allowed_i
             or "fallback" in st.get("search_mode_hyde", "")
         )
         results = st.get("search_results", [])
-        if entity_filter and not already_fell_back and results:
+        if entity_filter and not already_fell_back and results and plan_allows_entity_fallback(st, cfg_dict):
             top_score = results[0].get("score", 0)
             if top_score < query_config.entity_filter_rerank_min_score:
                 logger.info(
@@ -271,6 +277,9 @@ async def _stream_generator(session_id: str, query: str, query_config, allowed_i
             "per_entity_counts": state.get("per_entity_counts", {}),
             "hop_plan": state.get("hop_plan", "direct"),
             "hop_trace": state.get("hop_trace", []),
+            "retrieval_flavor": state.get("query_plan", {}).get("retrieval_flavor", "balanced"),
+            "strict_evidence": state.get("query_plan", {}).get("strict_evidence", False),
+            "query_plan": state.get("query_plan", {}),
         })
 
         # rerank debug（rerank 关闭时不发）

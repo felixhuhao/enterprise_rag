@@ -6,6 +6,8 @@ from app.rag.query.config import QueryConfig, get_query_config
 class TestQueryConfigDefaults:
     def test_all_features_on_by_default(self):
         cfg = QueryConfig()
+        assert cfg.retrieval_flavor == "balanced"
+        assert cfg.strict_evidence is False
         assert cfg.use_entity_confirm is True
         assert cfg.use_hyde is True
         assert cfg.use_table_expand is True
@@ -35,10 +37,14 @@ class TestGetQueryConfig:
     def test_dict_filtered(self):
         cfg = get_query_config({"configurable": {"query_config": {
             "use_hyde": False,
+            "retrieval_flavor": "exact",
+            "strict_evidence": True,
             "invalid_key": 123,
             "search_limit": 3,
         }}})
         assert cfg.use_hyde is False
+        assert cfg.retrieval_flavor == "exact"
+        assert cfg.strict_evidence is True
         assert cfg.search_limit == 3
         assert not hasattr(cfg, "invalid_key")
 
@@ -100,6 +106,9 @@ class TestQueryConfigClamp:
         assert cfg.search_limit == 10
         assert cfg.dense_weight == 0.8
         assert cfg.rerank_max_top_k == 10
+
+    def test_invalid_retrieval_flavor_falls_back(self):
+        assert QueryConfig(retrieval_flavor="unknown").retrieval_flavor == "balanced"
 
 
 class TestRuntimeSettingsClamp:

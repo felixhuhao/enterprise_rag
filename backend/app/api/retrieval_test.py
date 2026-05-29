@@ -18,6 +18,8 @@ class RetrievalTestRequest(BaseModel):
     use_hybrid: bool = True
     use_hyde: bool = True
     use_rerank: bool = True
+    retrieval_flavor: str = "balanced"
+    strict_evidence: bool = False
 
 
 @router.post("/query/retrieval-test")
@@ -32,6 +34,8 @@ async def retrieval_test(req: RetrievalTestRequest, current_user: CurrentUser = 
             use_hybrid=req.use_hybrid,
             use_hyde=req.use_hyde,
             use_rerank=req.use_rerank,
+            retrieval_flavor=req.retrieval_flavor,
+            strict_evidence=req.strict_evidence,
             allowed_document_ids=allowed_ids,
         )
     except Exception as e:

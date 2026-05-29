@@ -19,12 +19,20 @@ def run_retrieval_test(
     use_hybrid: bool = True,
     use_hyde: bool = True,
     use_rerank: bool = True,
+    retrieval_flavor: str = "balanced",
+    strict_evidence: bool = False,
     allowed_document_ids: list[str] | None = None,
 ) -> dict:
     """Run the query pipeline up to rerank, without prompt building or generation."""
     from app.rag.query.rrf_fusion import _dedup_key, rrf_fusion_node
 
-    cfg = _build_config(top_k=top_k, use_hyde=use_hyde, use_rerank=use_rerank)
+    cfg = _build_config(
+        top_k=top_k,
+        use_hyde=use_hyde,
+        use_rerank=use_rerank,
+        retrieval_flavor=retrieval_flavor,
+        strict_evidence=strict_evidence,
+    )
     run_config = {"configurable": {
         "query_config": cfg,
         "allowed_document_ids": allowed_document_ids,
@@ -38,12 +46,17 @@ def run_retrieval_test(
     trace["entity_confirm_ms"] = _tick_ms(t)
 
     t = time.monotonic()
+    state.update(_query_plan_node(state, run_config))
+    trace["query_plan_ms"] = _tick_ms(t)
+
+    t = time.monotonic()
     state.update(_rewrite_query_node(state, run_config))
     trace["rewrite_ms"] = _tick_ms(t)
 
     t = time.monotonic()
     primary = _run_primary_search(state, run_config, cfg, use_hybrid=use_hybrid)
-    hyde = _hyde_search_node(state, run_config) if use_hyde else {
+    plan = state.get("query_plan", {})
+    hyde = _hyde_search_node(state, run_config) if plan.get("use_hyde") else {
         "search_results_hyde": [],
         "search_mode_hyde": "disabled",
     }
@@ -92,6 +105,9 @@ def run_retrieval_test(
         "entity_mode": state.get("entity_mode", "none"),
         "matched_entities": state.get("matched_entities", []),
         "per_entity_counts": state.get("per_entity_counts", {}),
+        "retrieval_flavor": state.get("query_plan", {}).get("retrieval_flavor", "balanced"),
+        "strict_evidence": state.get("query_plan", {}).get("strict_evidence", False),
+        "query_plan": state.get("query_plan", {}),
         "result_count": len(results),
         "trace": trace,
         "strategy": _strategy_summary(cfg, use_hybrid, state),
@@ -99,7 +115,14 @@ def run_retrieval_test(
     }
 
 
-def _build_config(*, top_k: int, use_hyde: bool, use_rerank: bool) -> QueryConfig:
+def _build_config(
+    *,
+    top_k: int,
+    use_hyde: bool,
+    use_rerank: bool,
+    retrieval_flavor: str = "balanced",
+    strict_evidence: bool = False,
+) -> QueryConfig:
     cfg = get_default_query_config()
     cfg.search_limit = top_k
     cfg.hyde_limit = top_k
@@ -108,6 +131,8 @@ def _build_config(*, top_k: int, use_hyde: bool, use_rerank: bool) -> QueryConfi
     cfg.rerank_min_top_k = min(cfg.rerank_min_top_k, top_k)
     cfg.use_hyde = use_hyde
     cfg.use_rerank = use_rerank
+    cfg.retrieval_flavor = retrieval_flavor
+    cfg.strict_evidence = strict_evidence
     cfg.clamp()
     return cfg
 
@@ -135,6 +160,7 @@ def _combine_acl(entity_filter: str | None, acl_filter: str | None) -> str | Non
 
 def _run_primary_search(state: dict, run_config: dict, cfg: QueryConfig, *, use_hybrid: bool) -> dict:
     from app.rag.query.scoring_utils import need_fallback
+    from app.rag.query.planner import plan_allows_entity_fallback, plan_budget
 
     acl_filter, allowed_ids = _retrieval_acl_filter(run_config)
     if allowed_ids is not None and not allowed_ids:
@@ -150,10 +176,12 @@ def _run_primary_search(state: dict, run_config: dict, cfg: QueryConfig, *, use_
     entity_filter = state.get("entity_filter") or None
     combined = _combine_acl(entity_filter, acl_filter)
     query_dense = _embed_query(query)
+    budget = plan_budget(state, run_config)
+    search_limit = int(budget.get("search_limit") or cfg.search_limit)
 
-    results = _dense_only_search_limited(query_dense, combined, cfg.search_limit)
-    if need_fallback(results, combined, cfg):
-        results = _dense_only_search_limited(query_dense, acl_filter, cfg.search_limit)
+    results = _dense_only_search_limited(query_dense, combined, search_limit)
+    if plan_allows_entity_fallback(state, run_config) and need_fallback(results, combined, cfg):
+        results = _dense_only_search_limited(query_dense, acl_filter, search_limit)
         mode = "dense_filtered_fallback_unfiltered"
     else:
         mode = "dense_filtered" if combined else "dense"
@@ -278,12 +306,14 @@ def _strategy_summary(cfg: QueryConfig, use_hybrid: bool, state: dict) -> dict:
     return {
         "top_k": cfg.rerank_max_top_k,
         "hybrid": use_hybrid,
-        "hyde": cfg.use_hyde,
+        "hyde": bool(state.get("query_plan", {}).get("use_hyde", cfg.use_hyde)),
         "rerank": cfg.use_rerank,
         "table_expand": cfg.use_table_expand,
         "fallback": "fallback" in search_mode or "fallback" in hyde_mode,
         "search_mode": search_mode,
         "search_mode_hyde": hyde_mode,
+        "retrieval_flavor": state.get("query_plan", {}).get("retrieval_flavor", "balanced"),
+        "strict_evidence": state.get("query_plan", {}).get("strict_evidence", False),
         "embedding_model": Path(settings.EMBEDDING_MODEL_PATH).name or settings.EMBEDDING_MODEL_PATH,
         "chat_model": settings.LOCAL_MODEL_NAME or settings.CHAT_MODEL,
         "dense_weight": cfg.dense_weight if use_hybrid else 1.0,
@@ -321,6 +351,12 @@ def _rewrite_query_node(state: dict, config: dict) -> dict:
     from app.rag.query.rewrite_query import rewrite_query_node
 
     return rewrite_query_node(state, config)
+
+
+def _query_plan_node(state: dict, config: dict) -> dict:
+    from app.rag.query.planner import query_plan_node
+
+    return query_plan_node(state, config)
 
 
 def _search_node(state: dict, config: dict) -> dict:
