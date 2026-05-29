@@ -11,6 +11,9 @@
     <span v-if="info.search_mode" class="tag" :class="{ warn: combinedWarn }">
       {{ combinedSearchModeLabel }}
     </span>
+    <span v-if="fallbackTag.text" class="tag" :class="fallbackTag.cls">
+      {{ fallbackTag.text }}
+    </span>
     <span v-if="info.rewritten_query" class="tag">改写: {{ info.rewritten_query }}</span>
 
     <span class="tag clickable" @click="expanded = !expanded">
@@ -44,6 +47,10 @@
       </div>
 
       <!-- Trace 链路 -->
+      <div v-if="fallbackDetail" class="fallback-panel" :class="{ blocked: info.fallback_info?.blocked }">
+        {{ fallbackDetail }}
+      </div>
+
       <div v-if="traceRows.length" class="trace-panel">
         <div class="trace-row" v-for="row in traceRows" :key="row.label">
           <span class="trace-label">{{ row.label }}</span>
@@ -132,6 +139,23 @@ const resolved = computed(() => resolveSearchMode(props.info.search_mode, props.
 const combinedSearchModeLabel = computed(() => resolved.value.label)
 const combinedWarn = computed(() => resolved.value.warn)
 
+const fallbackTag = computed(() => {
+  const info = props.info.fallback_info
+  if (info?.used) return { text: '已扩大查找范围', cls: 'warn' }
+  if (info?.blocked) return { text: '未扩大查找范围', cls: 'blocked' }
+  return { text: '', cls: '' }
+})
+
+const fallbackDetail = computed(() => {
+  const info = props.info.fallback_info
+  if (!info?.used && !info?.blocked) return ''
+  const scope = filterToScope(info.original_filter)
+  if (info.used) {
+    return `${scope} -> 全部资料：原范围证据不足，已扩大查找范围。回答不会把全局证据自动归因到原实体。`
+  }
+  return `${scope}：当前模式禁止扩大到全部资料，证据不足时应直接说明无法确认。`
+})
+
 const entityTag = computed(() => {
   const mode = props.info.entity_mode
   if (mode === 'multi_explicit') {
@@ -147,6 +171,11 @@ const entityTag = computed(() => {
   }
   return { text: '', cls: '' }
 })
+
+function filterToScope(filter: string) {
+  const matched = filter.match(/entity_name == "([^"]+)"/)
+  return matched?.[1] || '原实体范围'
+}
 
 interface TraceRow {
   label: string
@@ -197,6 +226,11 @@ const traceRows = computed<TraceRow[]>(() => {
   border-color: #fed7aa;
   background: #fff7ed;
 }
+.tag.blocked {
+  color: #991b1b;
+  border-color: #fecaca;
+  background: #fef2f2;
+}
 .tag.clickable {
   cursor: pointer;
   user-select: none;
@@ -208,6 +242,24 @@ const traceRows = computed<TraceRow[]>(() => {
 }
 
 /* Trace panel */
+.fallback-panel {
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 12px;
+  border: 1px solid #fed7aa;
+  border-radius: var(--radius-md);
+  background: #fff7ed;
+  color: #92400e;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.fallback-panel.blocked {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
 .trace-panel {
   width: 100%;
   margin-top: 4px;

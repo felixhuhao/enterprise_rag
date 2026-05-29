@@ -1,9 +1,13 @@
 """Unit tests for multi-hop: planner, entity discover, merge."""
 
+import sys
+from types import SimpleNamespace
+
 from app.rag.query.multi_hop import (
     _decide_multi_hop,
     _discover_entities,
     _merge_results,
+    run_multi_hop_search,
 )
 
 
@@ -95,3 +99,49 @@ class TestMergeResults:
         results = [{"chunk_id": i, "score": float(i)} for i in range(20)]
         merged = _merge_results(results, [], 5)
         assert len(merged) == 5
+
+
+def test_run_multi_hop_preserves_hop2_fallback_info(monkeypatch):
+    from app.rag.query.config import QueryConfig
+
+    def fake_single_search(query, entity_filter, cfg, acl_filter=None):
+        return {
+            "search_results": [
+                {"chunk_id": 1, "entity_name": "实体A", "score": 0.9, "content": "a"}
+            ],
+            "search_mode": "hybrid",
+            "fallback_info": {},
+        }
+
+    def fake_search_node(state, config):
+        return {
+            "search_results": [
+                {"chunk_id": 2, "entity_name": "实体A", "score": 0.8, "content": "b"}
+            ],
+            "search_mode": "multi_hybrid_filtered",
+            "per_entity_counts": {"实体A": 1},
+            "fallback_info": {
+                "used": False,
+                "blocked": True,
+                "type": "entity_filter_to_global",
+                "reason": "entity_fallback_disabled",
+                "original_filter": '(entity_name == "实体A")',
+            },
+        }
+
+    monkeypatch.setitem(
+        sys.modules,
+        "app.rag.query.search",
+        SimpleNamespace(_single_search=fake_single_search, search_node=fake_search_node),
+    )
+
+    out = run_multi_hop_search(
+        {"query": "哪些公司提到了信息安全培训", "matched_entities": []},
+        "哪些公司提到了信息安全培训",
+        {"configurable": {"query_config": QueryConfig(retrieval_flavor="discovery")}},
+        QueryConfig(retrieval_flavor="discovery"),
+        {},
+    )
+
+    assert out["fallback_info"]["blocked"] is True
+    assert out["fallback_info"]["original_filter"] == '(entity_name == "实体A")'

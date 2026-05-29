@@ -120,6 +120,13 @@ async def _stream_generator(session_id: str, query: str, query_config, allowed_i
     from app.rag.query.rewrite_query import rewrite_query_node
     from app.rag.query.search import search_node
     from app.rag.query.hyde_search import hyde_search_node
+    from app.rag.query.fallback import (
+        REASON_LOW_SCORE_OR_INSUFFICIENT_HITS,
+        fallback_blocked,
+        fallback_used,
+        merge_fallback_info,
+        state_fallback_info,
+    )
     from app.rag.query.planner import get_query_plan, plan_allows_entity_fallback, query_plan_node
     from app.rag.query.rrf_fusion import rrf_fusion_node
     from app.rag.query.table_expand import table_expand_node
@@ -200,8 +207,15 @@ async def _stream_generator(session_id: str, query: str, query_config, allowed_i
         with ThreadPoolExecutor(max_workers=2) as pool:
             f1 = pool.submit(search_node, st, cfg_dict)
             f2 = pool.submit(hyde_search_node, st, cfg_dict)
-            st.update(f1.result())
-            st.update(f2.result())
+            primary = f1.result()
+            hyde = f2.result()
+            fallback_info = merge_fallback_info(
+                primary.get("fallback_info"),
+                hyde.get("fallback_info"),
+            )
+            st.update(primary)
+            st.update(hyde)
+            st["fallback_info"] = fallback_info
         trace["search_hyde_ms"] = _tick_ms(t)
 
         t = time.monotonic()
@@ -229,9 +243,9 @@ async def _stream_generator(session_id: str, query: str, query_config, allowed_i
             or "fallback" in st.get("search_mode_hyde", "")
         )
         results = st.get("search_results", [])
-        if entity_filter and not already_fell_back and results and plan_allows_entity_fallback(st, cfg_dict):
+        if entity_filter and not already_fell_back and results:
             top_score = results[0].get("score", 0)
-            if top_score < query_config.entity_filter_rerank_min_score:
+            if top_score < query_config.entity_filter_rerank_min_score and plan_allows_entity_fallback(st, cfg_dict):
                 logger.info(
                     "Post-rerank fallback: top_score=%.3f < %.3f, retrying unfiltered",
                     top_score, query_config.entity_filter_rerank_min_score,
@@ -246,6 +260,15 @@ async def _stream_generator(session_id: str, query: str, query_config, allowed_i
                 trace["post_rerank_fallback_ms"] = _tick_ms(t_fb) + _tick_ms(t_fb2)
 
                 st["search_mode"] = st.get("search_mode", "") + "_post_rerank_fallback"
+                st["fallback_info"] = merge_fallback_info(
+                    state_fallback_info(st),
+                    fallback_used(entity_filter, REASON_LOW_SCORE_OR_INSUFFICIENT_HITS),
+                )
+            elif top_score < query_config.entity_filter_rerank_min_score:
+                st["fallback_info"] = merge_fallback_info(
+                    state_fallback_info(st),
+                    fallback_blocked(entity_filter),
+                )
 
     # ── 所有 yield/await 都在 finally 保护内 ──
     try:
@@ -280,6 +303,7 @@ async def _stream_generator(session_id: str, query: str, query_config, allowed_i
             "retrieval_flavor": state.get("query_plan", {}).get("retrieval_flavor", "balanced"),
             "strict_evidence": state.get("query_plan", {}).get("strict_evidence", False),
             "query_plan": state.get("query_plan", {}),
+            "fallback_info": state.get("fallback_info", {}),
         })
 
         # rerank debug（rerank 关闭时不发）

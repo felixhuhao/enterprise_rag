@@ -81,7 +81,7 @@ def build_query_plan(query: str, entity_mode: str, cfg: QueryConfig) -> QueryPla
     elif flavor == "discovery":
         use_hyde = False
         use_multi_hop = True
-        fallback_allowed = not strict
+        fallback_allowed = False
         budget = RetrievalBudget(
             search_limit=cfg.search_limit,
             hyde_limit=0,

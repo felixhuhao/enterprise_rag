@@ -1,7 +1,16 @@
 """Unit tests for the query flavor planner."""
 
+from dataclasses import asdict
+
 from app.rag.query.config import QueryConfig
-from app.rag.query.planner import build_query_plan, query_plan_node
+from app.rag.query.planner import (
+    build_query_plan,
+    get_query_plan,
+    plan_allows_entity_fallback,
+    plan_budget,
+    query_plan_node,
+    _normalize_flavor,
+)
 
 
 def test_balanced_keeps_current_defaults():
@@ -47,6 +56,7 @@ def test_discovery_forces_current_multi_hop_path():
     assert plan.retrieval_flavor == "discovery"
     assert plan.use_hyde is False
     assert plan.use_multi_hop is True
+    assert plan.fallback_policy.entity_filter_to_global is False
     assert plan.prompt_policy.template == "broad"
 
 
@@ -69,4 +79,103 @@ def test_query_plan_node_returns_plain_dict():
 
     assert out["query_plan"]["retrieval_flavor"] == "discovery"
     assert out["query_plan"]["use_multi_hop"] is True
-    assert out["query_plan"]["fallback_policy"]["entity_filter_to_global"] is True
+    assert out["query_plan"]["fallback_policy"]["entity_filter_to_global"] is False
+
+
+# ---------------------------------------------------------------------------
+# get_query_plan fallback path
+# ---------------------------------------------------------------------------
+
+
+def test_get_query_plan_returns_cached_plan_from_state():
+    cached = {"retrieval_flavor": "exact", "use_hyde": False}
+    state = {"query": "test", "query_plan": cached}
+    assert get_query_plan(state) is cached
+
+
+def test_get_query_plan_builds_balanced_when_missing():
+    state = {"query": "test"}
+    config = {"configurable": {"query_config": QueryConfig()}}
+    plan = get_query_plan(state, config)
+    assert plan["retrieval_flavor"] == "balanced"
+    # should not mutate state
+    assert "query_plan" not in state
+
+
+# ---------------------------------------------------------------------------
+# plan_allows_entity_fallback
+# ---------------------------------------------------------------------------
+
+
+def test_plan_allows_entity_fallback_balanced():
+    state = {"query": "test", "query_plan": {
+        "fallback_policy": {"entity_filter_to_global": True},
+    }}
+    assert plan_allows_entity_fallback(state) is True
+
+
+def test_plan_allows_entity_fallback_exact():
+    state = {"query": "test", "query_plan": {
+        "fallback_policy": {"entity_filter_to_global": False},
+    }}
+    assert plan_allows_entity_fallback(state) is False
+
+
+def test_plan_allows_entity_fallback_defaults_to_true():
+    state = {"query": "test"}  # no query_plan, no fallback_policy
+    assert plan_allows_entity_fallback(state, {"configurable": {"query_config": QueryConfig()}}) is True
+
+
+# ---------------------------------------------------------------------------
+# plan_budget
+# ---------------------------------------------------------------------------
+
+
+def test_plan_budget_returns_budget_dict():
+    state = {"query": "test", "query_plan": {
+        "budget": {"search_limit": 8, "rrf_top_k": 8, "max_context_chars": 5000},
+    }}
+    budget = plan_budget(state)
+    assert budget["search_limit"] == 8
+    assert budget["max_context_chars"] == 5000
+
+
+def test_plan_budget_returns_empty_when_missing():
+    state = {"query": "test"}  # no query_plan
+    budget = plan_budget(state, {"configurable": {"query_config": QueryConfig()}})
+    assert isinstance(budget, dict)
+    assert "search_limit" in budget
+
+
+# ---------------------------------------------------------------------------
+# _normalize_flavor
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_flavor_valid_inputs():
+    assert _normalize_flavor("balanced") == "balanced"
+    assert _normalize_flavor("exact") == "exact"
+    assert _normalize_flavor("recall") == "recall"
+    assert _normalize_flavor("discovery") == "discovery"
+
+
+def test_normalize_flavor_invalid_falls_back_to_balanced():
+    assert _normalize_flavor("strict_evidence") == "balanced"
+    assert _normalize_flavor("unknown") == "balanced"
+    assert _normalize_flavor("") == "balanced"
+
+
+# ---------------------------------------------------------------------------
+# discovery + strict_evidence combination
+# ---------------------------------------------------------------------------
+
+
+def test_discovery_with_strict_evidence_disables_fallback():
+    cfg = QueryConfig(retrieval_flavor="discovery", strict_evidence=True)
+
+    plan = build_query_plan("哪些公司提到了安全计划？", "broad", cfg)
+
+    assert plan.retrieval_flavor == "discovery"
+    assert plan.strict_evidence is True
+    assert plan.fallback_policy.entity_filter_to_global is False
+    assert plan.use_multi_hop is True

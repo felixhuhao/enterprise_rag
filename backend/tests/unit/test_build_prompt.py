@@ -57,3 +57,48 @@ class TestBuildPromptNode:
         result = build_prompt_node(state, config)
         assert result["context_map"] == {}
         assert "test" in result["context_text"]
+
+    def test_fallback_used_adds_scope_instruction(self):
+        state = {
+            "query": "实体A 的制度？",
+            "search_results": [],
+            "fallback_info": {
+                "used": True,
+                "blocked": False,
+                "type": "entity_filter_to_global",
+                "reason": "low_score_or_insufficient_hits",
+                "original_filter": '(entity_name == "实体A")',
+            },
+        }
+        config = {"configurable": {"query_config": QueryConfig()}}
+        result = build_prompt_node(state, config)
+        assert "系统已扩大到全部可访问资料" in result["context_text"]
+        assert "不要把扩大范围后找到的全局证据归因到原实体" in result["context_text"]
+
+    def test_no_fallback_info_does_not_add_blocked_instruction(self):
+        state = {
+            "query": "实体A 的制度？",
+            "search_results": [
+                {"content": "实体A 有明确制度", "file_title": "实体A.md", "section_title": "制度", "source_type": "text"}
+            ],
+        }
+        config = {"configurable": {"query_config": QueryConfig(retrieval_flavor="exact")}}
+        result = build_prompt_node(state, config)
+        assert "当前模式禁止从实体范围扩大到全局资料" not in result["context_text"]
+
+    def test_fallback_blocked_adds_no_answer_instruction(self):
+        state = {
+            "query": "实体A 的制度？",
+            "search_results": [],
+            "fallback_info": {
+                "used": False,
+                "blocked": True,
+                "type": "entity_filter_to_global",
+                "reason": "entity_fallback_disabled",
+                "original_filter": '(entity_name == "实体A")',
+            },
+        }
+        config = {"configurable": {"query_config": QueryConfig(retrieval_flavor="exact")}}
+        result = build_prompt_node(state, config)
+        assert "当前模式禁止从实体范围扩大到全局资料" in result["context_text"]
+        assert "证据不足" in result["context_text"]

@@ -55,6 +55,16 @@ ANSWER_PROMPT_BROAD = """\
 
 用户问题：{query}"""
 
+FALLBACK_USED_INSTRUCTION = (
+    "检索提示：由于原实体范围内证据不足，系统已扩大到全部可访问资料。"
+    "回答时不要把扩大范围后找到的全局证据归因到原实体；如果证据不属于该实体，请明确说明。"
+)
+
+FALLBACK_BLOCKED_INSTRUCTION = (
+    "检索提示：当前模式禁止从实体范围扩大到全局资料。"
+    "如果当前上下文证据不足，请直接说明无法从资料确认。"
+)
+
 
 def build_prompt_node(state: QueryState, config: RunnableConfig) -> dict:
     """组装编号上下文 [C1]/[C2]... + 构建 prompt。表格按三层策略标注。"""
@@ -92,6 +102,11 @@ def build_prompt_node(state: QueryState, config: RunnableConfig) -> dict:
         template = ANSWER_PROMPT
 
     prompt = template.format(context=context_text, query=query)
+    fallback_info = state.get("fallback_info") or {}
+    if fallback_info.get("used"):
+        prompt += f"\n\n{FALLBACK_USED_INSTRUCTION}"
+    elif fallback_info.get("blocked"):
+        prompt += f"\n\n{FALLBACK_BLOCKED_INSTRUCTION}"
     if prompt_policy.get("strict_evidence"):
         prompt += "\n\n严格证据模式：只能回答上下文直接支持的信息；证据不足时直接说明无法从资料确认。"
 

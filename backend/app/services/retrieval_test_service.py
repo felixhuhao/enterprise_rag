@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from app.config import settings
+from app.rag.query.fallback import empty_fallback_info, fallback_blocked, fallback_used, merge_fallback_info
 from app.rag.query.config import QueryConfig, get_default_query_config
 
 logger = logging.getLogger(__name__)
@@ -59,9 +60,15 @@ def run_retrieval_test(
     hyde = _hyde_search_node(state, run_config) if plan.get("use_hyde") else {
         "search_results_hyde": [],
         "search_mode_hyde": "disabled",
+        "fallback_info": empty_fallback_info(),
     }
+    fallback_info = merge_fallback_info(
+        primary.get("fallback_info"),
+        hyde.get("fallback_info"),
+    )
     state.update(primary)
     state.update(hyde)
+    state["fallback_info"] = fallback_info
     trace["search_hyde_ms"] = _tick_ms(t)
 
     path_map = _build_path_map(
@@ -108,6 +115,7 @@ def run_retrieval_test(
         "retrieval_flavor": state.get("query_plan", {}).get("retrieval_flavor", "balanced"),
         "strict_evidence": state.get("query_plan", {}).get("strict_evidence", False),
         "query_plan": state.get("query_plan", {}),
+        "fallback_info": state.get("fallback_info", {}),
         "result_count": len(results),
         "trace": trace,
         "strategy": _strategy_summary(cfg, use_hybrid, state),
@@ -164,7 +172,7 @@ def _run_primary_search(state: dict, run_config: dict, cfg: QueryConfig, *, use_
 
     acl_filter, allowed_ids = _retrieval_acl_filter(run_config)
     if allowed_ids is not None and not allowed_ids:
-        return {"search_results": [], "search_mode": "acl_empty"}
+        return {"search_results": [], "search_mode": "acl_empty", "fallback_info": empty_fallback_info()}
 
     if use_hybrid:
         return _search_node(state, run_config)
@@ -180,12 +188,19 @@ def _run_primary_search(state: dict, run_config: dict, cfg: QueryConfig, *, use_
     search_limit = int(budget.get("search_limit") or cfg.search_limit)
 
     results = _dense_only_search_limited(query_dense, combined, search_limit)
-    if plan_allows_entity_fallback(state, run_config) and need_fallback(results, combined, cfg):
-        results = _dense_only_search_limited(query_dense, acl_filter, search_limit)
-        mode = "dense_filtered_fallback_unfiltered"
+    should_fallback = bool(entity_filter) and need_fallback(results, combined, cfg)
+    info = empty_fallback_info()
+    if should_fallback:
+        if plan_allows_entity_fallback(state, run_config):
+            results = _dense_only_search_limited(query_dense, acl_filter, search_limit)
+            mode = "dense_filtered_fallback_unfiltered"
+            info = fallback_used(entity_filter)
+        else:
+            mode = "dense_filtered"
+            info = fallback_blocked(entity_filter)
     else:
         mode = "dense_filtered" if combined else "dense"
-    return {"search_results": results, "search_mode": mode}
+    return {"search_results": results, "search_mode": mode, "fallback_info": info}
 
 
 def _run_multi_entity_dense_search(state: dict, cfg: QueryConfig, acl_filter: str | None = None) -> dict:
@@ -233,6 +248,7 @@ def _run_multi_entity_dense_search(state: dict, cfg: QueryConfig, acl_filter: st
         "search_results": sorted(seen.values(), key=lambda x: x["score"], reverse=True)[:cap],
         "search_mode": "multi_dense_filtered",
         "per_entity_counts": per_counts,
+        "fallback_info": empty_fallback_info(),
     }
 
 

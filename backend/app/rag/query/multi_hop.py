@@ -10,6 +10,7 @@ import logging
 import time
 
 from app.rag.query.config import QueryConfig
+from app.rag.query.fallback import empty_fallback_info, merge_fallback_info
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,7 @@ def run_multi_hop_search(
             "entity_mode": state.get("entity_mode", "none"),
             "matched_entities": seed_entities, "per_entity_counts": {},
             "hop_plan": "discovery", "hop_trace": [],
+            "fallback_info": empty_fallback_info(),
         }
     acl_filter = build_acl_expr(allowed) if allowed else None
 
@@ -119,12 +121,19 @@ def run_multi_hop_search(
             hop2_result = search_node(hop2_state, run_config)
             hop2_results = hop2_result.get("search_results", [])
             per_entity_counts = hop2_result.get("per_entity_counts", {})
+            fallback_info = merge_fallback_info(
+                empty_fallback_info(),
+                hop2_result.get("fallback_info"),
+            )
             hop2_status = "ok" if hop2_results else "no_results"
         except Exception:
             logger.warning("Hop2 search failed", exc_info=True)
             hop2_results = []
             per_entity_counts = {}
+            fallback_info = empty_fallback_info()
             hop2_status = "hop2_failed"
+    else:
+        fallback_info = empty_fallback_info()
 
     merged = _merge_results(hop1_results, hop2_results, limit=30)
 
@@ -149,6 +158,7 @@ def run_multi_hop_search(
         "per_entity_counts": per_entity_counts,
         "hop_plan": "discovery",
         "hop_trace": hop_trace,
+        "fallback_info": fallback_info,
     }
 
 

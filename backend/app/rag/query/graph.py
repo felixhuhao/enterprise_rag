@@ -10,10 +10,17 @@ from langgraph.graph import StateGraph
 from app.rag.query.build_prompt import build_prompt_node
 from app.rag.query.config import QueryConfig, get_default_query_config
 from app.rag.query.entity_confirm import entity_confirm_node
+from app.rag.query.fallback import (
+    REASON_LOW_SCORE_OR_INSUFFICIENT_HITS,
+    fallback_blocked,
+    fallback_used,
+    merge_fallback_info,
+    state_fallback_info,
+)
 from app.rag.query.generate import generate_answer_node
 from app.rag.query.groundedness import groundedness_check_node
 from app.rag.query.hyde_search import hyde_search_node
-from app.rag.query.planner import get_query_plan, query_plan_node
+from app.rag.query.planner import get_query_plan, plan_allows_entity_fallback, query_plan_node
 from app.rag.query.rerank import rerank_node
 from app.rag.query.rewrite_query import rewrite_query_node
 from app.rag.query.rrf_fusion import rrf_fusion_node
@@ -79,11 +86,43 @@ def run_query_graph(query: str, query_config: QueryConfig | None = None, extra_c
         state.update(rerank_node(state, config))
     else:
         state.update(rewrite_query_node(state, config))
-        state.update(search_node(state, config))
-        state.update(hyde_search_node(state, config))
+        primary = search_node(state, config)
+        hyde = hyde_search_node(state, config)
+        state.update(primary)
+        state.update(hyde)
+        state["fallback_info"] = merge_fallback_info(primary.get("fallback_info"), hyde.get("fallback_info"))
         state.update(rrf_fusion_node(state, config))
         state.update(table_expand_node(state, config))
         state.update(rerank_node(state, config))
+
+        entity_filter = state.get("entity_filter")
+        already_fell_back = (
+            "fallback" in state.get("search_mode", "")
+            or "fallback" in state.get("search_mode_hyde", "")
+        )
+        results = state.get("search_results", [])
+        if entity_filter and not already_fell_back and results:
+            top_score = results[0].get("score", 0)
+            if top_score < cfg.entity_filter_rerank_min_score and plan_allows_entity_fallback(state, config):
+                state["entity_filter"] = ""
+                primary = search_node(state, config)
+                hyde = hyde_search_node(state, config)
+                state.update(primary)
+                state.update(hyde)
+                state["fallback_info"] = merge_fallback_info(primary.get("fallback_info"), hyde.get("fallback_info"))
+                state.update(rrf_fusion_node(state, config))
+                state.update(table_expand_node(state, config))
+                state.update(rerank_node(state, config))
+                state["search_mode"] = state.get("search_mode", "") + "_post_rerank_fallback"
+                state["fallback_info"] = merge_fallback_info(
+                    state_fallback_info(state),
+                    fallback_used(entity_filter, REASON_LOW_SCORE_OR_INSUFFICIENT_HITS),
+                )
+            elif top_score < cfg.entity_filter_rerank_min_score:
+                state["fallback_info"] = merge_fallback_info(
+                    state_fallback_info(state),
+                    fallback_blocked(entity_filter),
+                )
 
     state.update(build_prompt_node(state, config))
     state.update(generate_answer_node(state))
@@ -102,5 +141,6 @@ def run_query_graph(query: str, query_config: QueryConfig | None = None, extra_c
         "retrieval_flavor": result.get("query_plan", {}).get("retrieval_flavor", "balanced"),
         "strict_evidence": result.get("query_plan", {}).get("strict_evidence", False),
         "query_plan": result.get("query_plan", {}),
+        "fallback_info": result.get("fallback_info", {}),
         "groundedness": result.get("groundedness", {}),
     }

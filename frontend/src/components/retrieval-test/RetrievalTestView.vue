@@ -16,6 +16,15 @@
 
       <div class="control-row">
         <label class="control-item">
+          <span>查找方式</span>
+          <a-select v-model="retrievalFlavor" size="small" class="flavor-select">
+            <a-option value="balanced">标准问答</a-option>
+            <a-option value="exact">精确查找</a-option>
+            <a-option value="recall">全面查找</a-option>
+            <a-option value="discovery">关联查找</a-option>
+          </a-select>
+        </label>
+        <label class="control-item">
           <span>Top K</span>
           <a-input-number v-model="topK" :min="1" :max="30" size="small" />
         </label>
@@ -30,6 +39,10 @@
         <label class="switch-item">
           <span>重排</span>
           <a-switch v-model="useRerank" size="small" />
+        </label>
+        <label class="switch-item">
+          <span>仅基于资料回答</span>
+          <a-switch v-model="strictEvidence" size="small" />
         </label>
       </div>
     </section>
@@ -58,6 +71,9 @@
             <a-tag :color="response.strategy.fallback ? 'orange' : 'gray'">
               {{ response.strategy.fallback ? '已回退' : '无回退' }}
             </a-tag>
+            <a-tag v-if="response.fallback_info?.blocked" color="red">
+              回退已阻止
+            </a-tag>
           </div>
         </div>
 
@@ -82,6 +98,10 @@
             <span>LLM</span>
             <strong>{{ response.strategy.chat_model }}</strong>
           </div>
+        </div>
+
+        <div v-if="fallbackText" class="fallback-note">
+          {{ fallbackText }}
         </div>
 
         <!-- Per-entity hit distribution -->
@@ -203,9 +223,11 @@ const router = useRouter()
 
 const query = ref('差旅报销需要哪些审批材料？')
 const topK = ref(10)
+const retrievalFlavor = ref('balanced')
 const useHybrid = ref(true)
 const useHyde = ref(true)
 const useRerank = ref(true)
+const strictEvidence = ref(false)
 const loading = ref(false)
 const errorMessage = ref('')
 const response = ref<RetrievalTestResponse | null>(null)
@@ -236,6 +258,14 @@ const entityEntries = computed(() => {
   return Object.entries(response.value.per_entity_counts)
 })
 
+const fallbackText = computed(() => {
+  const info = response.value?.fallback_info
+  if (!info?.used && !info?.blocked) return ''
+  const scope = filterToScope(info.original_filter)
+  if (info.used) return `${scope} -> 全部资料：原范围证据不足，已扩大查找范围。`
+  return `${scope}：当前模式禁止扩大到全部资料。`
+})
+
 async function runTest() {
   const trimmed = query.value.trim()
   if (!trimmed) {
@@ -252,6 +282,8 @@ async function runTest() {
       use_hybrid: useHybrid.value,
       use_hyde: useHyde.value,
       use_rerank: useRerank.value,
+      retrieval_flavor: retrievalFlavor.value,
+      strict_evidence: strictEvidence.value,
     })
   } catch (err: any) {
     const detail = err?.response?.data?.detail
@@ -293,6 +325,11 @@ function sourceTypeLabel(sourceType: string) {
     table_row_group: '表格行组',
   }
   return map[sourceType] ?? (sourceType || '未知')
+}
+
+function filterToScope(filter: string) {
+  const matched = filter.match(/entity_name == "([^"]+)"/)
+  return matched?.[1] || '原实体范围'
 }
 </script>
 
@@ -339,6 +376,10 @@ function sourceTypeLabel(sourceType: string) {
 
 .control-item :deep(.arco-input-number) {
   width: 92px;
+}
+
+.flavor-select {
+  width: 132px;
 }
 
 .error-panel {
@@ -423,6 +464,16 @@ function sourceTypeLabel(sourceType: string) {
   gap: 8px;
   margin-top: 12px;
   align-items: center;
+}
+
+.fallback-note {
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid #fed7aa;
+  background: #fff7ed;
+  color: #92400e;
+  font-size: 12px;
 }
 
 .entity-dist-label {

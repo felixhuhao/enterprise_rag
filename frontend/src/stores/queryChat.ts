@@ -33,6 +33,14 @@ export interface HopTraceEntry {
   per_entity_counts?: Record<string, number>
 }
 
+export interface FallbackInfo {
+  used: boolean
+  blocked: boolean
+  type: string
+  reason: string
+  original_filter: string
+}
+
 /** 检索步骤信息 */
 export interface RetrievalInfo {
   results_count: number
@@ -48,6 +56,7 @@ export interface RetrievalInfo {
   retrieval_flavor?: string
   strict_evidence?: boolean
   query_plan?: Record<string, unknown>
+  fallback_info?: FallbackInfo
 }
 
 /** groundedness claim */
@@ -226,6 +235,7 @@ export const useQueryChatStore = defineStore('queryChat', () => {
             retrieval_flavor: (event as any).retrieval_flavor ?? 'balanced',
             strict_evidence: (event as any).strict_evidence ?? false,
             query_plan: (event as any).query_plan ?? {},
+            fallback_info: (event as any).fallback_info ?? undefined,
           },
         })
         break

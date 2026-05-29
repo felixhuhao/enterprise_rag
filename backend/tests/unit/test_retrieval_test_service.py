@@ -139,3 +139,131 @@ def test_dense_only_multi_entity_keeps_entity_filters(monkeypatch):
     assert payload["strategy"]["search_mode"] == "multi_dense_filtered"
     assert payload["per_entity_counts"] == {"实体A": 1, "实体B": 1}
     assert {row["entity_name"] for row in payload["results"]} == {"实体A", "实体B"}
+
+
+def test_dense_only_balanced_records_fallback_used(monkeypatch):
+    monkeypatch.setattr(svc, "get_default_query_config", lambda: QueryConfig(use_table_expand=False))
+    monkeypatch.setattr(svc, "_entity_confirm_node", lambda state, config: {
+        "confirmed_entity": "实体A",
+        "entity_filter": '(entity_name == "实体A")',
+        "entity_mode": "single",
+        "matched_entities": ["实体A"],
+        "per_entity_counts": {},
+    })
+    monkeypatch.setattr(svc, "_rewrite_query_node", _noop_rewrite)
+    monkeypatch.setattr(svc, "_embed_query", lambda query: [0.1, 0.2])
+    monkeypatch.setattr(svc, "_hyde_search_node", lambda state, config: {
+        "search_mode_hyde": "disabled",
+        "search_results_hyde": [],
+        "fallback_info": {},
+    })
+    monkeypatch.setattr(svc, "_table_expand_node", _noop_table_expand)
+
+    def fake_dense(_query_dense, entity_filter, limit):
+        entity = "实体A" if entity_filter else "全局"
+        return [{
+            "chunk_id": 1 if entity == "实体A" else 2,
+            "document_id": f"doc-{entity}",
+            "file_title": f"{entity}.md",
+            "entity_name": entity,
+            "source_type": "text",
+            "content": f"{entity} 内容",
+            "score": 0.2,
+        }]
+
+    monkeypatch.setattr(svc, "_dense_only_search_limited", fake_dense)
+
+    payload = svc.run_retrieval_test(
+        "实体A 的制度？",
+        top_k=4,
+        use_hybrid=False,
+        use_hyde=False,
+        use_rerank=False,
+    )
+
+    assert payload["strategy"]["search_mode"] == "dense_filtered_fallback_unfiltered"
+    assert payload["fallback_info"]["used"] is True
+    assert payload["fallback_info"]["original_filter"] == '(entity_name == "实体A")'
+
+
+def test_dense_only_exact_records_fallback_blocked(monkeypatch):
+    monkeypatch.setattr(svc, "get_default_query_config", lambda: QueryConfig(use_table_expand=False))
+    monkeypatch.setattr(svc, "_entity_confirm_node", lambda state, config: {
+        "confirmed_entity": "实体A",
+        "entity_filter": '(entity_name == "实体A")',
+        "entity_mode": "single",
+        "matched_entities": ["实体A"],
+        "per_entity_counts": {},
+    })
+    monkeypatch.setattr(svc, "_rewrite_query_node", _noop_rewrite)
+    monkeypatch.setattr(svc, "_embed_query", lambda query: [0.1, 0.2])
+    monkeypatch.setattr(svc, "_table_expand_node", _noop_table_expand)
+
+    calls: list[str | None] = []
+
+    def fake_dense(_query_dense, entity_filter, limit):
+        calls.append(entity_filter)
+        return [{
+            "chunk_id": 1,
+            "document_id": "doc-entity",
+            "file_title": "实体A.md",
+            "entity_name": "实体A",
+            "source_type": "text",
+            "content": "弱相关内容",
+            "score": 0.2,
+        }]
+
+    monkeypatch.setattr(svc, "_dense_only_search_limited", fake_dense)
+
+    payload = svc.run_retrieval_test(
+        "实体A 的制度？",
+        top_k=4,
+        use_hybrid=False,
+        use_hyde=False,
+        use_rerank=False,
+        retrieval_flavor="exact",
+    )
+
+    assert calls == ['((entity_name == "实体A"))']
+    assert payload["strategy"]["search_mode"] == "dense_filtered"
+    assert payload["fallback_info"]["blocked"] is True
+    assert payload["fallback_info"]["reason"] == "entity_fallback_disabled"
+
+
+def test_exact_does_not_record_blocked_when_filtered_results_are_adequate(monkeypatch):
+    monkeypatch.setattr(svc, "get_default_query_config", lambda: QueryConfig(use_table_expand=False))
+    monkeypatch.setattr(svc, "_entity_confirm_node", lambda state, config: {
+        "confirmed_entity": "实体A",
+        "entity_filter": '(entity_name == "实体A")',
+        "entity_mode": "single",
+        "matched_entities": ["实体A"],
+        "per_entity_counts": {},
+    })
+    monkeypatch.setattr(svc, "_rewrite_query_node", _noop_rewrite)
+    monkeypatch.setattr(svc, "_embed_query", lambda query: [0.1, 0.2])
+    monkeypatch.setattr(svc, "_table_expand_node", _noop_table_expand)
+
+    monkeypatch.setattr(svc, "_dense_only_search_limited", lambda qd, ef, lim: [
+        {
+            "chunk_id": i,
+            "document_id": f"doc-{i}",
+            "file_title": "实体A.md",
+            "entity_name": "实体A",
+            "source_type": "text",
+            "content": "高相关内容",
+            "score": 0.9 - i * 0.01,
+        }
+        for i in range(3)
+    ])
+
+    payload = svc.run_retrieval_test(
+        "实体A 的制度？",
+        top_k=4,
+        use_hybrid=False,
+        use_hyde=False,
+        use_rerank=False,
+        retrieval_flavor="exact",
+    )
+
+    assert payload["strategy"]["search_mode"] == "dense_filtered"
+    assert payload["fallback_info"]["blocked"] is False

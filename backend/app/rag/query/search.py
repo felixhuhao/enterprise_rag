@@ -10,6 +10,12 @@ from langgraph.graph.state import RunnableConfig
 
 from app.rag.embeddings.dense_embedding import dense_embedding
 from app.rag.query.config import QueryConfig, get_query_config
+from app.rag.query.fallback import (
+    REASON_LOW_SCORE_OR_INSUFFICIENT_HITS,
+    empty_fallback_info,
+    fallback_blocked,
+    fallback_used,
+)
 from app.rag.query.filter_utils import build_acl_expr, build_entity_expr, combine_filters, get_allowed_ids
 from app.rag.query.planner import plan_allows_entity_fallback, plan_budget
 from app.rag.query.scoring_utils import need_fallback
@@ -51,7 +57,7 @@ def search_node(state: QueryState, config: RunnableConfig) -> dict:
     # ACL check
     allowed = get_allowed_ids(config)
     if allowed is not None and not allowed:
-        return {"search_results": [], "search_mode": "acl_empty"}
+        return {"search_results": [], "search_mode": "acl_empty", "fallback_info": empty_fallback_info()}
 
     entity_filter = state.get("entity_filter") or None
     acl_filter = build_acl_expr(allowed) if allowed else None
@@ -94,29 +100,43 @@ def _single_search(
 
     try:
         results = _hybrid_search(query_dense, query, combined, cfg, limit=limit)
-        if fallback_allowed and need_fallback(results, combined, cfg):
-            logger.info("Filtered hybrid: %d results, max_score=%.3f, retrying unfiltered",
-                        len(results), max((r["score"] for r in results), default=0))
-            results = _hybrid_search(query_dense, query, acl_filter, cfg, limit=limit)
-            mode = "hybrid_filtered_fallback_unfiltered"
+        should_fallback = bool(entity_filter) and need_fallback(results, combined, cfg)
+        info = empty_fallback_info()
+        if should_fallback:
+            if fallback_allowed:
+                logger.info("Filtered hybrid: %d results, max_score=%.3f, retrying unfiltered",
+                            len(results), max((r["score"] for r in results), default=0))
+                results = _hybrid_search(query_dense, query, acl_filter, cfg, limit=limit)
+                mode = "hybrid_filtered_fallback_unfiltered"
+                info = fallback_used(entity_filter, REASON_LOW_SCORE_OR_INSUFFICIENT_HITS)
+            else:
+                mode = "hybrid_filtered"
+                info = fallback_blocked(entity_filter)
         else:
             mode = "hybrid_filtered" if combined else "hybrid"
         logger.debug("Search mode: %s (%d results)", mode, len(results))
-        return {"search_results": results, "search_mode": mode}
+        return {"search_results": results, "search_mode": mode, "fallback_info": info}
     except Exception as e:
         logger.warning("Hybrid search failed: %s, falling back to dense_only", e)
 
     try:
         results = _dense_only_search(query_dense, combined, cfg, limit=limit)
-        if fallback_allowed and need_fallback(results, combined, cfg):
-            logger.info("Filtered dense: %d results, max_score=%.3f, retrying unfiltered",
-                        len(results), max((r["score"] for r in results), default=0))
-            results = _dense_only_search(query_dense, acl_filter, cfg, limit=limit)
-            mode = "dense_filtered_fallback_unfiltered"
+        should_fallback = bool(entity_filter) and need_fallback(results, combined, cfg)
+        info = empty_fallback_info()
+        if should_fallback:
+            if fallback_allowed:
+                logger.info("Filtered dense: %d results, max_score=%.3f, retrying unfiltered",
+                            len(results), max((r["score"] for r in results), default=0))
+                results = _dense_only_search(query_dense, acl_filter, cfg, limit=limit)
+                mode = "dense_filtered_fallback_unfiltered"
+                info = fallback_used(entity_filter, REASON_LOW_SCORE_OR_INSUFFICIENT_HITS)
+            else:
+                mode = "dense_filtered"
+                info = fallback_blocked(entity_filter)
         else:
             mode = "dense_filtered" if combined else "dense"
         logger.debug("Search mode: %s (%d results)", mode, len(results))
-        return {"search_results": results, "search_mode": mode}
+        return {"search_results": results, "search_mode": mode, "fallback_info": info}
     except Exception as e:
         logger.error("Dense search also failed: %s", e)
         raise RuntimeError(f"搜索失败: {e}") from e
@@ -190,6 +210,7 @@ def _multi_entity_search(state: dict, config: RunnableConfig, query: str, cfg: Q
         "search_results": merged,
         "search_mode": mode,
         "per_entity_counts": per_counts,
+        "fallback_info": empty_fallback_info(),
     }
 
 

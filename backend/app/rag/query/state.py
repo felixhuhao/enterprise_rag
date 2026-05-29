@@ -23,6 +23,7 @@ class QueryState(TypedDict, total=False):
     search_results_hyde: list[dict]
     search_mode: str
     search_mode_hyde: str
+    fallback_info: dict
     rerank_debug: list[dict]
     context_map: dict[str, dict]  # "C1" -> {document_id, file_title, ...}
 

@@ -62,6 +62,13 @@ export interface RetrievalTestResponse {
   retrieval_flavor: string
   strict_evidence: boolean
   query_plan: Record<string, unknown>
+  fallback_info: {
+    used: boolean
+    blocked: boolean
+    type: string
+    reason: string
+    original_filter: string
+  }
   result_count: number
   trace: Record<string, number>
   strategy: RetrievalStrategy
