@@ -8,6 +8,8 @@ export interface FeedbackRecord {
   answer: string
   citations: string
   retrieved_chunks: string
+  retrieval_flavor: string
+  strict_evidence: number
   rating: string
   comment: string
   user_id: string
@@ -21,6 +23,8 @@ export interface FeedbackPayload {
   answer: string
   citations: object[]
   retrieved_chunks: object[]
+  retrieval_flavor: string
+  strict_evidence: boolean
   rating: string
   comment: string
 }

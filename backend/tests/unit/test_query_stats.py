@@ -29,6 +29,10 @@ CREATE TABLE IF NOT EXISTS query_run_stats (
     status           TEXT DEFAULT 'success',
     error_code       TEXT DEFAULT '',
     retrieved_chunks TEXT DEFAULT '[]',
+    citations        TEXT DEFAULT '[]',
+    retrieval_flavor TEXT DEFAULT 'balanced',
+    strict_evidence  INTEGER DEFAULT 0,
+    fallback_used    INTEGER DEFAULT 0,
     groundedness_score REAL DEFAULT NULL,
     user_id          TEXT DEFAULT '',
     created_at       TEXT NOT NULL
@@ -150,6 +154,23 @@ class TestSave:
         assert stats["total_queries"] == 1
         assert stats["total_failed"] == 1
 
+    def test_flavor_strict_and_citations_are_saved(self, svc):
+        run(svc.save(
+            "s4", "recall query", "hybrid", "",
+            result_count=3, rerank_avg_score=0.7, rerank_top_score=0.9,
+            retrieval_flavor="recall",
+            strict_evidence=True,
+            citations=[{"id": "C1", "document_id": "doc-1"}],
+            fallback_used=True,
+        ))
+
+        result = run(svc.get_records(page=1, page_size=10))
+        record = result["records"][0]
+        assert record["retrieval_flavor"] == "recall"
+        assert record["strict_evidence"] == 1
+        assert record["fallback_used"] == 1
+        assert '"C1"' in record["citations"]
+
 
 class TestAggregation:
     def test_avg_only_success(self, svc):
@@ -168,6 +189,16 @@ class TestAggregation:
         assert stats["avg_rerank_score"] == 0.7
         # avg result count = (10 + 8) / 2 = 9.0
         assert stats["avg_result_count"] == 9.0
+
+    def test_overall_p95_latency(self, svc):
+        run(svc.save("s1", "q1", "hybrid", "", 10, 0.8, 0.9, total_ms=1000))
+        run(svc.save("s2", "q2", "hybrid", "", 10, 0.8, 0.9, total_ms=2000))
+        run(svc.save("s3", "q3", "", "", 0, 0.0, 0.0,
+                      total_ms=10000, status="search_failed"))
+
+        stats = run(svc.get_stats())
+
+        assert stats["p95_ms"] == 2000
 
     def test_fallback_ratio_denominator_is_success_count(self, svc):
         """fallback_ratio uses success_count, not total_queries."""
@@ -188,6 +219,47 @@ class TestAggregation:
         assert stats["avg_rerank_score"] == 0
         assert stats["fallback_ratio"] == 0
 
+    def test_fallback_used_column_counts_toward_ratio(self, svc):
+        run(svc.save("s1", "q1", "hybrid", "", 5, 0.5, 0.6, fallback_used=True))
+
+        stats = run(svc.get_stats())
+
+        assert stats["fallback_count"] == 1
+        assert stats["fallback_ratio"] == 1.0
+
+    def test_get_stats_by_flavor(self, svc):
+        run(svc.save("s1", "q1", "hybrid", "", 10, 0.8, 0.9,
+                      total_ms=1000, retrieval_flavor="balanced"))
+        run(svc.save("s2", "q2", "hybrid", "", 8, 0.6, 0.7,
+                      total_ms=2000, retrieval_flavor="balanced"))
+        run(svc.save("s3", "q3", "hybrid", "", 20, 0.9, 0.95,
+                      total_ms=3000, retrieval_flavor="recall", fallback_used=True))
+        run(svc.save("s4", "q4", "", "", 0, 0.0, 0.0,
+                      status="search_failed", retrieval_flavor="exact"))
+
+        stats = run(svc.get_stats_by_flavor())
+
+        assert stats["balanced"]["count"] == 2
+        assert stats["balanced"]["success_rate"] == 1.0
+        assert stats["balanced"]["avg_rerank"] == 0.7
+        assert stats["balanced"]["avg_results"] == 9.0
+        assert stats["balanced"]["p95_ms"] == 2000
+        assert stats["recall"]["fallback_ratio"] == 1.0
+        assert stats["exact"]["success_rate"] == 0
+        assert stats["discovery"]["count"] == 0
+
+    def test_get_stats_by_strict(self, svc):
+        run(svc.save("s1", "q1", "hybrid", "", 10, 0.8, 0.9,
+                      total_ms=1000, strict_evidence=False))
+        run(svc.save("s2", "q2", "hybrid", "", 5, 0.6, 0.7,
+                      total_ms=3000, strict_evidence=True))
+
+        stats = run(svc.get_stats_by_strict())
+
+        assert stats["non_strict"]["count"] == 1
+        assert stats["strict"]["count"] == 1
+        assert stats["strict"]["p95_ms"] == 3000
+
 
 class TestRecords:
     def test_records_include_status(self, svc):
@@ -203,6 +275,17 @@ class TestRecords:
         assert records[0]["status"] == "search_failed"
         assert records[0]["error_code"] == "MILVUS_ERROR"
         assert records[1]["status"] == "success"
+
+    def test_records_filter_by_flavor(self, svc):
+        run(svc.save("s1", "q1", "hybrid", "", 10, 0.8, 0.95,
+                      retrieval_flavor="balanced"))
+        run(svc.save("s2", "q2", "hybrid", "", 10, 0.8, 0.95,
+                      retrieval_flavor="recall"))
+
+        result = run(svc.get_records(page=1, page_size=10, flavor="recall"))
+
+        assert result["total"] == 1
+        assert result["records"][0]["retrieval_flavor"] == "recall"
 
 
 class TestTrend:

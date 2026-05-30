@@ -91,7 +91,12 @@ CREATE TABLE IF NOT EXISTS query_run_stats (
     status           TEXT DEFAULT 'success',
     error_code       TEXT DEFAULT '',
     retrieved_chunks TEXT DEFAULT '[]',
+    citations        TEXT DEFAULT '[]',
+    retrieval_flavor TEXT DEFAULT 'balanced',
+    strict_evidence  INTEGER DEFAULT 0,
+    fallback_used    INTEGER DEFAULT 0,
     groundedness_score REAL DEFAULT NULL,
+    user_id          TEXT DEFAULT '',
     created_at       TEXT NOT NULL
 );
 
@@ -122,6 +127,8 @@ CREATE TABLE IF NOT EXISTS query_feedback (
     retrieved_chunks TEXT DEFAULT '[]',
     rating           TEXT NOT NULL,
     comment          TEXT DEFAULT '',
+    retrieval_flavor TEXT DEFAULT 'balanced',
+    strict_evidence  INTEGER DEFAULT 0,
     user_id          TEXT DEFAULT '',
     created_at       TEXT NOT NULL
 );
@@ -175,6 +182,17 @@ async def init_db():
             await db.execute("ALTER TABLE query_run_stats ADD COLUMN retrieved_chunks TEXT DEFAULT '[]'")
         except aiosqlite.OperationalError:
             pass
+        # migration: query_run_stats flavor-aware metrics
+        for col_ddl in (
+            "ALTER TABLE query_run_stats ADD COLUMN citations TEXT DEFAULT '[]'",
+            "ALTER TABLE query_run_stats ADD COLUMN retrieval_flavor TEXT DEFAULT 'balanced'",
+            "ALTER TABLE query_run_stats ADD COLUMN strict_evidence INTEGER DEFAULT 0",
+            "ALTER TABLE query_run_stats ADD COLUMN fallback_used INTEGER DEFAULT 0",
+        ):
+            try:
+                await db.execute(col_ddl)
+            except aiosqlite.OperationalError:
+                pass
         # migration: groundedness_score column on query_run_stats
         try:
             await db.execute("ALTER TABLE query_run_stats ADD COLUMN groundedness_score REAL DEFAULT NULL")
@@ -185,11 +203,28 @@ async def init_db():
             await db.execute("ALTER TABLE query_run_stats ADD COLUMN user_id TEXT DEFAULT ''")
         except aiosqlite.OperationalError:
             pass
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_qrunstats_flavor_created "
+            "ON query_run_stats(retrieval_flavor, created_at)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_qrunstats_user_flavor_created "
+            "ON query_run_stats(user_id, retrieval_flavor, created_at)"
+        )
         # migration: user_id column on query_chat_messages
         try:
             await db.execute("ALTER TABLE query_chat_messages ADD COLUMN user_id TEXT DEFAULT ''")
         except aiosqlite.OperationalError:
             pass
+        # migration: feedback query config
+        for col_ddl in (
+            "ALTER TABLE query_feedback ADD COLUMN retrieval_flavor TEXT DEFAULT 'balanced'",
+            "ALTER TABLE query_feedback ADD COLUMN strict_evidence INTEGER DEFAULT 0",
+        ):
+            try:
+                await db.execute(col_ddl)
+            except aiosqlite.OperationalError:
+                pass
         # Seed demo users (idempotent，admin token 同步 .env 配置)
         from app.config import settings as app_settings
         admin_token = app_settings.API_TOKEN or "enterprise-rag-dev-token"

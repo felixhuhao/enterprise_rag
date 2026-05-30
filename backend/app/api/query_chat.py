@@ -391,6 +391,7 @@ async def _stream_generator(session_id: str, query: str, query_config, allowed_i
         state["answer"] = answer
         state["context_map"] = state.get("context_map", {})
         cit_result = validate_citations_node(state)
+        state.update(cit_result)
         yield sse_event({"type": "citations", "citations": cit_result.get("citations", [])})
 
         # ── Phase 4: Groundedness check（仅 enabled 时发送 SSE 事件）──
@@ -443,6 +444,14 @@ async def _stream_generator(session_id: str, query: str, query_config, allowed_i
             rerank_top = _rd[0]["final_score"] if _rd else 0
             result_count = len(state.get("search_results", []))
             retrieved_chunks = _build_retrieved_chunks(state.get("search_results", []))
+            query_plan = state.get("query_plan", {}) or {}
+            fallback_info = state_fallback_info(state)
+            fallback_used_flag = (
+                bool(fallback_info.get("used"))
+                or "fallback" in state.get("search_mode", "")
+                or "fallback" in state.get("search_mode_hyde", "")
+                or any("fallback" in mode for mode in state.get("search_modes_expanded", []))
+            )
             save_task = asyncio.create_task(query_stats_service.save(
                 session_id, query,
                 state.get("search_mode", ""), state.get("search_mode_hyde", ""),
@@ -456,6 +465,10 @@ async def _stream_generator(session_id: str, query: str, query_config, allowed_i
                 retrieved_chunks=retrieved_chunks,
                 groundedness_score=gr_result.get("groundedness", {}).get("groundedness_score"),
                 user_id=user_id,
+                retrieval_flavor=query_plan.get("retrieval_flavor", "balanced"),
+                strict_evidence=bool(query_plan.get("strict_evidence", False)),
+                citations=cit_result.get("citations", []),
+                fallback_used=fallback_used_flag,
             ))
             await asyncio.shield(save_task)
         except asyncio.CancelledError:

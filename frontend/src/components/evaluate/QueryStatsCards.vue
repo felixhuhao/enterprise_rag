@@ -1,32 +1,132 @@
-<!--
-  检索统计卡片行
--->
 <template>
+  <div class="section-label">总体</div>
   <div class="stats-cards stagger">
     <div class="stat-card" v-for="item in cards" :key="item.label">
       <div class="stat-value">{{ formatValue(item) }}</div>
       <div class="stat-label">{{ item.label }}</div>
     </div>
   </div>
+
+  <section v-if="flavorRows.length || strictRows.length" class="metric-section">
+    <a-tabs default-active-key="flavor" size="small" animation>
+      <a-tab-pane key="flavor" title="按 Flavor">
+        <div class="metric-table">
+          <div class="metric-row metric-header">
+            <span>策略</span>
+            <span>查询数</span>
+            <span>成功率</span>
+            <span>平均结果</span>
+            <span>平均 Rerank</span>
+            <span>P95 延迟</span>
+            <span>Fallback</span>
+          </div>
+          <div class="metric-row" v-for="row in flavorRows" :key="row.key">
+            <strong>{{ row.label }}</strong>
+            <span>{{ row.stats.count }}</span>
+            <span>{{ formatPercent(row.stats.success_rate) }}</span>
+            <span>{{ formatNumber(row.stats.avg_results, 1) }}</span>
+            <span>{{ formatNumber(row.stats.avg_rerank, 3) }}</span>
+            <span>{{ formatMs(row.stats.p95_ms) }}</span>
+            <span>{{ formatPercent(row.stats.fallback_ratio) }}</span>
+          </div>
+        </div>
+      </a-tab-pane>
+      <a-tab-pane key="strict" title="Strict Evidence">
+        <div class="metric-table">
+          <div class="metric-row metric-header">
+            <span>证据策略</span>
+            <span>查询数</span>
+            <span>成功率</span>
+            <span>平均结果</span>
+            <span>平均 Rerank</span>
+            <span>P95 延迟</span>
+            <span>Fallback</span>
+          </div>
+          <div class="metric-row" v-for="row in strictRows" :key="row.key">
+            <strong>{{ row.label }}</strong>
+            <span>{{ row.stats.count }}</span>
+            <span>{{ formatPercent(row.stats.success_rate) }}</span>
+            <span>{{ formatNumber(row.stats.avg_results, 1) }}</span>
+            <span>{{ formatNumber(row.stats.avg_rerank, 3) }}</span>
+            <span>{{ formatMs(row.stats.p95_ms) }}</span>
+            <span>{{ formatPercent(row.stats.fallback_ratio) }}</span>
+          </div>
+        </div>
+      </a-tab-pane>
+    </a-tabs>
+  </section>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { QueryStats } from '../../api/queryStats'
+import type {
+  FlavorMetric,
+  QueryStats,
+  QueryStatsByFlavor,
+  QueryStatsByStrict,
+} from '../../api/queryStats'
 
-const props = defineProps<{ stats: QueryStats | null }>()
+const props = defineProps<{
+  stats: QueryStats | null
+  byFlavor?: QueryStatsByFlavor | null
+  byStrict?: QueryStatsByStrict | null
+}>()
+
+const flavorLabels: Record<string, string> = {
+  balanced: '标准问答',
+  exact: '精确查找',
+  recall: '全面查找',
+  discovery: '关联查找',
+}
+
+const strictLabels: Record<string, string> = {
+  non_strict: '非严格',
+  strict: '严格',
+}
+
+const emptyMetric: FlavorMetric = {
+  count: 0,
+  success_count: 0,
+  failed_count: 0,
+  success_rate: 0,
+  avg_rerank: 0,
+  avg_results: 0,
+  p95_ms: 0,
+  fallback_count: 0,
+  fallback_ratio: 0,
+}
 
 const cards = computed(() => {
   const s = props.stats
   if (!s) return []
   return [
     { label: '总查询数', value: s.total_queries, precision: 0 },
-    { label: '未完成率', value: formatPercent(s.failure_rate) },
-    { label: '平均 Rerank 分', value: s.avg_rerank_score, precision: 3 },
+    { label: '成功率', value: formatPercent(1 - s.failure_rate) },
     { label: '平均结果数', value: s.avg_result_count, precision: 1 },
-    { label: 'Fallback 次数', value: s.fallback_count, precision: 0 },
-    { label: 'Fallback 比例', value: s.fallback_ratio, precision: 3 },
+    { label: '平均 Rerank', value: s.avg_rerank_score, precision: 3 },
+    { label: 'P95 延迟', value: formatMs(s.p95_ms) },
+    { label: 'Fallback 比例', value: formatPercent(s.fallback_ratio) },
   ]
+})
+
+const flavorRows = computed<Array<{ key: string; label: string; stats: FlavorMetric }>>(() => {
+  const stats = props.byFlavor
+  if (!stats) return []
+  return (['balanced', 'exact', 'recall', 'discovery'] as const).map((key) => ({
+    key,
+    label: flavorLabels[key],
+    stats: stats[key] ?? emptyMetric,
+  }))
+})
+
+const strictRows = computed<Array<{ key: string; label: string; stats: FlavorMetric }>>(() => {
+  const stats = props.byStrict
+  if (!stats) return []
+  return (['non_strict', 'strict'] as const).map((key) => ({
+    key,
+    label: strictLabels[key],
+    stats: stats[key] ?? emptyMetric,
+  }))
 })
 
 function formatPercent(rate: number): string {
@@ -35,8 +135,17 @@ function formatPercent(rate: number): string {
 
 function formatValue(item: { value: number | string; precision?: number }) {
   if (typeof item.value === 'string') return item.value
-  const p = item.precision ?? 0
-  return p > 0 ? item.value.toFixed(p) : item.value
+  return formatNumber(item.value, item.precision ?? 0)
+}
+
+function formatNumber(value: number, precision: number) {
+  return precision > 0 ? value.toFixed(precision) : String(value)
+}
+
+function formatMs(ms: number): string {
+  if (!ms) return '0ms'
+  if (ms >= 1000) return (ms / 1000).toFixed(1) + 's'
+  return `${ms}ms`
 }
 </script>
 
@@ -45,7 +154,15 @@ function formatValue(item: { value: number | string; precision?: number }) {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
   gap: 12px;
-  margin-bottom: 24px;
+  margin-bottom: 14px;
+}
+
+.section-label {
+  margin: 0 0 8px;
+  color: var(--text-secondary);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .stat-card {
@@ -54,9 +171,10 @@ function formatValue(item: { value: number | string; precision?: number }) {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 14px 16px;
+  padding: 12px 14px;
   transition: border-color 0.15s var(--ease-out), background 0.15s var(--ease-out);
 }
+
 .stat-card:hover {
   border-color: var(--border-hover);
   background: #f8fafc;
@@ -64,7 +182,7 @@ function formatValue(item: { value: number | string; precision?: number }) {
 
 .stat-value {
   font-family: var(--font-display);
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 700;
   color: var(--text-primary);
   line-height: 1.2;
@@ -76,5 +194,64 @@ function formatValue(item: { value: number | string; precision?: number }) {
   font-weight: 600;
   color: var(--text-muted);
   margin-top: 6px;
+}
+
+.metric-section {
+  margin-bottom: 18px;
+}
+
+.metric-section :deep(.arco-tabs-content) {
+  padding-top: 8px;
+}
+
+.metric-table {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-surface);
+}
+
+.metric-row {
+  display: grid;
+  grid-template-columns: minmax(92px, 1.2fr) repeat(6, minmax(76px, 1fr));
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.metric-row:first-child {
+  border-top: 0;
+}
+
+.metric-row strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.metric-row span:not(:first-child) {
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-header {
+  min-height: 36px;
+  background: #f8fafc;
+  color: var(--text-muted);
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .metric-table {
+    overflow-x: auto;
+  }
+
+  .metric-row {
+    min-width: 720px;
+  }
 }
 </style>

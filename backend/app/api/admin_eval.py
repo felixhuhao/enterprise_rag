@@ -19,7 +19,8 @@ _backend = Path(__file__).resolve().parents[2]
 _data_dir = _backend / "data"
 if not _data_dir.is_dir():
     _data_dir = _backend.parent / "data"  # local dev fallback
-GOLDEN_SET_PATH = _data_dir / "enterprise_docs_v1.jsonl"
+CHALLENGE_GOLDEN_SET_PATH = _data_dir / "challenge_golden_set_v1.jsonl"
+LEGACY_GOLDEN_SET_PATH = _data_dir / "enterprise_docs_v1.jsonl"
 RESULT_DIR = _data_dir / "eval_results"
 
 _lock = threading.Lock()
@@ -76,10 +77,13 @@ def _runner(token: str, judge: bool):
         sys.path.insert(0, str(_backend))
         from scripts.eval_golden_set import load_golden_set, run_eval, run_judge, build_summary
 
-        if not GOLDEN_SET_PATH.exists():
-            raise FileNotFoundError(f"Golden set not found: {GOLDEN_SET_PATH}")
+        golden_set_path = CHALLENGE_GOLDEN_SET_PATH
+        if not golden_set_path.exists():
+            golden_set_path = LEGACY_GOLDEN_SET_PATH
+        if not golden_set_path.exists():
+            raise FileNotFoundError(f"Golden set not found: {golden_set_path}")
 
-        golden = load_golden_set(str(GOLDEN_SET_PATH))
+        golden = load_golden_set(str(golden_set_path))
         if not golden:
             raise ValueError("Golden set is empty")
 

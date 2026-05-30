@@ -93,6 +93,8 @@ function feedbackPayload(msg: QueryChatMessage, index: number): FeedbackPayload 
     answer: msg.content,
     citations: msg.citations ?? [],
     retrieved_chunks: [],  // TODO: push retrieved chunks from SSE into chat store
+    retrieval_flavor: msg.retrievalInfo?.retrieval_flavor ?? 'balanced',
+    strict_evidence: msg.retrievalInfo?.strict_evidence ?? false,
     rating: '',
     comment: '',
   }

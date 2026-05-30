@@ -17,12 +17,18 @@
       </a-select>
     </div>
     <a-spin :loading="queryStatsStore.loading" style="width: 100%">
-      <QueryStatsCards :stats="queryStatsStore.stats" />
+      <QueryStatsCards
+        :stats="queryStatsStore.stats"
+        :by-flavor="queryStatsStore.statsByFlavor"
+        :by-strict="queryStatsStore.statsByStrict"
+      />
       <QueryStatsRecords
         :records="queryStatsStore.records"
         :total="queryStatsStore.recordsTotal"
         :current-page="currentPage"
+        :flavor-filter="flavorFilter"
         @page-change="onPageChange"
+        @flavor-change="onFlavorChange"
       />
     </a-spin>
   </div>
@@ -39,19 +45,29 @@ const queryStatsStore = useQueryStatsStore()
 const authStore = useAuthStore()
 const currentPage = ref(1)
 const filterUserId = ref('')
+const flavorFilter = ref('')
 
 onMounted(() => {
-  queryStatsStore.fetchAll()
+  queryStatsStore.fetchAll(filterUserId.value)
 })
 
 async function onFilterChange() {
   currentPage.value = 1
-  await queryStatsStore.fetchRecords(1, filterUserId.value)
+  await queryStatsStore.fetchAll(filterUserId.value)
+  if (flavorFilter.value) {
+    await queryStatsStore.fetchRecords(1, filterUserId.value, flavorFilter.value)
+  }
 }
 
 async function onPageChange(page: number) {
   currentPage.value = page
-  await queryStatsStore.fetchRecords(page, filterUserId.value)
+  await queryStatsStore.fetchRecords(page, filterUserId.value, flavorFilter.value)
+}
+
+async function onFlavorChange(flavor: string) {
+  flavorFilter.value = flavor
+  currentPage.value = 1
+  await queryStatsStore.fetchRecords(1, filterUserId.value, flavorFilter.value)
 }
 </script>
 

@@ -1,5 +1,14 @@
 import apiClient from './client'
 
+export interface EvalBreakdownMetric {
+  count: number
+  avg_score: number
+  pass_rate: number
+  hit_eval_count?: number
+  hit_at_5_rate?: number | null
+  hit_at_10_rate?: number | null
+}
+
 export interface EvalSummary {
   overall: {
     count: number
@@ -7,6 +16,8 @@ export interface EvalSummary {
     pass_rate: number
   }
   per_breakdown?: Record<string, unknown>
+  per_flavor?: Record<string, EvalBreakdownMetric>
+  per_strict?: EvalBreakdownMetric
   low_score_cases?: Array<{ id: string; final_score: number; question: string }>
 }
 

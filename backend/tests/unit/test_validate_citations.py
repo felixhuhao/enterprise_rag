@@ -64,6 +64,25 @@ class TestValidateCitations:
         assert c["source_type"] == "table_full"
         assert c["table_id"] == "doc-001_t_0001"
 
+    def test_extracts_full_width_citation_brackets(self):
+        state = {
+            "answer": "Answer uses full-width brackets 【C1】.",
+            "context_map": {"C1": {"document_id": "d1", "file_title": "doc.pdf"}},
+        }
+        result = validate_citations_node(state)
+        assert [c["id"] for c in result["citations"]] == ["C1"]
+
+    def test_extracts_spaced_and_lowercase_citations(self):
+        state = {
+            "answer": "Answer cites [ C2 ] and (c1).",
+            "context_map": {
+                "C1": {"document_id": "d1", "file_title": "doc1.pdf"},
+                "C2": {"document_id": "d2", "file_title": "doc2.pdf"},
+            },
+        }
+        result = validate_citations_node(state)
+        assert [c["id"] for c in result["citations"]] == ["C1", "C2"]
+
     def test_citation_preserves_chunk_id_and_page(self):
         state = {
             "answer": "参考 [C1]。",

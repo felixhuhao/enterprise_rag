@@ -28,6 +28,8 @@ class FeedbackRequest(BaseModel):
     answer: str = ""
     citations: list[dict] = []
     retrieved_chunks: list[dict] = []
+    retrieval_flavor: str = "balanced"
+    strict_evidence: bool = False
     rating: str  # "up" | "down"
     comment: str = ""
 
@@ -46,13 +48,14 @@ async def submit_feedback(
         await db.execute(
             "INSERT INTO query_feedback "
             "(session_id, message_id, query, answer, citations, retrieved_chunks, "
-            "rating, comment, user_id, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "rating, comment, retrieval_flavor, strict_evidence, user_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 body.session_id, body.message_id, body.query, body.answer,
                 json.dumps(body.citations, ensure_ascii=False),
                 json.dumps(body.retrieved_chunks, ensure_ascii=False),
                 body.rating, body.comment[:500],
+                _normalize_flavor(body.retrieval_flavor), 1 if body.strict_evidence else 0,
                 current_user.user_id, now,
             ),
         )
@@ -98,19 +101,21 @@ async def promote_feedback_to_golden_draft(
 
     record = dict(row)
 
-    # 补 retrieved_chunks：优先从 feedback 记录，空则回查 query_run_stats
+    # Backfill chunks and actual query config from online stats when available.
     retrieved_chunks = record.get("retrieved_chunks", "[]")
-    if retrieved_chunks == "[]" or not retrieved_chunks:
-        async with get_db() as db:
-            async with db.execute(
-                "SELECT retrieved_chunks FROM query_run_stats "
-                "WHERE session_id = ? AND query = ? AND retrieved_chunks != '[]' "
-                "ORDER BY created_at DESC LIMIT 1",
-                (record.get("session_id", ""), record.get("query", "")),
-            ) as cursor:
-                qr = await cursor.fetchone()
-            if qr:
+    async with get_db() as db:
+        async with db.execute(
+            "SELECT retrieved_chunks, retrieval_flavor, strict_evidence FROM query_run_stats "
+            "WHERE session_id = ? AND query = ? "
+            "ORDER BY created_at DESC LIMIT 1",
+            (record.get("session_id", ""), record.get("query", "")),
+        ) as cursor:
+            qr = await cursor.fetchone()
+        if qr:
+            if retrieved_chunks == "[]" or not retrieved_chunks:
                 record["retrieved_chunks"] = qr["retrieved_chunks"]
+            record["retrieval_flavor"] = qr["retrieval_flavor"]
+            record["strict_evidence"] = qr["strict_evidence"]
 
     existing = _find_existing_draft(feedback_id)
     if existing:
@@ -153,12 +158,16 @@ def _find_existing_draft(feedback_id: int) -> dict | None:
 
 def _build_golden_draft(record: dict) -> dict:
     created_at = datetime.now(timezone.utc).isoformat()
+    retrieval_flavor = _normalize_flavor(record.get("retrieval_flavor", "balanced"))
+    strict_evidence = _boolish(record.get("strict_evidence", False))
     return {
         "id": f"fb_{record['id']}",
         "question": record.get("query", ""),
         "eval_type": "llm_judge",
         "level": "review",
         "question_type": "feedback",
+        "preferred_flavor": retrieval_flavor,
+        "strict_evidence": strict_evidence,
         "expected_answer": "",
         "expected_points": [],
         "expected_documents": [],
@@ -170,6 +179,10 @@ def _build_golden_draft(record: dict) -> dict:
         "bad_answer": record.get("answer", ""),
         "bad_citations": _json_or_empty_list(record.get("citations", "[]")),
         "retrieved_chunks": _json_or_empty_list(record.get("retrieved_chunks", "[]")),
+        "source_config": {
+            "retrieval_flavor": retrieval_flavor,
+            "strict_evidence": strict_evidence,
+        },
         "user_id": record.get("user_id", ""),
         "status": "draft",
         "created_at": created_at,
@@ -183,3 +196,13 @@ def _json_or_empty_list(value: str) -> list:
         return parsed if isinstance(parsed, list) else []
     except json.JSONDecodeError:
         return []
+
+
+def _normalize_flavor(value: str) -> str:
+    return value if value in {"balanced", "exact", "recall", "discovery"} else "balanced"
+
+
+def _boolish(value) -> bool:
+    if isinstance(value, str):
+        return value.lower() in {"1", "true", "yes", "on"}
+    return bool(value)

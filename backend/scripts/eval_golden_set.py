@@ -35,7 +35,13 @@ import requests
 # ---------------------------------------------------------------------------
 
 
-def query_rag(api_base: str, question: str, token: str, session_id: str = "") -> dict:
+def query_rag(
+    api_base: str,
+    question: str,
+    token: str,
+    session_id: str = "",
+    config: dict | None = None,
+) -> dict:
     """POST /query/chat/stream，消费 SSE，返回聚合结果。"""
     url = f"{api_base}/query/chat/stream"
     headers = {
@@ -44,6 +50,8 @@ def query_rag(api_base: str, question: str, token: str, session_id: str = "") ->
         "Content-Type": "application/json",
     }
     body = {"query": question, "session_id": session_id}
+    if config:
+        body["config"] = config
 
     result = {
         "answer": "",
@@ -52,6 +60,8 @@ def query_rag(api_base: str, question: str, token: str, session_id: str = "") ->
         "retrieval_step": {},
         "rerank_results": [],
         "search_mode": "",
+        "retrieval_flavor": "",
+        "strict_evidence": False,
         "error": None,
     }
 
@@ -93,8 +103,12 @@ def query_rag(api_base: str, question: str, token: str, session_id: str = "") ->
                         "rewritten_query": event.get("rewritten_query"),
                         "search_mode": event.get("search_mode"),
                         "search_mode_hyde": event.get("search_mode_hyde"),
+                        "retrieval_flavor": event.get("retrieval_flavor"),
+                        "strict_evidence": event.get("strict_evidence"),
                     }
                     result["search_mode"] = event.get("search_mode", "")
+                    result["retrieval_flavor"] = event.get("retrieval_flavor", "")
+                    result["strict_evidence"] = bool(event.get("strict_evidence", False))
                 elif evt_type == "rerank":
                     result["rerank_results"] = event.get("results", [])
                 elif evt_type == "error":
@@ -645,6 +659,21 @@ def _get_eval_type(item: dict) -> str:
     return "rule"
 
 
+def _case_query_config(item: dict) -> dict:
+    """Build the query config that should be used for one golden-set case."""
+    source_config = item.get("source_config") if isinstance(item.get("source_config"), dict) else {}
+    flavor = (
+        item.get("preferred_flavor")
+        or source_config.get("retrieval_flavor")
+        or item.get("retrieval_flavor")
+        or "balanced"
+    )
+    return {
+        "retrieval_flavor": _normalize_flavor(flavor),
+        "strict_evidence": _boolish(item.get("strict_evidence", source_config.get("strict_evidence", False))),
+    }
+
+
 def load_golden_set(path: str) -> list[dict]:
     items = []
     with open(path, "r", encoding="utf-8") as f:
@@ -662,10 +691,11 @@ def run_eval(golden_set: list[dict], api_base: str, token: str, delay: float = 1
         qid = item["id"]
         question = item["question"]
         eval_type = _get_eval_type(item)
+        query_config = _case_query_config(item)
 
         print(f"[{i+1}/{len(golden_set)}] {qid} ({eval_type}) {question[:60]}...")
 
-        rag = query_rag(api_base, question, token, session_id="eval_session")
+        rag = query_rag(api_base, question, token, session_id="eval_session", config=query_config)
 
         row = {
             "id": qid,
@@ -680,8 +710,11 @@ def run_eval(golden_set: list[dict], api_base: str, token: str, delay: float = 1
             "search_mode": rag["search_mode"],
             "error": rag["error"],
             # New fields passthrough
-            "preferred_flavor": item.get("preferred_flavor"),
-            "strict_evidence": item.get("strict_evidence", False),
+            "preferred_flavor": query_config["retrieval_flavor"],
+            "strict_evidence": query_config["strict_evidence"],
+            "requested_config": query_config,
+            "actual_retrieval_flavor": rag.get("retrieval_flavor") or None,
+            "actual_strict_evidence": rag.get("strict_evidence"),
             "tags": item.get("tags", []),
             "should_answer": item.get("should_answer", True),
         }
@@ -784,7 +817,7 @@ def build_summary(results: list[dict]) -> dict:
     # Per-flavor breakdown
     per_flavor = {}
     for flavor in ["balanced", "exact", "recall", "discovery"]:
-        fr = [r for r in scored if r.get("preferred_flavor") == flavor]
+        fr = [r for r in scored if _actual_or_requested_flavor(r) == flavor]
         if not fr:
             continue
         fs = [r["final_score"] for r in fr]
@@ -817,7 +850,7 @@ def build_summary(results: list[dict]) -> dict:
         }
 
     # Strict evidence slice
-    strict_r = [r for r in scored if r.get("strict_evidence")]
+    strict_r = [r for r in scored if _actual_or_requested_strict(r)]
     per_strict = {}
     if strict_r:
         ss = [r["final_score"] for r in strict_r]
@@ -918,6 +951,26 @@ def print_summary(results: list[dict]):
 
 def _fmt_rate(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.1%}"
+
+
+def _actual_or_requested_flavor(row: dict) -> str:
+    return row.get("actual_retrieval_flavor") or row.get("preferred_flavor") or "balanced"
+
+
+def _actual_or_requested_strict(row: dict) -> bool:
+    if row.get("actual_strict_evidence") is not None:
+        return _boolish(row.get("actual_strict_evidence"))
+    return _boolish(row.get("strict_evidence", False))
+
+
+def _normalize_flavor(value: str) -> str:
+    return value if value in {"balanced", "exact", "recall", "discovery"} else "balanced"
+
+
+def _boolish(value) -> bool:
+    if isinstance(value, str):
+        return value.lower() in {"1", "true", "yes", "on"}
+    return bool(value)
 
 
 # ---------------------------------------------------------------------------
