@@ -77,24 +77,25 @@
             />
           </div>
 
-          <a-table
-            :data="filteredChunks"
-            :pagination="{ pageSize: PAGE_SIZE, current: currentPage }"
-            :bordered="false"
-            row-key="chunk_key"
-            :row-class="rowClass"
-            @page-change="onPageChange"
-            class="chunk-table"
-            size="small"
-            column-resizable
-            @column-resize="chunkColumns.onColumnResize"
-          >
-            <template #columns>
-              <a-table-column title="#" data-index="sequence" :width="chunkColumns.columnWidth('sequence')" align="center" :body-cell-class="bodyCellClass">
-                <template #cell="{ record }">
-                  {{ record.sequence }}
-                </template>
-              </a-table-column>
+          <div :ref="setChunkTableContainer" class="chunk-table-wrap">
+            <a-table
+              :data="filteredChunks"
+              :pagination="{ pageSize: PAGE_SIZE, current: currentPage }"
+              :bordered="false"
+              row-key="chunk_key"
+              :row-class="rowClass"
+              @page-change="onPageChange"
+              class="chunk-table"
+              size="small"
+              column-resizable
+              @column-resize="chunkColumns.onColumnResize"
+            >
+              <template #columns>
+                <a-table-column title="#" data-index="sequence" :width="chunkColumns.columnWidth('sequence')" align="center" :body-cell-class="bodyCellClass">
+                  <template #cell="{ record }">
+                    {{ record.sequence }}
+                  </template>
+                </a-table-column>
 
               <a-table-column title="章节" data-index="section_title" :width="chunkColumns.columnWidth('section_title')" :body-cell-class="bodyCellClass">
                 <template #cell="{ record }">
@@ -143,8 +144,9 @@
                   <span v-else>—</span>
                 </template>
               </a-table-column>
-            </template>
-          </a-table>
+              </template>
+            </a-table>
+          </div>
         </section>
 
         <!-- 相关文档 -->
@@ -169,7 +171,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { IconFile, IconLeft } from '@arco-design/web-vue/es/icon'
@@ -178,7 +180,7 @@ import type { Document, DocumentChunk, DocumentChunksSource } from '../../api/do
 import { getDocumentChunks, getRelatedDocuments } from '../../api/documents'
 import { ERROR_HINTS } from '../../utils/errorHints'
 import { sourceTypeLabel } from '../../utils/labelMaps'
-import { useResizableColumns } from '../../composables/useResizableColumns'
+import { useAutoFitColumns } from '../../composables/useAutoFitColumns'
 
 const route = useRoute()
 const router = useRouter()
@@ -195,15 +197,19 @@ const highlightChunkId = ref<string | null>(null)
 const highlightChunkKey = ref<string | null>(null)
 const related = ref<Document[]>([])
 const relatedEntity = ref('')
-const chunkColumns = useResizableColumns('enterprise-rag:document-chunks:v2', {
-  sequence: 56,
-  section_title: 260,
-  page: 86,
-  source_type: 92,
-  content_length: 86,
-  content: undefined,
-  image_paths: 64,
-})
+const chunkColumns = useAutoFitColumns('enterprise-rag:document-chunks:auto-v1', {
+  sequence: { width: 56, minWidth: 44, maxWidth: 70 },
+  section_title: { width: 220, minWidth: 140, maxWidth: 320 },
+  page: { width: 86, minWidth: 70, maxWidth: 100 },
+  source_type: { width: 92, minWidth: 76, maxWidth: 120 },
+  content_length: { width: 86, minWidth: 70, maxWidth: 100 },
+  content: { width: 520, minWidth: 260, flex: true },
+  image_paths: { width: 64, minWidth: 52, maxWidth: 78 },
+}, { minWidth: 44 })
+
+function setChunkTableContainer(element: Element | ComponentPublicInstance | null) {
+  chunkColumns.containerRef.value = element instanceof HTMLElement ? element : null
+}
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
   uploaded: { label: '已上传', color: 'arcoblue' },
@@ -560,6 +566,11 @@ onMounted(loadDetail)
 .chunk-search {
   width: 260px;
   max-width: 100%;
+}
+
+.chunk-table-wrap {
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 .section-cell {

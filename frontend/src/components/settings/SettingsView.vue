@@ -242,13 +242,13 @@ const strategyProfiles: Array<{ key: FlavorKey; label: string; description: stri
   {
     key: 'balanced',
     label: '标准问答',
-    description: '默认问答路径，使用主检索 + HyDE + RRF + 重排，适合大多数问题。',
+    description: '默认问答路径，使用主检索 + 语义扩展 + RRF + 重排，适合大多数问题。',
     reason: 'balanced_current_defaults',
   },
   {
     key: 'exact',
     label: '精确查找',
-    description: '固定小预算，关闭 HyDE、扩展查询和回退，优先减少误召回。',
+    description: '固定小预算，关闭语义扩展、扩展查询和回退，优先减少误召回。',
     reason: 'exact_precision',
   },
   {
@@ -267,7 +267,7 @@ const strategyProfiles: Array<{ key: FlavorKey; label: string; description: stri
 
 const budgetControls: BudgetControl[] = [
   { key: 'searchLimit', label: '主检索候选', min: 1, max: 50, flavors: ['balanced', 'discovery'] },
-  { key: 'hydeLimit', label: 'HyDE 候选', min: 1, max: 50, flavors: ['balanced'] },
+  { key: 'hydeLimit', label: '语义扩展候选', min: 1, max: 50, flavors: ['balanced'] },
   { key: 'rrfMaxResults', label: '融合结果上限', min: 1, max: 50, flavors: ['balanced', 'discovery'] },
   { key: 'rerankMaxTopK', label: '重排/最终上下文上限', min: 1, max: 30, flavors: ['balanced', 'discovery'] },
   { key: 'queryExpansionCount', label: '扩展查询数量', min: 2, max: 4, flavors: ['recall'] },
@@ -458,7 +458,7 @@ function budgetRows(
 ) {
   return [
     { label: '主检索', value: String(budget.search), note },
-    { label: 'HyDE', value: String(budget.hyde), note: budget.hyde ? note : '不使用' },
+    { label: '语义扩展', value: String(budget.hyde), note: budget.hyde ? note : '不使用' },
     { label: '融合', value: String(budget.rrf), note },
     { label: '重排候选', value: String(budget.candidates), note },
     { label: '最终上下文', value: String(budget.final), note },
@@ -484,7 +484,7 @@ function buildCapabilities(flavor: FlavorKey): CapabilityStatus[] {
   if (flavor === 'recall') {
     return [
       ...common,
-      { key: 'expansion', label: '换几种说法查找', enabled: Boolean(form.useQueryExpansion) },
+      { key: 'expansion', label: '扩展查询', enabled: Boolean(form.useQueryExpansion) },
       ...finishing,
     ]
   }
@@ -497,7 +497,7 @@ function buildCapabilities(flavor: FlavorKey): CapabilityStatus[] {
   }
   return [
     ...common,
-    { key: 'hyde', label: '假设文档', enabled: Boolean(form.useHyde) },
+    { key: 'hyde', label: '语义扩展', enabled: Boolean(form.useHyde) },
     ...finishing,
   ]
 }

@@ -1,5 +1,5 @@
 <template>
-  <div class="records-card">
+  <div :ref="setRecordsTableContainer" class="records-card">
     <div class="records-head">
       <div class="records-title">检索记录</div>
       <div class="records-actions">
@@ -104,85 +104,88 @@
         <span>策略：{{ flavorLabel(drawerRecord.retrieval_flavor) }}</span>
         <span>仅基于资料回答：{{ drawerRecord.strict_evidence ? '是' : '否' }}</span>
         <span>主检索：{{ searchModeLabel(drawerRecord.search_mode) }}</span>
-        <span>假设文档：{{ searchModeLabel(drawerRecord.search_mode_hyde) }}</span>
+        <span>语义扩展：{{ searchModeLabel(drawerRecord.search_mode_hyde) }}</span>
       </div>
       <div v-if="drawerError" class="drawer-error">{{ drawerError }}</div>
       <div v-else-if="!drawerChunks.length" class="drawer-empty">暂无命中记录</div>
-      <a-table
-        v-else
-        :data="drawerChunks"
-        :pagination="{ pageSize: 20, size: 'small' }"
-        row-key="rank"
-        size="small"
-      >
-        <template #columns>
-          <a-table-column title="#" data-index="rank" :width="50" />
-          <a-table-column title="命中信息" :width="232">
-            <template #cell="{ record }">
-              <div class="hit-summary">
-                <div class="hit-title" :title="displayFileTitle(record)">
-                  {{ displayFileTitle(record) }}
+      <div v-else :ref="setDrawerTableContainer" class="drawer-table-wrap">
+        <a-table
+          :data="drawerChunks"
+          :pagination="{ pageSize: 20, size: 'small' }"
+          row-key="rank"
+          size="small"
+          column-resizable
+          @column-resize="drawerColumns.onColumnResize"
+        >
+          <template #columns>
+            <a-table-column title="#" data-index="rank" :width="drawerColumns.columnWidth('rank')" />
+            <a-table-column title="命中信息" data-index="hit" :width="drawerColumns.columnWidth('hit')">
+              <template #cell="{ record }">
+                <div class="hit-summary">
+                  <div class="hit-title" :title="displayFileTitle(record)">
+                    {{ displayFileTitle(record) }}
+                  </div>
+                  <div class="hit-meta">
+                    <span class="meta-pill" :title="formatLocation(record)">
+                      {{ formatLocation(record) }}
+                    </span>
+                    <span v-if="record.entity_name" class="meta-pill" :title="record.entity_name">
+                      实体：{{ record.entity_name }}
+                    </span>
+                  </div>
                 </div>
-                <div class="hit-meta">
-                  <span class="meta-pill" :title="formatLocation(record)">
-                    {{ formatLocation(record) }}
-                  </span>
-                  <span v-if="record.entity_name" class="meta-pill" :title="record.entity_name">
-                    实体：{{ record.entity_name }}
-                  </span>
+              </template>
+            </a-table-column>
+            <a-table-column title="召回路径" data-index="path" :width="drawerColumns.columnWidth('path')">
+              <template #cell="{ record }">
+                <span class="path-cell" :title="formatPath(record)">{{ formatPath(record) }}</span>
+              </template>
+            </a-table-column>
+            <a-table-column title="分数" data-index="score" :width="drawerColumns.columnWidth('score')">
+              <template #cell="{ record }">
+                <span class="score-cell">{{ formatScore(record.score) }}</span>
+              </template>
+            </a-table-column>
+            <a-table-column title="内容预览" data-index="preview" :width="drawerColumns.columnWidth('preview')">
+              <template #cell="{ record }">
+                <div class="preview-cell" :class="{ muted: !record.content_preview }">
+                  <div class="preview-text">{{ record.content_preview || '旧记录无预览' }}</div>
+                  <details v-if="hasTechnicalFields(record)" class="tech-details">
+                    <summary>技术字段</summary>
+                    <dl class="tech-grid">
+                      <template v-for="field in technicalFields(record)" :key="field.label">
+                        <dt>{{ field.label }}</dt>
+                        <dd :title="field.value">{{ field.value }}</dd>
+                      </template>
+                    </dl>
+                  </details>
                 </div>
-              </div>
-            </template>
-          </a-table-column>
-          <a-table-column title="召回路径" :width="90">
-            <template #cell="{ record }">
-              <span class="path-cell" :title="formatPath(record)">{{ formatPath(record) }}</span>
-            </template>
-          </a-table-column>
-          <a-table-column title="分数" :width="82">
-            <template #cell="{ record }">
-              <span class="score-cell">{{ formatScore(record.score) }}</span>
-            </template>
-          </a-table-column>
-          <a-table-column title="内容预览" :width="430">
-            <template #cell="{ record }">
-              <div class="preview-cell" :class="{ muted: !record.content_preview }">
-                <div class="preview-text">{{ record.content_preview || '旧记录无预览' }}</div>
-                <details v-if="hasTechnicalFields(record)" class="tech-details">
-                  <summary>技术字段</summary>
-                  <dl class="tech-grid">
-                    <template v-for="field in technicalFields(record)" :key="field.label">
-                      <dt>{{ field.label }}</dt>
-                      <dd :title="field.value">{{ field.value }}</dd>
-                    </template>
-                  </dl>
-                </details>
-              </div>
-            </template>
-          </a-table-column>
-          <a-table-column title="定位" :width="68" align="center">
-            <template #cell="{ record }">
-              <button
-                class="jump-btn"
-                :disabled="!record.document_id"
-                :title="!record.document_id ? '缺少文档信息' : '打开文档并定位到命中 chunk'"
-                @click="openDocument(record)"
-              >
-                定位
-              </button>
-            </template>
-          </a-table-column>
-        </template>
-      </a-table>
+              </template>
+            </a-table-column>
+            <a-table-column title="定位" data-index="jump" :width="drawerColumns.columnWidth('jump')" align="center">
+              <template #cell="{ record }">
+                <button
+                  class="jump-btn"
+                  :disabled="!record.document_id"
+                  :title="!record.document_id ? '缺少文档信息' : '打开文档并定位到命中 chunk'"
+                  @click="openDocument(record)"
+                >
+                  定位
+                </button>
+              </template>
+            </a-table-column>
+          </template>
+        </a-table>
+      </div>
     </a-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, type ComponentPublicInstance } from 'vue'
 import { useRouter } from 'vue-router'
 import type { QueryStatsRecord, RetrievedChunkItem } from '../../api/queryStats'
-import { useResizableColumns } from '../../composables/useResizableColumns'
+import { useAutoFitColumns } from '../../composables/useAutoFitColumns'
 import { FLAVOR_OPTIONS, flavorLabel, retrievalPathLabel, searchModeLabel } from '../../utils/labelMaps'
 
 defineProps<{
@@ -202,17 +205,33 @@ const drawerOpen = ref(false)
 const drawerRecord = ref<QueryStatsRecord | null>(null)
 const drawerChunks = ref<RetrievedChunkItem[]>([])
 const drawerError = ref('')
-const recordColumns = useResizableColumns('enterprise-rag:query-stats-records:v1', {
-  created_at: 172,
-  query: 276,
-  status: 74,
-  retrieval_flavor: 86,
-  strict_evidence: 88,
-  result_count: 68,
-  rerank_avg_score: 108,
-  total_ms: 68,
-  hits: 80,
-})
+const recordColumns = useAutoFitColumns('enterprise-rag:query-stats-records:auto-v1', {
+  created_at: { width: 172, minWidth: 138, maxWidth: 190 },
+  query: { width: 280, minWidth: 180, flex: true },
+  status: { width: 74, minWidth: 64, maxWidth: 92 },
+  retrieval_flavor: { width: 86, minWidth: 70, maxWidth: 100 },
+  strict_evidence: { width: 88, minWidth: 74, maxWidth: 100 },
+  result_count: { width: 68, minWidth: 58, maxWidth: 78 },
+  rerank_avg_score: { width: 108, minWidth: 84, maxWidth: 120 },
+  total_ms: { width: 68, minWidth: 58, maxWidth: 86 },
+  hits: { width: 80, minWidth: 62, maxWidth: 92 },
+}, { minWidth: 52 })
+const drawerColumns = useAutoFitColumns('enterprise-rag:query-stats-drawer:auto-v1', {
+  rank: { width: 50, minWidth: 44, maxWidth: 60 },
+  hit: { width: 232, minWidth: 160, maxWidth: 300 },
+  path: { width: 90, minWidth: 72, maxWidth: 130 },
+  score: { width: 82, minWidth: 70, maxWidth: 96 },
+  preview: { width: 430, minWidth: 260, flex: true },
+  jump: { width: 68, minWidth: 60, maxWidth: 86 },
+}, { minWidth: 44 })
+
+function setRecordsTableContainer(element: Element | ComponentPublicInstance | null) {
+  recordColumns.containerRef.value = element instanceof HTMLElement ? element : null
+}
+
+function setDrawerTableContainer(element: Element | ComponentPublicInstance | null) {
+  drawerColumns.containerRef.value = element instanceof HTMLElement ? element : null
+}
 
 function onPageChange(page: number) {
   emit('page-change', page)
@@ -499,6 +518,11 @@ function statusClass(status: string): string {
   background: var(--bg-hover);
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.drawer-table-wrap {
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 .hit-summary {

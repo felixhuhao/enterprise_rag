@@ -82,9 +82,9 @@ const props = defineProps<{
 
 const listRef = ref<HTMLElement | null>(null)
 const sampleQuestions = [
-  '对比不同报告对中芯国际的观点',
-  '哪些报告提到了产能利用率？',
-  '2025Q1 营收变化的主要原因是什么？',
+  '差旅报销需要哪些审批材料？',
+  '员工需要遵守哪些信息安全要求？',
+  '哪些公司提到了年度培训计划？',
 ]
 
 /** Markdown 渲染 */

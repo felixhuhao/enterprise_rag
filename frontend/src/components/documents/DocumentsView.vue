@@ -62,26 +62,27 @@
       </div>
 
       <!-- 文档列表 -->
-      <a-table
-        :data="filteredDocs"
-        :loading="loading"
-        :pagination="{ pageSize: 20 }"
-        :bordered="false"
-        row-key="document_id"
-        size="small"
-        class="doc-table"
-        column-resizable
-        @column-resize="documentColumns.onColumnResize"
-      >
-        <template #columns>
-          <a-table-column title="文件名" data-index="filename" :width="documentColumns.columnWidth('filename')">
-            <template #cell="{ record }">
-              <button class="doc-name doc-link" type="button" @click="openDocument(record.document_id)">
-                <icon-file class="doc-icon" :style="{ color: record.file_type === 'pdf' ? 'var(--error)' : 'var(--accent)' }" />
-                <span class="doc-filename" :title="record.filename">{{ record.filename }}</span>
-              </button>
-            </template>
-          </a-table-column>
+      <div :ref="setDocumentTableContainer" class="doc-table-wrap">
+        <a-table
+          :data="filteredDocs"
+          :loading="loading"
+          :pagination="{ pageSize: 20 }"
+          :bordered="false"
+          row-key="document_id"
+          size="small"
+          class="doc-table"
+          column-resizable
+          @column-resize="documentColumns.onColumnResize"
+        >
+          <template #columns>
+            <a-table-column title="文件名" data-index="filename" :width="documentColumns.columnWidth('filename')">
+              <template #cell="{ record }">
+                <button class="doc-name doc-link" type="button" @click="openDocument(record.document_id)">
+                  <icon-file class="doc-icon" :style="{ color: record.file_type === 'pdf' ? 'var(--error)' : 'var(--accent)' }" />
+                  <span class="doc-filename" :title="record.filename">{{ record.filename }}</span>
+                </button>
+              </template>
+            </a-table-column>
 
           <a-table-column title="状态" data-index="status" :width="documentColumns.columnWidth('status')" align="center">
             <template #cell="{ record }">
@@ -156,8 +157,9 @@
               </a-space>
             </template>
           </a-table-column>
-        </template>
-      </a-table>
+          </template>
+        </a-table>
+      </div>
 
       <!-- 错误信息展示 -->
       <a-collapse v-if="failedDocs.length" :default-active-key="[]" class="error-collapse">
@@ -178,7 +180,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   IconUpload,
@@ -187,7 +189,7 @@ import {
 import { Message } from '@arco-design/web-vue'
 import type { FileItem } from '@arco-design/web-vue'
 import type { Document } from '../../api/documents'
-import { useResizableColumns } from '../../composables/useResizableColumns'
+import { useAutoFitColumns } from '../../composables/useAutoFitColumns'
 import { ERROR_HINTS } from '../../utils/errorHints'
 import {
   listDocuments,
@@ -210,15 +212,19 @@ const pendingEntityName = ref('')
 const pollingIds = ref<Map<string, number>>(new Map())
 const uploadRef = ref<any>(null)
 const statusFilter = ref('all')
-const documentColumns = useResizableColumns('enterprise-rag:documents:v6', {
-  filename: undefined,
-  status: 80,
-  entity_name: 90,
-  chunk_count: 65,
-  image_count: 60,
-  created_at: 180,
-  actions: 140,
-})
+const documentColumns = useAutoFitColumns('enterprise-rag:documents:auto-v1', {
+  filename: { width: 420, minWidth: 220, flex: true },
+  status: { width: 80, minWidth: 70, maxWidth: 96 },
+  entity_name: { width: 90, minWidth: 76, maxWidth: 140 },
+  chunk_count: { width: 65, minWidth: 58, maxWidth: 80 },
+  image_count: { width: 60, minWidth: 52, maxWidth: 72 },
+  created_at: { width: 180, minWidth: 142, maxWidth: 190 },
+  actions: { width: 140, minWidth: 96, maxWidth: 160 },
+}, { minWidth: 52 })
+
+function setDocumentTableContainer(element: Element | ComponentPublicInstance | null) {
+  documentColumns.containerRef.value = element instanceof HTMLElement ? element : null
+}
 
 const BUSY_STATUSES = ['processing', 'parsing', 'reading', 'normalizing', 'chunking', 'embedding', 'saving']
 
@@ -548,6 +554,11 @@ onUnmounted(() => {
 .entity-text {
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+.doc-table-wrap {
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 .doc-table {

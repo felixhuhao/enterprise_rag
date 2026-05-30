@@ -29,6 +29,65 @@ export interface EvalStatus {
   result_path: string
   summary_path: string
   error: string
+  total?: number
+  current?: number
+  current_id?: string
+  current_question?: string
+  results_preview?: EvalCaseResult[]
+}
+
+export interface EvalRunOptions {
+  judge?: boolean
+  case_ids?: string[]
+  flavor?: string
+  limit?: number
+  case_timeout_sec?: number
+}
+
+export interface EvalCaseResult {
+  id: string
+  question: string
+  index?: number | null
+  total?: number | null
+  status: 'queued' | 'running' | 'passed' | 'warning' | 'failed'
+  label: string
+  score?: number | null
+  error?: string
+}
+
+export interface GoldenSetCase {
+  id: string
+  question: string
+  preferred_flavor: string
+  strict_evidence: boolean
+  eval_type: string
+  level: string
+  question_type: string
+  expected_documents: string[]
+  expected_points: string[]
+  expected_answer: string
+  expected_points_count: number
+  min_expected_citations?: number | null
+  status: string
+  enabled?: boolean
+}
+
+export interface GoldenCaseUpdate {
+  question: string
+  preferred_flavor: string
+  strict_evidence: boolean
+  eval_type: string
+  expected_answer: string
+  expected_points: string[]
+  expected_documents: string[]
+  min_expected_citations: number
+}
+
+export interface GoldenSetResponse {
+  path: string
+  count: number
+  enabled_count?: number
+  cases: GoldenSetCase[]
 }
 
 export async function getEvalStatus(): Promise<EvalStatus> {
@@ -36,7 +95,29 @@ export async function getEvalStatus(): Promise<EvalStatus> {
   return res.data
 }
 
-export async function runEval(judge: boolean = false): Promise<{ ok: boolean; status: string }> {
-  const res = await apiClient.post('/admin/eval/run', { judge })
+export async function getGoldenSet(): Promise<GoldenSetResponse> {
+  const res = await apiClient.get('/admin/eval/golden-set')
+  return res.data
+}
+
+export async function runEval(options: EvalRunOptions | boolean = false): Promise<{ ok: boolean; status: string }> {
+  const payload = typeof options === 'boolean' ? { judge: options } : options
+  const res = await apiClient.post('/admin/eval/run', payload)
+  return res.data
+}
+
+export async function setGoldenCaseEnabled(
+  caseId: string,
+  enabled: boolean,
+): Promise<{ ok: boolean; path: string; case: GoldenSetCase }> {
+  const res = await apiClient.patch(`/admin/eval/golden-set/${encodeURIComponent(caseId)}/enabled`, { enabled })
+  return res.data
+}
+
+export async function updateGoldenCase(
+  caseId: string,
+  payload: GoldenCaseUpdate,
+): Promise<{ ok: boolean; path: string; case: GoldenSetCase }> {
+  const res = await apiClient.patch(`/admin/eval/golden-set/${encodeURIComponent(caseId)}`, payload)
   return res.data
 }

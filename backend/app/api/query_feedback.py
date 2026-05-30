@@ -1,6 +1,7 @@
 """Answer feedback — POST /query/feedback, GET /query/feedback (admin)."""
 
 import json
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -19,6 +20,8 @@ if not _data_dir.is_dir():
     _data_dir = _backend.parent / "data"
 GOLDEN_DRAFT_DIR = _data_dir / "golden_set_drafts"
 GOLDEN_DRAFT_PATH = GOLDEN_DRAFT_DIR / "feedback_draft.jsonl"
+CHALLENGE_GOLDEN_SET_PATH = _data_dir / "challenge_golden_set_v1.jsonl"
+LEGACY_GOLDEN_SET_PATH = _data_dir / "enterprise_docs_v1.jsonl"
 
 
 class FeedbackRequest(BaseModel):
@@ -32,6 +35,18 @@ class FeedbackRequest(BaseModel):
     strict_evidence: bool = False
     rating: str  # "up" | "down"
     comment: str = ""
+
+
+class GoldenDraftUpdate(BaseModel):
+    question: str = Field(..., max_length=4000)
+    preferred_flavor: str = "balanced"
+    strict_evidence: bool = False
+    eval_type: str = "llm_judge"
+    expected_answer: str = ""
+    expected_points: list[str] = []
+    expected_documents: list[str] = []
+    min_expected_citations: int = 1
+    notes: str = ""
 
 
 @router.post("/query/feedback")
@@ -80,7 +95,94 @@ async def list_feedback(
             params,
         ) as cursor:
             rows = await cursor.fetchall()
-    return [dict(r) for r in rows]
+
+    draft_ids = _draft_feedback_ids()
+    records = []
+    for row in rows:
+        item = dict(row)
+        item["in_golden_draft"] = item.get("id") in draft_ids
+        records.append(item)
+    return records
+
+
+@router.get("/query/feedback/golden-drafts")
+async def list_golden_drafts(
+    current_user: CurrentUser = Depends(verify_token),
+):
+    """List feedback-origin golden-set drafts (admin only)."""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员可查看 Golden Set 草稿")
+    return {
+        "path": str(GOLDEN_DRAFT_PATH),
+        "drafts": _load_golden_drafts(),
+    }
+
+
+@router.put("/query/feedback/golden-drafts/{draft_id}")
+async def update_golden_draft(
+    draft_id: str,
+    body: GoldenDraftUpdate,
+    current_user: CurrentUser = Depends(verify_token),
+):
+    """Update one feedback-origin golden-set draft (admin only)."""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员可编辑 Golden Set 草稿")
+    drafts = _load_golden_drafts()
+    for idx, draft in enumerate(drafts):
+        if draft.get("id") == draft_id:
+            updated = _update_draft_fields(draft, body)
+            drafts[idx] = updated
+            _save_golden_drafts(drafts)
+            return {"ok": True, "draft": updated, "path": str(GOLDEN_DRAFT_PATH)}
+    raise HTTPException(status_code=404, detail="Golden Set 草稿不存在")
+
+
+@router.delete("/query/feedback/golden-drafts/{draft_id}")
+async def delete_golden_draft(
+    draft_id: str,
+    current_user: CurrentUser = Depends(verify_token),
+):
+    """Delete one feedback-origin golden-set draft (admin only)."""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员可删除 Golden Set 草稿")
+    drafts = _load_golden_drafts()
+    next_drafts = [draft for draft in drafts if draft.get("id") != draft_id]
+    if len(next_drafts) == len(drafts):
+        raise HTTPException(status_code=404, detail="Golden Set 草稿不存在")
+    _save_golden_drafts(next_drafts)
+    return {"ok": True, "path": str(GOLDEN_DRAFT_PATH)}
+
+
+@router.post("/query/feedback/golden-drafts/{draft_id}/publish")
+async def publish_golden_draft(
+    draft_id: str,
+    current_user: CurrentUser = Depends(verify_token),
+):
+    """Publish one complete draft into the active Golden Set JSONL file."""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员可发布 Golden Set 草稿")
+    from app.api.admin_eval import is_eval_running
+
+    if is_eval_running():
+        raise HTTPException(status_code=409, detail="评测正在运行，不能修改 Golden Set")
+
+    drafts = _load_golden_drafts()
+    draft = next((item for item in drafts if item.get("id") == draft_id), None)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Golden Set 草稿不存在")
+    _validate_publishable_draft(draft)
+
+    path = _active_golden_set_path()
+    cases = _load_jsonl(path)
+    if any(case.get("id") == draft["id"] for case in cases):
+        raise HTTPException(status_code=409, detail="Golden Set 中已存在相同 ID")
+    if any(case.get("question", "").strip() == draft.get("question", "").strip() for case in cases):
+        raise HTTPException(status_code=409, detail="Golden Set 中已存在相同问题")
+
+    case = _draft_to_golden_case(draft)
+    _append_jsonl_with_backup(path, case)
+    _save_golden_drafts([item for item in drafts if item.get("id") != draft_id])
+    return {"ok": True, "case": case, "path": str(path), "draft_path": str(GOLDEN_DRAFT_PATH)}
 
 
 @router.post("/query/feedback/{feedback_id}/golden-draft")
@@ -140,8 +242,16 @@ async def promote_feedback_to_golden_draft(
 
 
 def _find_existing_draft(feedback_id: int) -> dict | None:
+    for item in _load_golden_drafts():
+        if item.get("source_feedback_id") == feedback_id:
+            return item
+    return None
+
+
+def _load_golden_drafts() -> list[dict]:
     if not GOLDEN_DRAFT_PATH.is_file():
-        return None
+        return []
+    drafts = []
     with open(GOLDEN_DRAFT_PATH, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -151,9 +261,113 @@ def _find_existing_draft(feedback_id: int) -> dict | None:
                 item = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if item.get("source_feedback_id") == feedback_id:
-                return item
-    return None
+            drafts.append(item)
+    return drafts
+
+
+def _save_golden_drafts(drafts: list[dict]) -> None:
+    GOLDEN_DRAFT_DIR.mkdir(parents=True, exist_ok=True)
+    with open(GOLDEN_DRAFT_PATH, "w", encoding="utf-8") as f:
+        for draft in drafts:
+            f.write(json.dumps(draft, ensure_ascii=False) + "\n")
+
+
+def _update_draft_fields(draft: dict, body: GoldenDraftUpdate) -> dict:
+    now = datetime.now(timezone.utc).isoformat()
+    points = [item.strip() for item in body.expected_points if item and item.strip()]
+    docs = [item.strip() for item in body.expected_documents if item and item.strip()]
+    flavor = _normalize_flavor(body.preferred_flavor)
+    updated = {
+        **draft,
+        "question": body.question.strip(),
+        "eval_type": body.eval_type if body.eval_type in {"llm_judge", "rule", "no_answer"} else "llm_judge",
+        "preferred_flavor": flavor,
+        "strict_evidence": bool(body.strict_evidence),
+        "expected_answer": body.expected_answer.strip(),
+        "expected_points": points,
+        "expected_documents": docs,
+        "min_expected_citations": max(1, int(body.min_expected_citations)),
+        "source_config": {
+            "retrieval_flavor": flavor,
+            "strict_evidence": bool(body.strict_evidence),
+        },
+        "notes": body.notes.strip(),
+        "updated_at": now,
+    }
+    return updated
+
+
+def _validate_publishable_draft(draft: dict) -> None:
+    if not str(draft.get("question", "")).strip():
+        raise HTTPException(status_code=400, detail="草稿缺少问题")
+    points = draft.get("expected_points", [])
+    if not isinstance(points, list) or not [p for p in points if str(p).strip()]:
+        raise HTTPException(status_code=400, detail="发布前至少填写一个验收点")
+
+
+def _draft_to_golden_case(draft: dict) -> dict:
+    flavor = _normalize_flavor(draft.get("preferred_flavor", "balanced"))
+    strict = _boolish(draft.get("strict_evidence", False))
+    return {
+        **draft,
+        "preferred_flavor": flavor,
+        "strict_evidence": strict,
+        "source_config": {
+            "retrieval_flavor": flavor,
+            "strict_evidence": strict,
+        },
+        "status": "active",
+        "published_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _active_golden_set_path() -> Path:
+    if CHALLENGE_GOLDEN_SET_PATH.exists():
+        return CHALLENGE_GOLDEN_SET_PATH
+    if LEGACY_GOLDEN_SET_PATH.exists():
+        return LEGACY_GOLDEN_SET_PATH
+    CHALLENGE_GOLDEN_SET_PATH.parent.mkdir(parents=True, exist_ok=True)
+    return CHALLENGE_GOLDEN_SET_PATH
+
+
+def _load_jsonl(path: Path) -> list[dict]:
+    if not path.is_file():
+        return []
+    items: list[dict] = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            items.append(json.loads(line))
+    return items
+
+
+def _append_jsonl_with_backup(path: Path, item: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        backup = path.with_name(f"{path.name}.bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        shutil.copy2(path, backup)
+    needs_newline = path.exists() and path.stat().st_size > 0
+    if needs_newline:
+        with open(path, "rb") as existing:
+            existing.seek(-1, 2)
+            needs_newline = existing.read(1) != b"\n"
+    with open(path, "a", encoding="utf-8") as f:
+        if needs_newline:
+            f.write("\n")
+        f.write(json.dumps(item, ensure_ascii=False) + "\n")
+
+
+def _draft_feedback_ids() -> set[int]:
+    ids: set[int] = set()
+    for item in _load_golden_drafts():
+        feedback_id = item.get("source_feedback_id")
+        if isinstance(feedback_id, int):
+            ids.add(feedback_id)
+        elif isinstance(feedback_id, str) and feedback_id.isdigit():
+            ids.add(int(feedback_id))
+    return ids
 
 
 def _build_golden_draft(record: dict) -> dict:

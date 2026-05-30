@@ -251,7 +251,7 @@ const traceRows = computed<TraceRow[]>(() => {
   const rows: TraceRow[] = []
   if (t.entity_confirm_ms != null) rows.push({ label: '主体确认', value: entityTag.value.text || undefined, ms: t.entity_confirm_ms })
   if (t.rewrite_ms != null) rows.push({ label: '查询改写', value: props.info.rewritten_query || undefined, ms: t.rewrite_ms })
-  if (t.search_hyde_ms != null) rows.push({ label: expansionCount.value ? `搜索 + ${STRATEGY_LABELS.expansion}` : '搜索 + 假设文档（并行）', ms: t.search_hyde_ms })
+  if (t.search_hyde_ms != null) rows.push({ label: expansionCount.value ? `搜索 + ${STRATEGY_LABELS.expansion}` : '搜索 + 语义扩展（并行）', ms: t.search_hyde_ms })
   if (t.rrf_fusion_ms != null) rows.push({ label: 'RRF 融合', ms: t.rrf_fusion_ms })
   if (t.table_expand_ms != null) rows.push({ label: '表格扩展', ms: t.table_expand_ms })
   if (t.rerank_ms != null) rows.push({ label: STRATEGY_LABELS.rerankOn, ms: t.rerank_ms })

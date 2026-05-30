@@ -30,36 +30,40 @@
         </details>
       </div>
 
-      <a-table
-        :data="records"
-        :pagination="{ pageSize: 20 }"
-        row-key="id"
-        size="small"
-      >
-        <template #columns>
-          <a-table-column title="别名" data-index="alias" :width="180" />
-          <a-table-column title="标准实体" data-index="canonical_entity" />
-          <a-table-column title="来源" data-index="source" :width="90">
-            <template #cell="{ record }">
-              <a-tag size="small">{{ record.source }}</a-tag>
-            </template>
-          </a-table-column>
-          <a-table-column title="创建时间" data-index="created_at" :width="180" />
-          <a-table-column title="操作" :width="90" align="right">
-            <template #cell="{ record }">
-              <a-popconfirm content="删除这条别名映射？" @ok="onDelete(record.id)">
-                <a-button size="mini" status="danger">删除</a-button>
-              </a-popconfirm>
-            </template>
-          </a-table-column>
-        </template>
-      </a-table>
+      <div :ref="setAliasTableContainer" class="alias-table-wrap">
+        <a-table
+          :data="records"
+          :pagination="{ pageSize: 20 }"
+          row-key="id"
+          size="small"
+          column-resizable
+          @column-resize="aliasColumns.onColumnResize"
+        >
+          <template #columns>
+            <a-table-column title="别名" data-index="alias" :width="aliasColumns.columnWidth('alias')" />
+            <a-table-column title="标准实体" data-index="canonical_entity" :width="aliasColumns.columnWidth('canonical_entity')" />
+            <a-table-column title="来源" data-index="source" :width="aliasColumns.columnWidth('source')">
+              <template #cell="{ record }">
+                <a-tag size="small">{{ record.source }}</a-tag>
+              </template>
+            </a-table-column>
+            <a-table-column title="创建时间" data-index="created_at" :width="aliasColumns.columnWidth('created_at')" />
+            <a-table-column title="操作" data-index="actions" :width="aliasColumns.columnWidth('actions')" align="right">
+              <template #cell="{ record }">
+                <a-popconfirm content="删除这条别名映射？" @ok="onDelete(record.id)">
+                  <a-button size="mini" status="danger">删除</a-button>
+                </a-popconfirm>
+              </template>
+            </a-table-column>
+          </template>
+        </a-table>
+      </div>
     </a-spin>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, type ComponentPublicInstance } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { useAuthStore } from '../../stores/auth'
 import {
@@ -70,6 +74,7 @@ import {
   type EntityAliasRecord,
   type EntityAliasBatchItem,
 } from '../../api/entityAliases'
+import { useAutoFitColumns } from '../../composables/useAutoFitColumns'
 
 const authStore = useAuthStore()
 const loading = ref(false)
@@ -79,6 +84,17 @@ const records = ref<EntityAliasRecord[]>([])
 const aliasInput = ref('')
 const canonicalInput = ref('')
 const batchInput = ref('')
+const aliasColumns = useAutoFitColumns('enterprise-rag:entity-aliases:auto-v1', {
+  alias: { width: 180, minWidth: 120, maxWidth: 240 },
+  canonical_entity: { width: 360, minWidth: 200, flex: true },
+  source: { width: 90, minWidth: 70, maxWidth: 110 },
+  created_at: { width: 180, minWidth: 140, maxWidth: 190 },
+  actions: { width: 90, minWidth: 72, maxWidth: 110 },
+}, { minWidth: 60 })
+
+function setAliasTableContainer(element: Element | ComponentPublicInstance | null) {
+  aliasColumns.containerRef.value = element instanceof HTMLElement ? element : null
+}
 
 onMounted(async () => {
   if (!authStore.currentUser) await authStore.fetchMe()
@@ -188,6 +204,11 @@ function parseBatchInput(value: string): EntityAliasBatchItem[] {
   grid-template-columns: minmax(150px, 220px) minmax(220px, 1fr) auto auto;
   gap: 8px;
   align-items: center;
+}
+
+.alias-table-wrap {
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 .batch-box {

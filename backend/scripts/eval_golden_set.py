@@ -27,6 +27,8 @@ import sys
 import time
 from collections import Counter
 from pathlib import Path
+from queue import Empty, Queue
+from threading import Event, Thread
 
 import requests
 
@@ -49,7 +51,7 @@ def query_rag(
         "Accept": "text/event-stream",
         "Content-Type": "application/json",
     }
-    body = {"query": question, "session_id": session_id}
+    body = {"query": question, "session_id": session_id, "is_eval": True}
     if config:
         body["config"] = config
 
@@ -226,6 +228,12 @@ def score_citation(citations: list, expected_documents: list,
     - section_hit: whether expected_sections appear in citation section_titles
     - anchor_hit: null (requires chunk content not available in citation)
     """
+    try:
+        min_expected_citations = int(min_expected_citations)
+    except (TypeError, ValueError):
+        min_expected_citations = 1
+    min_expected_citations = max(1, min_expected_citations)
+
     if not expected_documents:
         result = {"citation_score": 1.0, "doc_hits": 0, "matched_docs": []}
     else:
@@ -621,26 +629,39 @@ def run_judge(results: list[dict], chat_model: str, api_key: str,
     print(f"\nRunning LLM judge on {len(to_judge)} questions...")
 
     for r in to_judge:
-        judge = _call_llm_judge(
-            question=r["question"],
-            expected_answer=r.get("expected_answer", ""),
-            expected_points=r.get("expected_points", []),
-            actual_answer=r.get("actual_answer", ""),
-            citations=r.get("actual_citations", []),
-            chat_model=chat_model,
-            api_key=api_key,
-            base_url=base_url,
-        )
-        r["judge"] = judge
-
-        if "error" in judge:
-            print(f"  {r['id']} judge error: {judge['error']}")
+        _apply_llm_judge(r, chat_model=chat_model, api_key=api_key, base_url=base_url)
+        if r.get("error"):
+            print(f"  {r['id']} judge error: {r['error']}")
         else:
-            s = judge.get("score", 0)
-            v = judge.get("verdict", "?")
-            print(f"  {r['id']} {v} score={s:.2f} | {judge.get('reason', '')[:60]}")
+            judge = r.get("judge", {})
+            print(f"  {r['id']} {r.get('verdict', '?')} score={r.get('judge_score', 0):.2f} | {judge.get('reason', '')[:60]}")
 
         time.sleep(delay)
+
+
+def _apply_llm_judge(row: dict, chat_model: str, api_key: str, base_url: str) -> None:
+    judge = _call_llm_judge(
+        question=row["question"],
+        expected_answer=row.get("expected_answer", ""),
+        expected_points=row.get("expected_points", []),
+        actual_answer=row.get("actual_answer", ""),
+        citations=row.get("actual_citations", []),
+        chat_model=chat_model,
+        api_key=api_key,
+        base_url=base_url,
+    )
+    row["judge"] = judge
+    if "error" in judge:
+        row["error"] = f"judge error: {judge['error']}"
+        row["final_score"] = 0.0
+        row["verdict"] = "error"
+        return
+
+    judge_score = judge.get("score", 0)
+    citation_score = row.get("citation_score", 0)
+    row["judge_score"] = judge_score
+    row["final_score"] = round(0.75 * judge_score + 0.25 * citation_score, 4)
+    row["verdict"] = judge.get("verdict", _verdict(row["final_score"]))
 
 
 # ---------------------------------------------------------------------------
@@ -680,20 +701,104 @@ def load_golden_set(path: str) -> list[dict]:
         for line in f:
             line = line.strip()
             if line:
-                items.append(json.loads(line))
+                item = json.loads(line)
+                if item.get("status", "active") != "disabled":
+                    items.append(item)
     return items
 
 
-def run_eval(golden_set: list[dict], api_base: str, token: str, delay: float = 1.0):
+def run_eval(
+    golden_set: list[dict],
+    api_base: str,
+    token: str,
+    delay: float = 1.0,
+    progress_callback=None,
+    case_timeout_sec: int = 180,
+    judge_config: dict | None = None,
+):
     results = []
 
     for i, item in enumerate(golden_set):
-        qid = item["id"]
-        question = item["question"]
-        eval_type = _get_eval_type(item)
-        query_config = _case_query_config(item)
+        row = _run_eval_case_with_timeout(
+            item,
+            i,
+            len(golden_set),
+            api_base,
+            token,
+            progress_callback,
+            case_timeout_sec=case_timeout_sec,
+            judge_config=judge_config,
+        )
+        results.append(row)
+        time.sleep(delay)
 
-        print(f"[{i+1}/{len(golden_set)}] {qid} ({eval_type}) {question[:60]}...")
+    return results
+
+
+def _run_eval_case_with_timeout(
+    item: dict,
+    index: int,
+    total: int,
+    api_base: str,
+    token: str,
+    progress_callback=None,
+    case_timeout_sec: int = 180,
+    judge_config: dict | None = None,
+) -> dict:
+    result_queue: Queue[dict] = Queue(maxsize=1)
+    active = Event()
+    active.set()
+
+    def _safe_progress(event: dict) -> None:
+        if active.is_set() and progress_callback:
+            progress_callback(event)
+
+    def _target() -> None:
+        result_queue.put(run_eval_case(item, index, total, api_base, token, _safe_progress, judge_config=judge_config))
+
+    worker = Thread(target=_target, daemon=True)
+    worker.start()
+    try:
+        return result_queue.get(timeout=max(0.001, float(case_timeout_sec)))
+    except Empty:
+        active.clear()
+        exc = TimeoutError(f"case timed out after {case_timeout_sec}s")
+        row = _case_error_row(item, exc)
+        print(f"  CASE TIMEOUT: {row['error']}")
+        if progress_callback:
+            progress_callback({
+                "type": "case_finished",
+                "index": index + 1,
+                "total": total,
+                "row": row,
+            })
+        return row
+
+
+def run_eval_case(
+    item: dict,
+    index: int,
+    total: int,
+    api_base: str,
+    token: str,
+    progress_callback=None,
+    judge_config: dict | None = None,
+) -> dict:
+    qid = item.get("id") or f"case_{index + 1}"
+    question = item.get("question", "")
+    eval_type = _get_eval_type(item)
+    query_config = _case_query_config(item)
+
+    try:
+        print(f"[{index + 1}/{total}] {qid} ({eval_type}) {question[:60]}...")
+        if progress_callback:
+            progress_callback({
+                "type": "case_started",
+                "index": index + 1,
+                "total": total,
+                "id": qid,
+                "question": question,
+            })
 
         rag = query_rag(api_base, question, token, session_id="eval_session", config=query_config)
 
@@ -730,9 +835,14 @@ def run_eval(golden_set: list[dict], api_base: str, token: str, delay: float = 1
             row["final_score"] = 0.0
             row["verdict"] = "error"
             print(f"  ERROR: {rag['error']}")
-            results.append(row)
-            time.sleep(delay)
-            continue
+            if progress_callback:
+                progress_callback({
+                    "type": "case_finished",
+                    "index": index + 1,
+                    "total": total,
+                    "row": row,
+                })
+            return row
 
         # --- Score by eval_type ---
         if eval_type == "no_answer":
@@ -749,7 +859,6 @@ def run_eval(golden_set: list[dict], api_base: str, token: str, delay: float = 1
                   f"final={sr['final_score']:.2f}")
 
         elif eval_type == "llm_judge":
-            # Collect answer + citation score; judge runs later via --judge
             cite = score_citation(
                 rag["citations"],
                 item.get("expected_documents", []),
@@ -761,16 +870,69 @@ def run_eval(golden_set: list[dict], api_base: str, token: str, delay: float = 1
             row["citation_matched"] = cite["matched_docs"]
             row.update(_citation_output_fields(cite))
             row["expected_points"] = item.get("expected_points", [])
-            row["final_score"] = None  # pending judge
             print(f"  [answer] {rag['answer'][:200].replace(chr(10), ' ')}...")
             if rag["citations"]:
                 files = [c.get("file_title", "?") for c in rag["citations"]]
                 print(f"  [citations] {files}")
+            if judge_config:
+                _apply_llm_judge(
+                    row,
+                    chat_model=judge_config["chat_model"],
+                    api_key=judge_config["api_key"],
+                    base_url=judge_config.get("base_url", ""),
+                )
+            else:
+                row["final_score"] = None  # pending judge
 
-        results.append(row)
-        time.sleep(delay)
+        if progress_callback:
+            progress_callback({
+                "type": "case_finished",
+                "index": index + 1,
+                "total": total,
+                "row": row,
+            })
+        return row
 
-    return results
+    except Exception as exc:
+        row = _case_error_row(item, exc, eval_type=eval_type, query_config=query_config)
+        print(f"  CASE ERROR: {row['error']}")
+        if progress_callback:
+            progress_callback({
+                "type": "case_finished",
+                "index": index + 1,
+                "total": total,
+                "row": row,
+            })
+        return row
+
+
+def _case_error_row(item: dict, exc: Exception, eval_type: str = "", query_config: dict | None = None) -> dict:
+    query_config = query_config or _case_query_config(item)
+    return {
+        "id": item.get("id") or "",
+        "question": item.get("question", ""),
+        "eval_type": eval_type or _get_eval_type(item),
+        "expected_answer": item.get("expected_answer", ""),
+        "actual_answer": "",
+        "actual_citations": [],
+        "trace": {},
+        "retrieval_step": {},
+        "rerank_results": [],
+        "search_mode": "",
+        "error": str(exc)[:1000],
+        "preferred_flavor": query_config["retrieval_flavor"],
+        "strict_evidence": query_config["strict_evidence"],
+        "requested_config": query_config,
+        "actual_retrieval_flavor": None,
+        "actual_strict_evidence": None,
+        "tags": item.get("tags", []),
+        "should_answer": item.get("should_answer", True),
+        "hit_metric_applicable": is_hit_metric_applicable(item),
+        "hit_at_5": False,
+        "hit_at_10": False,
+        "final_score": 0.0,
+        "verdict": "error",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -988,6 +1150,7 @@ def main():
     parser.add_argument("--delay", type=float, default=1.0, help="每题间隔秒数")
     parser.add_argument("--judge", action="store_true", help="启用 LLM judge")
     parser.add_argument("--judge-model", default=None, help="Judge 模型")
+    parser.add_argument("--case-timeout", type=int, default=180, help="单题超时秒数")
     parser.add_argument("--slice", action="append", default=[],
                         help="按 tag/flavor/strict 过滤: --slice exact --slice recall --slice strict")
     args = parser.parse_args()
@@ -1026,10 +1189,8 @@ def main():
             print("Error: no questions match the specified slice(s)")
             sys.exit(0)
 
-    # --- Run eval ---
-    results = run_eval(golden_set, args.api_base, token, delay=args.delay)
-
-    # --- LLM Judge (optional) ---
+    # --- LLM Judge config (optional, applied per case) ---
+    judge_config = None
     if args.judge:
         judge_model = args.judge_model
         api_key = ""
@@ -1057,18 +1218,17 @@ def main():
         if not api_key or not judge_model:
             print("Warning: --judge 需要 DEEPSEEK_API_KEY 和 CHAT_MODEL")
         else:
-            run_judge(results, judge_model, api_key, base_url)
-            # Update final_score for judged questions
-            for r in results:
-                if (r.get("eval_type") == "llm_judge"
-                        and "judge" in r
-                        and "error" not in r.get("judge", {})):
-                    j = r["judge"]
-                    js = j.get("score", 0)
-                    cs = r.get("citation_score", 0)
-                    r["judge_score"] = js
-                    r["final_score"] = round(0.75 * js + 0.25 * cs, 4)
-                    r["verdict"] = j.get("verdict", _verdict(r["final_score"]))
+            judge_config = {"chat_model": judge_model, "api_key": api_key, "base_url": base_url}
+
+    # --- Run eval ---
+    results = run_eval(
+        golden_set,
+        args.api_base,
+        token,
+        delay=args.delay,
+        case_timeout_sec=args.case_timeout,
+        judge_config=judge_config,
+    )
 
     # --- Save results ---
     output_path = args.output

@@ -44,10 +44,10 @@ export const SEARCH_MODE_LABELS: Record<string, string> = {
   dense_filtered: '语义匹配（已过滤）',
   hybrid_filtered_fallback_unfiltered: '语义 + 关键词（已扩大范围）',
   dense_filtered_fallback_unfiltered: '语义匹配（已扩大范围）',
-  hyde: '假设文档',
-  hyde_filtered: '假设文档（已过滤）',
-  hyde_filtered_fallback_unfiltered: '假设文档（已扩大范围）',
-  hyde_failed: '假设文档（失败）',
+  hyde: '语义扩展',
+  hyde_filtered: '语义扩展（已过滤）',
+  hyde_filtered_fallback_unfiltered: '语义扩展（已扩大范围）',
+  hyde_failed: '语义扩展（失败）',
   disabled: '已关闭',
   disabled_multi: '已关闭（多实体）',
   acl_empty: '无权限',
@@ -88,8 +88,8 @@ const RETRIEVAL_PATH_LABELS: Record<string, string> = {
   hybrid_fallback: '语义 + 关键词（已扩大范围）',
   dense: '语义匹配',
   dense_fallback: '语义匹配（已扩大范围）',
-  hyde: '假设文档',
-  hyde_fallback: '假设文档（已扩大范围）',
+  hyde: '语义扩展',
+  hyde_fallback: '语义扩展（已扩大范围）',
   table_expand: '表格扩展',
   context_expand: '补充上下文',
   disabled: '已关闭',
@@ -97,19 +97,27 @@ const RETRIEVAL_PATH_LABELS: Record<string, string> = {
 
 export function retrievalPathLabel(path: string | null | undefined): string {
   if (!path) return '主检索'
-  return path
+  const parts = path
     .split('+')
     .map((part) => part.trim())
     .filter(Boolean)
+  const expandedParts = parts.filter((part) => /^expanded_\d+(_fallback)?$/i.test(part))
+  return parts
     .map((part) => {
       const normalized = part.toLowerCase()
       const expanded = normalized.match(/^expanded_(\d+)(_fallback)?$/)
       if (expanded) {
-        const label = `扩展查询 ${expanded[1]}`
+        if (expandedParts.length > 1) {
+          return part === expandedParts[0]
+            ? `扩展查询*${expandedParts.length}${expanded[2] ? '（已扩大范围）' : ''}`
+            : ''
+        }
+        const label = '扩展查询'
         return expanded[2] ? `${label}（已扩大范围）` : label
       }
       return RETRIEVAL_PATH_LABELS[normalized] ?? part
     })
+    .filter(Boolean)
     .join(' + ')
 }
 
@@ -121,11 +129,11 @@ export const FALLBACK_LABELS = {
 export const STRATEGY_LABELS = {
   hybridOn: '语义 + 关键词',
   hybridOff: '仅语义',
-  hydeOn: '假设文档',
-  hydeOff: '假设文档已关闭',
+  hydeOn: '语义扩展',
+  hydeOff: '语义扩展已关闭',
   rerankOn: '相关性重排',
   rerankOff: '未重排',
-  expansion: '换几种说法查找',
+  expansion: '扩展查询',
   strictEvidence: '仅基于资料回答',
   contextExpand: '补充上下文',
   groundedness: '资料支持度',

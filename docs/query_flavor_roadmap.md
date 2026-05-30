@@ -274,7 +274,7 @@ Default first version:
 context_expansion = small_to_big_final_only
 small_to_big_window = 1
 small_to_big_same_section_only = true
-small_to_big_max_chars = 2400
+small_to_big_max_chars = 2400查询历史搜索/筛选	中（方便回溯）	低
 ```
 
 Rules:

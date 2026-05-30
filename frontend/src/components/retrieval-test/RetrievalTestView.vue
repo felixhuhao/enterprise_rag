@@ -201,21 +201,22 @@
           <a-button size="mini" @click="resultColumns.resetColumnWidths()">重置列宽</a-button>
         </div>
 
-        <a-table
-          :data="response.results"
-          :pagination="{ pageSize: 10 }"
-          :bordered="false"
-          row-key="rank"
-          class="retrieval-table"
-          column-resizable
-          @column-resize="resultColumns.onColumnResize"
-        >
-          <template #columns>
-            <a-table-column title="#" data-index="rank" :width="resultColumns.columnWidth('rank')" align="center">
-              <template #cell="{ record }">
-                <strong>{{ record.rank }}</strong>
-              </template>
-            </a-table-column>
+        <div :ref="setResultTableContainer" class="retrieval-table-wrap">
+          <a-table
+            :data="response.results"
+            :pagination="{ pageSize: 10 }"
+            :bordered="false"
+            row-key="rank"
+            class="retrieval-table"
+            column-resizable
+            @column-resize="resultColumns.onColumnResize"
+          >
+            <template #columns>
+              <a-table-column title="#" data-index="rank" :width="resultColumns.columnWidth('rank')" align="center">
+                <template #cell="{ record }">
+                  <strong>{{ record.rank }}</strong>
+                </template>
+              </a-table-column>
 
             <a-table-column title="来源" data-index="source" :width="resultColumns.columnWidth('source')">
               <template #cell="{ record }">
@@ -288,8 +289,9 @@
                 </div>
               </template>
             </a-table-column>
-          </template>
-        </a-table>
+            </template>
+          </a-table>
+        </div>
       </section>
     </template>
 
@@ -298,11 +300,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, type ComponentPublicInstance } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { IconSearch } from '@arco-design/web-vue/es/icon'
-import { useResizableColumns } from '../../composables/useResizableColumns'
+import { useAutoFitColumns } from '../../composables/useAutoFitColumns'
 import {
   FALLBACK_LABELS,
   FLAVOR_OPTIONS,
@@ -326,15 +328,19 @@ const loading = ref(false)
 const errorMessage = ref('')
 const response = ref<RetrievalTestResponse | null>(null)
 const expandedKeys = ref<Set<number>>(new Set())
-const resultColumns = useResizableColumns('enterprise-rag:retrieval-test-results:v1', {
-  rank: 52,
-  source: 180,
-  page: 64,
-  path: 110,
-  score: 84,
-  type: 96,
-  content: undefined,
-})
+const resultColumns = useAutoFitColumns('enterprise-rag:retrieval-test-results:auto-v1', {
+  rank: { width: 52, minWidth: 44, maxWidth: 64 },
+  source: { width: 180, minWidth: 130, maxWidth: 240 },
+  page: { width: 64, minWidth: 56, maxWidth: 76 },
+  path: { width: 110, minWidth: 84, maxWidth: 150 },
+  score: { width: 84, minWidth: 74, maxWidth: 100 },
+  type: { width: 96, minWidth: 78, maxWidth: 120 },
+  content: { width: 520, minWidth: 260, flex: true },
+}, { minWidth: 44 })
+
+function setResultTableContainer(element: Element | ComponentPublicInstance | null) {
+  resultColumns.containerRef.value = element instanceof HTMLElement ? element : null
+}
 
 interface QueryExpansionRow {
   label: string
@@ -352,7 +358,7 @@ const flavorModes = FLAVOR_OPTIONS
 
 const budgetFields: Array<{ key: keyof RetrievalBudget; label: string }> = [
   { key: 'search_limit', label: '主检索' },
-  { key: 'hyde_limit', label: '假设文档' },
+  { key: 'hyde_limit', label: '语义扩展' },
   { key: 'rrf_top_k', label: '融合' },
   { key: 'rerank_candidate_k', label: '重排候选' },
   { key: 'final_context_k', label: '最终上下文' },
@@ -365,7 +371,7 @@ const strategyText = computed(() => {
   const s = response.value.strategy
   const weights = s.hybrid ? `语义 ${s.dense_weight} / 关键词 ${s.sparse_weight}` : '语义 1.0'
   const mode = flavorLabel(response.value.retrieval_flavor || s.retrieval_flavor)
-  return `${mode}，Top ${s.top_k}，${weights}，主检索：${searchModeLabel(s.search_mode)}，假设文档：${s.hyde ? '开启' : '关闭'}`
+  return `${mode}，Top ${s.top_k}，${weights}，主检索：${searchModeLabel(s.search_mode)}，语义扩展：${s.hyde ? '开启' : '关闭'}`
 })
 
 const queryBudget = computed<RetrievalBudget | null>(() => response.value?.query_plan?.budget ?? null)
@@ -576,7 +582,7 @@ function retrievalPathSummary(path: string | null | undefined) {
   const labels: string[] = []
   if (expandedCount) labels.push(`扩展查询 x${expandedCount}`)
   if (parts.some((part) => part.toLowerCase() === 'hybrid' || part.toLowerCase() === 'primary')) labels.push('主检索')
-  if (parts.some((part) => part.toLowerCase() === 'hyde')) labels.push('假设文档')
+  if (parts.some((part) => part.toLowerCase() === 'hyde')) labels.push('语义扩展')
   if (parts.some((part) => part.toLowerCase().includes('fallback'))) labels.push('已扩大范围')
   return labels.length ? labels : parts.slice(0, 2).map((part) => retrievalPathLabel(part))
 }
@@ -1128,6 +1134,11 @@ function filterToScope(filter: string) {
   background: var(--bg-hover);
   border-radius: 999px;
   padding: 4px 8px;
+}
+
+.retrieval-table-wrap {
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 .retrieval-table {

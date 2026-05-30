@@ -14,25 +14,33 @@
           {{ u.username }}{{ u.role === 'admin' ? ' · 管理员' : '' }}
         </span>
       </div>
-      <div v-if="data" class="acl-table-wrap">
-        <a-table :data="data.documents" :pagination="{ pageSize: 20 }" row-key="document_id" size="small" :bordered="false">
+      <div v-if="data" :ref="setAclTableContainer" class="acl-table-wrap">
+        <a-table
+          :data="data.documents"
+          :pagination="{ pageSize: 20 }"
+          row-key="document_id"
+          size="small"
+          :bordered="false"
+          column-resizable
+          @column-resize="aclColumns.onColumnResize"
+        >
           <template #columns>
-            <a-table-column title="文档" data-index="filename" :ellipsis="true" />
-            <a-table-column title="主体" data-index="entity_name" :width="120" />
-            <a-table-column title="状态" :width="92" align="center">
+            <a-table-column title="文档" data-index="filename" :width="aclColumns.columnWidth('filename')" :ellipsis="true" />
+            <a-table-column title="主体" data-index="entity_name" :width="aclColumns.columnWidth('entity_name')" />
+            <a-table-column title="状态" data-index="status" :width="aclColumns.columnWidth('status')" align="center">
               <template #cell="{ record }">
                 <a-tag :color="statusColor(record.status)" size="small">
                   {{ statusLabel(record.status) }}
                 </a-tag>
 	            </template>
             </a-table-column>
-            <a-table-column title="清理" :width="72" align="center">
+            <a-table-column title="清理" data-index="cleanup_status" :width="aclColumns.columnWidth('cleanup_status')" align="center">
               <template #cell="{ record }">
                 <span v-if="record.cleanup_status === 'milvus_delete_failed'" class="cleanup-warn">待清理</span>
                 <span v-else class="cleanup-ok">—</span>
               </template>
             </a-table-column>
-            <a-table-column title="权限" :width="420">
+            <a-table-column title="权限" data-index="permissions" :width="aclColumns.columnWidth('permissions')">
               <template #cell="{ record }">
                 <div class="perm-list">
                   <span v-if="!record.permissions.length" class="perm-empty">未授权</span>
@@ -50,13 +58,25 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, type ComponentPublicInstance } from 'vue'
 import { useAuthStore } from '../../stores/auth'
 import { getAclAudit, type AclAuditResponse } from '../../api/adminAcl'
+import { useAutoFitColumns } from '../../composables/useAutoFitColumns'
 
 const authStore = useAuthStore()
 const loading = ref(false)
 const data = ref<AclAuditResponse | null>(null)
+const aclColumns = useAutoFitColumns('enterprise-rag:acl-audit:auto-v1', {
+  filename: { width: 300, minWidth: 180, flex: true },
+  entity_name: { width: 120, minWidth: 90, maxWidth: 180 },
+  status: { width: 92, minWidth: 76, maxWidth: 110 },
+  cleanup_status: { width: 72, minWidth: 60, maxWidth: 90 },
+  permissions: { width: 420, minWidth: 240, maxWidth: 520 },
+}, { minWidth: 60 })
+
+function setAclTableContainer(element: Element | ComponentPublicInstance | null) {
+  aclColumns.containerRef.value = element instanceof HTMLElement ? element : null
+}
 
 onMounted(async () => {
   if (!authStore.currentUser) await authStore.fetchMe()
@@ -111,6 +131,11 @@ function permLabel(p: string) { return p === 'owner' ? '管理' : '只读' }
 .role-admin { color: #92400e; border-color: #fcd34d; background: #fef3c7; }
 
 .acl-forbidden { padding: 60px 0; }
+
+.acl-table-wrap {
+  min-width: 0;
+  overflow-x: hidden;
+}
 
 .cleanup-warn { color: #c2410c; font-size: 12px; font-weight: 600; }
 .cleanup-ok { color: var(--text-muted); }
