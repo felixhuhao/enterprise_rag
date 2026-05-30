@@ -65,6 +65,13 @@ export interface QueryExpansionTraceEntry {
   count: number
 }
 
+export interface AliasTraceEntry {
+  alias: string
+  canonical?: string
+  canonicals?: string[]
+  ambiguous: boolean
+}
+
 export interface RetrievalResult {
   rank: number
   chunk_id?: number | null
@@ -97,6 +104,7 @@ export interface RetrievalTestResponse {
   entity_mode: string
   matched_entities: string[]
   per_entity_counts: Record<string, number>
+  alias_trace?: AliasTraceEntry[]
   expanded_queries?: string[]
   per_query_counts?: Record<string, number>
   query_expansion_trace?: QueryExpansionTraceEntry[]

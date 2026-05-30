@@ -134,6 +134,17 @@ CREATE TABLE IF NOT EXISTS query_feedback (
 );
 CREATE INDEX IF NOT EXISTS idx_feedback_created ON query_feedback(created_at);
 CREATE INDEX IF NOT EXISTS idx_feedback_user ON query_feedback(user_id);
+
+CREATE TABLE IF NOT EXISTS entity_aliases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    alias TEXT NOT NULL,
+    canonical_entity TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'manual',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(alias, canonical_entity)
+);
+CREATE INDEX IF NOT EXISTS idx_aliases_alias ON entity_aliases(alias);
+CREATE INDEX IF NOT EXISTS idx_aliases_canonical ON entity_aliases(canonical_entity);
 """
 
 

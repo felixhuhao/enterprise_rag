@@ -150,6 +150,18 @@
           {{ fallbackText }}
         </div>
 
+        <div v-if="aliasTraceEntries.length" class="alias-panel">
+          <div class="alias-head">别名匹配</div>
+          <div class="alias-list">
+            <div v-for="row in aliasTraceEntries" :key="row.alias + row.text" class="alias-item">
+              <span class="alias-kind" :class="{ ambiguous: row.ambiguous }">
+                {{ row.ambiguous ? '歧义' : '命中' }}
+              </span>
+              <span class="alias-text">{{ row.text }}</span>
+            </div>
+          </div>
+        </div>
+
         <!-- Per-entity hit distribution -->
         <div v-if="entityEntries.length" class="entity-dist">
           <span class="entity-dist-label">实体命中分布</span>
@@ -374,6 +386,19 @@ const matchedEntityText = computed(() => {
 const entityEntries = computed(() => {
   if (!response.value?.per_entity_counts) return []
   return Object.entries(response.value.per_entity_counts)
+})
+
+const aliasTraceEntries = computed(() => {
+  return (response.value?.alias_trace ?? []).map((row) => {
+    const target = row.ambiguous
+      ? `[${(row.canonicals ?? []).join(' / ')}]（已跳过）`
+      : row.canonical
+    return {
+      alias: row.alias,
+      ambiguous: row.ambiguous,
+      text: `"${row.alias}" -> ${target || '-'}`,
+    }
+  })
 })
 
 const fallbackText = computed(() => {
@@ -873,6 +898,47 @@ function filterToScope(filter: string) {
   gap: 8px;
   margin-top: 12px;
   align-items: center;
+}
+
+.alias-panel {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #f8fafc;
+}
+
+.alias-head {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.alias-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.alias-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.alias-kind {
+  color: var(--accent);
+  font-weight: 700;
+  min-width: 32px;
+}
+
+.alias-kind.ambiguous {
+  color: #92400e;
+}
+
+.alias-text {
+  color: var(--text-secondary);
 }
 
 .fallback-note {

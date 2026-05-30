@@ -13,6 +13,7 @@ class QueryState(TypedDict, total=False):
     entity_mode: str              # "single" | "multi_explicit" | "broad" | "none"
     matched_entities: list[str]   # 匹配到的所有 entity
     per_entity_counts: dict       # {"entity_name": hit_count}
+    alias_trace: list[dict]
 
     # query
     rewritten_query: str

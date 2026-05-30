@@ -40,6 +40,10 @@
           <template #icon><icon-safe /></template>
           权限审计
         </a-menu-item>
+        <a-menu-item v-if="authStore.isAdmin" key="/entity-aliases">
+          <template #icon><icon-safe /></template>
+          实体别名
+        </a-menu-item>
         <a-menu-item key="/evaluation">
           <template #icon><icon-bar-chart /></template>
           回归评测
@@ -124,6 +128,7 @@ const pageMeta = computed(() => {
     '/evaluation': { title: '回归评测', subtitle: 'Golden Set 质量验证、pass rate、失败用例。' },
     '/settings': { title: '系统设置', subtitle: '配置模型、检索和运行时行为。' },
     '/acl-audit': { title: '权限审计', subtitle: '查看文档 ACL、owner/read 分配和清理状态。' },
+    '/entity-aliases': { title: '实体别名', subtitle: '维护企业简称、缩写和英文别名，用于查询路由。' },
     '/feedback': { title: '答案反馈', subtitle: '用户反馈记录和 Golden Set 草稿管理。' },
   }
   return map[route.path] ?? { title: 'Enterprise RAG', subtitle: '知识库运行控制台。' }

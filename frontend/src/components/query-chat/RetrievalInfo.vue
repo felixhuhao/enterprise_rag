@@ -52,6 +52,13 @@
         {{ fallbackDetail }}
       </div>
 
+      <div v-if="aliasTraceEntries.length" class="alias-panel">
+        <div class="alias-row" v-for="row in aliasTraceEntries" :key="row.alias + row.text">
+          <span class="alias-label">{{ row.ambiguous ? '歧义别名' : '匹配别名' }}</span>
+          <span class="alias-text">{{ row.text }}</span>
+        </div>
+      </div>
+
       <div v-if="queryExpansionEntries.length" class="expansion-panel">
         <div class="expansion-row" v-for="row in queryExpansionEntries" :key="row.label">
           <span class="expansion-label">{{ row.label }}</span>
@@ -200,6 +207,19 @@ interface QueryExpansionRow {
 
 const expansionCount = computed(() => props.info.expanded_queries?.length ?? 0)
 
+const aliasTraceEntries = computed(() => {
+  return (props.info.alias_trace ?? []).map((row) => {
+    const target = row.ambiguous
+      ? `[${(row.canonicals ?? []).join(' / ')}]（已跳过）`
+      : row.canonical
+    return {
+      alias: row.alias,
+      ambiguous: row.ambiguous,
+      text: `"${row.alias}" -> ${target || '-'}`,
+    }
+  })
+})
+
 const queryExpansionEntries = computed<QueryExpansionRow[]>(() => {
   const trace = props.info.query_expansion_trace ?? []
   if (trace.length) {
@@ -310,6 +330,33 @@ const traceRows = computed<TraceRow[]>(() => {
   background: #eff6ff;
   border: 1px solid #bfdbfe;
   border-radius: var(--radius-md);
+}
+
+.alias-panel {
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.alias-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 12px;
+}
+
+.alias-label {
+  min-width: 64px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.alias-text {
+  color: var(--text-secondary);
 }
 
 .expansion-row {

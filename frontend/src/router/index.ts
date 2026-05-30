@@ -51,6 +51,11 @@ const router = createRouter({
       component: () => import('../components/admin/AclAuditView.vue'),
     },
     {
+      path: '/entity-aliases',
+      name: 'EntityAliases',
+      component: () => import('../components/admin/EntityAliasesView.vue'),
+    },
+    {
       path: '/feedback',
       name: 'Feedback',
       component: () => import('../components/feedback/FeedbackView.vue'),

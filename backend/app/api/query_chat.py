@@ -303,6 +303,7 @@ async def _stream_generator(session_id: str, query: str, query_config, allowed_i
             "entity_mode": state.get("entity_mode", "none"),
             "matched_entities": state.get("matched_entities", []),
             "per_entity_counts": state.get("per_entity_counts", {}),
+            "alias_trace": state.get("alias_trace", []),
             "expanded_queries": state.get("expanded_queries", []),
             "per_query_counts": state.get("per_query_counts", {}),
             "query_expansion_trace": state.get("query_expansion_trace", []),

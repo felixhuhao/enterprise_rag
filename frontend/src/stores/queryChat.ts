@@ -50,6 +50,13 @@ export interface QueryExpansionTraceEntry {
   count: number
 }
 
+export interface AliasTraceEntry {
+  alias: string
+  canonical?: string
+  canonicals?: string[]
+  ambiguous: boolean
+}
+
 /** 检索步骤信息 */
 export interface RetrievalInfo {
   results_count: number
@@ -60,6 +67,7 @@ export interface RetrievalInfo {
   entity_mode: string
   matched_entities: string[]
   per_entity_counts: Record<string, number>
+  alias_trace?: AliasTraceEntry[]
   expanded_queries?: string[]
   per_query_counts?: Record<string, number>
   query_expansion_trace?: QueryExpansionTraceEntry[]
@@ -243,6 +251,7 @@ export const useQueryChatStore = defineStore('queryChat', () => {
             entity_mode: (event as any).entity_mode ?? 'none',
             matched_entities: (event as any).matched_entities ?? [],
             per_entity_counts: (event as any).per_entity_counts ?? {},
+            alias_trace: (event as any).alias_trace ?? [],
             expanded_queries: (event as any).expanded_queries ?? [],
             per_query_counts: (event as any).per_query_counts ?? {},
             query_expansion_trace: (event as any).query_expansion_trace ?? [],
