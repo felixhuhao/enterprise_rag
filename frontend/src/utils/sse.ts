@@ -11,7 +11,8 @@
 /** SSE 事件结构（与后端 SSE 输出格式对应） */
 export interface SSEEvent {
   type: string       // message_start | retrieval_step | rerank | trace | delta | citations | message_end | error
-  data?: any
+  data?: unknown
+  [key: string]: unknown
 }
 
 const API_BASE = '/api'
@@ -26,10 +27,10 @@ const API_BASE = '/api'
  * @param onComplete 流结束的回调
  * @returns AbortController，可用于中止连接
  */
-export function connectSSE(
+export function connectSSE<TEvent extends SSEEvent = SSEEvent>(
   path: string,
   body: object,
-  onEvent: (event: SSEEvent) => void,
+  onEvent: (event: TEvent) => void,
   onError: (err: any) => void,
   onComplete: () => void,
 ): AbortController {
@@ -68,7 +69,7 @@ export function connectSSE(
           const trimmed = line.trim()
           if (trimmed.startsWith('data:')) {
             try {
-              const event = JSON.parse(trimmed.slice(5).trim())
+              const event = JSON.parse(trimmed.slice(5).trim()) as TEvent
               onEvent(event)
             } catch {
               // 忽略解析失败的行（如心跳空行）

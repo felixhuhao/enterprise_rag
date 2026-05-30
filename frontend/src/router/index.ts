@@ -60,6 +60,11 @@ const router = createRouter({
       name: 'Feedback',
       redirect: { path: '/evaluate', query: { tab: 'feedback' } },
     },
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'NotFound',
+      component: () => import('../components/common/NotFoundView.vue'),
+    },
   ],
 })
 

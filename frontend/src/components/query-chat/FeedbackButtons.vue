@@ -7,7 +7,7 @@
     <button
       class="fb-btn"
       :class="{ active: submitted && rating === 'up' }"
-      :disabled="submitted"
+      :disabled="submitted || submitting"
       @click="onRate('up')"
       title="有帮助"
     >
@@ -16,7 +16,7 @@
     <button
       class="fb-btn"
       :class="{ active: submitted && rating === 'down' }"
-      :disabled="submitted"
+      :disabled="submitted || submitting"
       @click="onRate('down')"
       title="没帮助"
     >
@@ -33,12 +33,13 @@
       :max-length="500"
       @keydown.enter="submitFeedback"
     />
-    <a-button size="mini" @click="submitFeedback">提交</a-button>
+    <a-button size="mini" :loading="submitting" @click="submitFeedback">提交</a-button>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { Message } from '@arco-design/web-vue'
 import { IconThumbUp, IconThumbDown } from '@arco-design/web-vue/es/icon'
 import { submitFeedback as submitApi, type FeedbackPayload } from '../../api/queryFeedback'
 
@@ -48,6 +49,7 @@ const submitted = ref(false)
 const rating = ref('')
 const showComment = ref(false)
 const comment = ref('')
+const submitting = ref(false)
 
 async function onRate(r: 'up' | 'down') {
   rating.value = r
@@ -59,8 +61,17 @@ async function onRate(r: 'up' | 'down') {
 }
 
 async function submitFeedback() {
-  await submitApi({ ...props.payload, rating: rating.value, comment: comment.value })
-  submitted.value = true
+  if (submitting.value || submitted.value) return
+  submitting.value = true
+  try {
+    await submitApi({ ...props.payload, rating: rating.value, comment: comment.value })
+    submitted.value = true
+    showComment.value = false
+  } catch (e: any) {
+    Message.error(e?.response?.data?.detail || '反馈提交失败')
+  } finally {
+    submitting.value = false
+  }
 }
 </script>
 

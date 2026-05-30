@@ -6,7 +6,7 @@
  */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { connectSSE, type SSEEvent } from '../utils/sse'
+import { connectSSE } from '../utils/sse'
 
 /** 引用信息 */
 export interface Citation {
@@ -144,6 +144,18 @@ export interface AppError {
   hint?: string
 }
 
+type RetrievalStepEvent = { type: 'retrieval_step' } & Partial<RetrievalInfo>
+type QueryChatSSEEvent =
+  | { type: 'message_start' }
+  | RetrievalStepEvent
+  | { type: 'rerank'; results?: RerankItem[] }
+  | { type: 'trace'; trace?: TraceData }
+  | { type: 'delta'; content?: string }
+  | { type: 'citations'; citations?: Citation[] }
+  | ({ type: 'groundedness' } & Partial<GroundednessResult>)
+  | { type: 'message_end' }
+  | { type: 'error'; code?: string; message?: string }
+
 /** 中文建议 */
 import { ERROR_HINTS } from '../utils/errorHints'
 
@@ -212,7 +224,7 @@ export const useQueryChatStore = defineStore('queryChat', () => {
     messages.value.push({ id: currentAssistantId, role: 'assistant', content: '' })
 
     // 发起 SSE 连接
-    abortController = connectSSE(
+    abortController = connectSSE<QueryChatSSEEvent>(
       '/query/chat/stream',
       {
         session_id: sessionId.value,
@@ -223,7 +235,7 @@ export const useQueryChatStore = defineStore('queryChat', () => {
           use_groundedness: debugConfig.value.use_groundedness,
         },
       },
-      (event: SSEEvent) => handleEvent(event),
+      (event) => handleEvent(event),
       (err: any) => {
         isStreaming.value = false
         error.value = { code: 'UNKNOWN_ERROR', message: err.message || '连接失败', hint: '网络连接异常，请稍后重试' }
@@ -235,7 +247,7 @@ export const useQueryChatStore = defineStore('queryChat', () => {
   }
 
   /** 处理 SSE 事件 */
-  function handleEvent(event: SSEEvent) {
+  function handleEvent(event: QueryChatSSEEvent) {
     switch (event.type) {
       case 'message_start':
         break
@@ -243,31 +255,31 @@ export const useQueryChatStore = defineStore('queryChat', () => {
       case 'retrieval_step':
         updateAssistant({
           retrievalInfo: {
-            results_count: (event as any).results_count ?? 0,
-            entity: (event as any).entity ?? '',
-            rewritten_query: (event as any).rewritten_query ?? '',
-            search_mode: (event as any).search_mode ?? '',
-            search_mode_hyde: (event as any).search_mode_hyde ?? '',
-            entity_mode: (event as any).entity_mode ?? 'none',
-            matched_entities: (event as any).matched_entities ?? [],
-            per_entity_counts: (event as any).per_entity_counts ?? {},
-            alias_trace: (event as any).alias_trace ?? [],
-            expanded_queries: (event as any).expanded_queries ?? [],
-            per_query_counts: (event as any).per_query_counts ?? {},
-            query_expansion_trace: (event as any).query_expansion_trace ?? [],
-            hop_plan: (event as any).hop_plan ?? 'direct',
-            hop_trace: (event as any).hop_trace ?? [],
-            retrieval_flavor: (event as any).retrieval_flavor ?? 'balanced',
-            strict_evidence: (event as any).strict_evidence ?? false,
-            query_plan: (event as any).query_plan ?? {},
-            fallback_info: (event as any).fallback_info ?? undefined,
+            results_count: event.results_count ?? 0,
+            entity: event.entity ?? '',
+            rewritten_query: event.rewritten_query ?? '',
+            search_mode: event.search_mode ?? '',
+            search_mode_hyde: event.search_mode_hyde ?? '',
+            entity_mode: event.entity_mode ?? 'none',
+            matched_entities: event.matched_entities ?? [],
+            per_entity_counts: event.per_entity_counts ?? {},
+            alias_trace: event.alias_trace ?? [],
+            expanded_queries: event.expanded_queries ?? [],
+            per_query_counts: event.per_query_counts ?? {},
+            query_expansion_trace: event.query_expansion_trace ?? [],
+            hop_plan: event.hop_plan ?? 'direct',
+            hop_trace: event.hop_trace ?? [],
+            retrieval_flavor: event.retrieval_flavor ?? 'balanced',
+            strict_evidence: event.strict_evidence ?? false,
+            query_plan: event.query_plan ?? {},
+            fallback_info: event.fallback_info ?? undefined,
           },
         })
         break
 
       case 'rerank':
         updateAssistant({
-          rerankItems: (event as any).results ?? [],
+          rerankItems: event.results ?? [],
         })
         break
 
@@ -275,7 +287,7 @@ export const useQueryChatStore = defineStore('queryChat', () => {
         {
           const msg = messages.value.find((m) => m.id === currentAssistantId)
           if (msg) {
-            msg.trace = { ...msg.trace, ...(event as any).trace }
+            msg.trace = { ...msg.trace, ...event.trace }
           }
         }
         break
@@ -284,25 +296,25 @@ export const useQueryChatStore = defineStore('queryChat', () => {
         {
           const msg = messages.value.find((m) => m.id === currentAssistantId)
           if (msg) {
-            msg.content += (event as any).content ?? ''
+            msg.content += event.content ?? ''
           }
         }
         break
 
       case 'citations':
         updateAssistant({
-          citations: (event as any).citations ?? [],
+          citations: event.citations ?? [],
         })
         break
 
       case 'groundedness':
         updateAssistant({
           groundedness: {
-            enabled: (event as any).enabled ?? false,
-            status: (event as any).status ?? 'unavailable',
-            groundedness_score: (event as any).groundedness_score ?? null,
-            claims: (event as any).claims ?? [],
-            warning: (event as any).warning ?? null,
+            enabled: event.enabled ?? false,
+            status: event.status ?? 'unavailable',
+            groundedness_score: event.groundedness_score ?? null,
+            claims: event.claims ?? [],
+            warning: event.warning ?? null,
           },
         })
         break
@@ -313,10 +325,10 @@ export const useQueryChatStore = defineStore('queryChat', () => {
 
       case 'error':
         {
-          const code = (event as any).code ?? 'UNKNOWN_ERROR'
+          const code = event.code ?? 'UNKNOWN_ERROR'
           error.value = {
             code,
-            message: (event as any).message ?? '未知错误',
+            message: event.message ?? '未知错误',
             hint: ERROR_HINTS[code] ?? '未知错误，请稍后重试',
           }
         }

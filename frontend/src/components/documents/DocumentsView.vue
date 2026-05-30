@@ -64,6 +64,7 @@
       <!-- 文档列表 -->
       <a-table
         :data="filteredDocs"
+        :loading="loading"
         :pagination="{ pageSize: 20 }"
         :bordered="false"
         row-key="document_id"
@@ -183,6 +184,7 @@ import {
   IconUpload,
   IconFile,
 } from '@arco-design/web-vue/es/icon'
+import { Message } from '@arco-design/web-vue'
 import type { FileItem } from '@arco-design/web-vue'
 import type { Document } from '../../api/documents'
 import { useResizableColumns } from '../../composables/useResizableColumns'
@@ -201,6 +203,7 @@ import {
 
 const router = useRouter()
 const docs = ref<Document[]>([])
+const loading = ref(false)
 const uploading = ref(false)
 const pendingFile = ref<File | null>(null)
 const pendingEntityName = ref('')
@@ -273,8 +276,15 @@ function openDocument(documentId: string) {
 }
 
 async function refresh() {
-  docs.value = await listDocuments()
-  startPolling()
+  loading.value = true
+  try {
+    docs.value = await listDocuments()
+    startPolling()
+  } catch (e: any) {
+    Message.error(e?.response?.data?.detail ?? '文档列表加载失败')
+  } finally {
+    loading.value = false
+  }
 }
 
 function startPolling() {
@@ -355,7 +365,7 @@ async function confirmUpload() {
     try { uploadRef.value?.clearFiles?.() } catch { /* ignore */ }
     await refresh()
   } catch (e: any) {
-    window.alert(e?.response?.data?.detail ?? '上传失败')
+    Message.error(e?.response?.data?.detail ?? '上传失败')
   } finally {
     uploading.value = false
   }
@@ -363,7 +373,7 @@ async function confirmUpload() {
 
 function handleEntityBlur(record: Document) {
   updateDocumentEntity(record.document_id, record.entity_name).catch((e: any) => {
-    window.alert(e?.response?.data?.detail ?? '更新失败')
+    Message.error(e?.response?.data?.detail ?? '更新失败')
   })
 }
 
@@ -374,7 +384,7 @@ async function handleProcess(docId: string) {
     await processDocument(docId)
     await refresh()
   } catch (e: any) {
-    window.alert(e?.response?.data?.detail ?? '启动处理失败')
+    Message.error(e?.response?.data?.detail ?? '启动处理失败')
   }
 }
 
@@ -383,7 +393,7 @@ async function handleRetry(docId: string) {
     await retryDocument(docId)
     await refresh()
   } catch (e: any) {
-    window.alert(e?.response?.data?.detail ?? '重试失败')
+    Message.error(e?.response?.data?.detail ?? '重试失败')
   }
 }
 
@@ -397,12 +407,12 @@ async function handleDelete(docId: string) {
       if (updated) {
         updated.cleanup_status = 'milvus_delete_failed'
       }
-      window.alert('向量数据清理未完成，文档已标记为"待清理"，可稍后点击"修复删除"')
+      Message.warning('向量数据清理未完成，文档已标记为"待清理"，可稍后点击"修复删除"')
     } else {
       docs.value = docs.value.filter((d) => d.document_id !== docId)
     }
   } catch (e: any) {
-    window.alert(e?.response?.data?.detail ?? '删除失败')
+    Message.error(e?.response?.data?.detail ?? '删除失败')
   }
 }
 
@@ -412,7 +422,7 @@ async function handleRepairDelete(docId: string) {
     stopPolling(docId)
     docs.value = docs.value.filter((d) => d.document_id !== docId)
   } catch (e: any) {
-    window.alert(e?.response?.data?.detail ?? '修复删除失败')
+    Message.error(e?.response?.data?.detail ?? '修复删除失败')
   }
 }
 

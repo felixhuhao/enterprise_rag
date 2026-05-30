@@ -21,12 +21,12 @@
       <template v-for="c in citations" :key="'img-' + c.id">
         <div v-if="c.image_paths?.length && c.document_id" class="citation-images">
           <img
-            v-for="imgPath in c.image_paths.slice(0, 3)"
+            v-for="imgPath in visibleImagePaths(c)"
             :key="imgPath"
-            :src="assetUrl(c.document_id, imgPath)"
+            :src="imageObjectUrl(c.document_id, imgPath)"
             class="citation-thumb"
             loading="lazy"
-            @click="previewSrc = assetUrl(c.document_id, imgPath)"
+            @click="openImagePreview(c.document_id, imgPath)"
             @error="($event.target as HTMLImageElement).style.display = 'none'"
           />
         </div>
@@ -40,15 +40,18 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { IconBookmark, IconDown, IconImage } from '@arco-design/web-vue/es/icon'
 import type { Citation } from '../../stores/queryChat'
+import apiClient from '../../api/client'
 
-defineProps<{ citations: Citation[] }>()
+const props = defineProps<{ citations: Citation[] }>()
 const expanded = ref(false)
 const previewSrc = ref('')
+const imageUrls = ref<Record<string, string>>({})
 const router = useRouter()
+let loadVersion = 0
 
 function openDocument(citation: Citation) {
   if (citation.document_id) {
@@ -65,15 +68,74 @@ function highlightQuery(citation: Citation) {
   return undefined
 }
 
-function assetUrl(documentId: string, imagePath: string): string {
-  // Backend serves: GET /api/documents/{document_id}/assets/{asset_path:path}?token=xxx
+function imageObjectUrl(documentId: string, imagePath: string): string {
+  return imageUrls.value[imageKey(documentId, imagePath)] || ''
+}
+
+function visibleImagePaths(citation: Citation): string[] {
+  const documentId = citation.document_id
+  if (!documentId) return []
+  return (citation.image_paths || [])
+    .slice(0, 3)
+    .filter((imagePath) => imageObjectUrl(documentId, imagePath))
+}
+
+function openImagePreview(documentId: string, imagePath: string) {
+  const url = imageObjectUrl(documentId, imagePath)
+  if (url) previewSrc.value = url
+}
+
+function imageKey(documentId: string, imagePath: string): string {
+  return `${documentId}::${imagePath}`
+}
+
+function assetApiPath(documentId: string, imagePath: string): string {
   const normalized = imagePath.replace(/\\/g, '/')
-  // Absolute path: extract part after /{document_id}/
   const idx = normalized.indexOf(`/${documentId}/`)
   const relativePath = idx >= 0 ? normalized.slice(idx + documentId.length + 2) : normalized
-  const token = localStorage.getItem('api_token') || ''
-  return `/api/documents/${documentId}/assets/${relativePath}${token ? `?token=${encodeURIComponent(token)}` : ''}`
+  const encodedPath = relativePath.split('/').map(encodeURIComponent).join('/')
+  return `/documents/${documentId}/assets/${encodedPath}`
 }
+
+async function loadCitationImages() {
+  const version = ++loadVersion
+  clearImageUrls()
+  const nextUrls: Record<string, string> = {}
+
+  for (const citation of props.citations) {
+    if (!citation.document_id || !citation.image_paths?.length) continue
+    for (const imagePath of citation.image_paths.slice(0, 3)) {
+      try {
+        const res = await apiClient.get(assetApiPath(citation.document_id, imagePath), {
+          responseType: 'blob',
+        })
+        const objectUrl = URL.createObjectURL(res.data)
+        if (version !== loadVersion) {
+          URL.revokeObjectURL(objectUrl)
+          continue
+        }
+        nextUrls[imageKey(citation.document_id, imagePath)] = objectUrl
+      } catch {
+        // Ignore broken citation thumbnails; the textual citation remains visible.
+      }
+    }
+  }
+
+  if (version === loadVersion) {
+    imageUrls.value = nextUrls
+  } else {
+    for (const url of Object.values(nextUrls)) URL.revokeObjectURL(url)
+  }
+}
+
+function clearImageUrls() {
+  for (const url of Object.values(imageUrls.value)) URL.revokeObjectURL(url)
+  imageUrls.value = {}
+  if (previewSrc.value.startsWith('blob:')) previewSrc.value = ''
+}
+
+watch(() => props.citations, () => { void loadCitationImages() }, { deep: true, immediate: true })
+onUnmounted(clearImageUrls)
 </script>
 
 <style scoped>

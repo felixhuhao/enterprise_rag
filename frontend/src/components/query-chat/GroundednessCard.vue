@@ -31,7 +31,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { IconCheckCircle, IconDown } from '@arco-design/web-vue/es/icon'
 import type { GroundednessResult } from '../../stores/queryChat'
 
@@ -39,11 +39,21 @@ const props = defineProps<{ result: GroundednessResult | null | undefined }>()
 
 const WARNING_THRESHOLD = 0.7
 
-const expanded = ref(
-  props.result != null && (
-    (props.result.groundedness_score != null && props.result.groundedness_score < WARNING_THRESHOLD)
-    || props.result.warning != null
-  ),
+const expanded = ref(shouldAutoExpand(props.result))
+
+function shouldAutoExpand(result: GroundednessResult | null | undefined): boolean {
+  return result != null && (
+    (result.groundedness_score != null && result.groundedness_score < WARNING_THRESHOLD)
+    || result.warning != null
+  )
+}
+
+watch(
+  () => props.result,
+  (result) => {
+    if (shouldAutoExpand(result)) expanded.value = true
+  },
+  { deep: true },
 )
 
 const summaryText = computed(() => {

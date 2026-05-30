@@ -49,6 +49,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { Message } from '@arco-design/web-vue'
 import { useAuthStore } from '../../stores/auth'
 import { getEvalStatus, runEval, type EvalSummary } from '../../api/adminEval'
 import { FLAVOR_KEYS, flavorLabel } from '../../utils/labelMaps'
@@ -57,7 +58,12 @@ const authStore = useAuthStore()
 const status = ref('idle')
 const summary = ref<EvalSummary | null>(null)
 const error = ref('')
-let timer: ReturnType<typeof setInterval> | null = null
+let timer: ReturnType<typeof setTimeout> | null = null
+let pollFailCount = 0
+
+const POLL_BASE_MS = 2000
+const POLL_MAX_MS = 10000
+const MAX_POLL_FAILS = 5
 
 const STATUS_LABELS: Record<string, string> = {
   idle: '空闲',
@@ -89,33 +95,63 @@ function percent(value: number | null | undefined): string {
   return `${(value * 100).toFixed(1)}%`
 }
 
-async function refresh() {
+async function refresh(): Promise<boolean> {
   try {
     const s = await getEvalStatus()
     status.value = s.status
     summary.value = s.summary
     error.value = s.error
+    pollFailCount = 0
+    return true
   } catch {
-    // keep existing UI state
+    pollFailCount += 1
+    if (status.value === 'running' && pollFailCount >= MAX_POLL_FAILS) {
+      status.value = 'failed'
+      error.value = '评估状态查询失败，请稍后重试'
+    }
+    return false
   }
 }
 
 async function onRun() {
+  clearPoll()
   status.value = 'running'
-  await runEval(false)
-  await refresh()
+  error.value = ''
+  pollFailCount = 0
+  try {
+    await runEval(false)
+    await refresh()
+    schedulePoll()
+  } catch (e: any) {
+    status.value = 'failed'
+    error.value = e?.response?.data?.detail || '评估启动失败'
+    Message.error(error.value)
+  }
 }
 
-onMounted(() => {
-  refresh()
-  timer = setInterval(() => {
-    if (status.value === 'running') refresh()
-  }, 2000)
+function schedulePoll() {
+  clearPoll()
+  if (status.value !== 'running') return
+  const delay = Math.min(POLL_BASE_MS * Math.max(1, pollFailCount + 1), POLL_MAX_MS)
+  timer = setTimeout(async () => {
+    await refresh()
+    schedulePoll()
+  }, delay)
+}
+
+function clearPoll() {
+  if (timer) {
+    clearTimeout(timer)
+    timer = null
+  }
+}
+
+onMounted(async () => {
+  await refresh()
+  schedulePoll()
 })
 
-onUnmounted(() => {
-  if (timer) clearInterval(timer)
-})
+onUnmounted(clearPoll)
 </script>
 
 <style scoped>

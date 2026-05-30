@@ -8,9 +8,14 @@
       <div class="hint-title">从知识库提问</div>
       <p>答案会附带检索链路、引用来源和耗时 trace。</p>
       <div class="sample-list">
-        <span>对比不同报告对中芯国际的观点</span>
-        <span>哪些报告提到了产能利用率？</span>
-        <span>2025Q1 营收变化的主要原因是什么？</span>
+        <button
+          v-for="sample in sampleQuestions"
+          :key="sample"
+          type="button"
+          @click="store.sendMessage(sample)"
+        >
+          {{ sample }}
+        </button>
       </div>
     </div>
     <template v-for="(msg, i) in messages" :key="msg.id">
@@ -76,6 +81,11 @@ const props = defineProps<{
 }>()
 
 const listRef = ref<HTMLElement | null>(null)
+const sampleQuestions = [
+  '对比不同报告对中芯国际的观点',
+  '哪些报告提到了产能利用率？',
+  '2025Q1 营收变化的主要原因是什么？',
+]
 
 /** Markdown 渲染 */
 function renderMarkdown(content: string) {
@@ -159,13 +169,19 @@ watch(() => props.messages, scrollToBottom, { deep: true })
   max-width: 680px;
   margin-top: 8px;
 }
-.sample-list span {
+.sample-list button {
   padding: 6px 10px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg-surface);
   color: var(--text-secondary);
   font-size: 12px;
+  cursor: pointer;
+}
+.sample-list button:hover {
+  color: var(--accent);
+  border-color: var(--border-accent);
+  background: var(--accent-subtle);
 }
 
 /* 消息气泡 */

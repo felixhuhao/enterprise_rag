@@ -5,6 +5,7 @@
  * 401 响应时清除本地 Token 提示用户重新设置
  */
 import axios from 'axios'
+import { Message } from '@arco-design/web-vue'
 
 const apiClient = axios.create({
   baseURL: '/api',     // 所有请求走 Vite proxy 代理到后端
@@ -26,7 +27,7 @@ apiClient.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('api_token')
-      window.alert('API Token 无效或已过期，请在侧边栏重新设置')
+      Message.error('API Token 无效或已过期，请在侧边栏重新设置')
     }
     return Promise.reject(error)
   },

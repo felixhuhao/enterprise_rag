@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
+import { Message } from '@arco-design/web-vue'
 import {
   getQueryStats,
   getQueryStatsTrend,
@@ -21,6 +22,7 @@ export const useQueryStatsStore = defineStore('queryStats', () => {
   const statsByStrict = ref<QueryStatsByStrict | null>(null)
   const records = ref<QueryStatsRecord[]>([])
   const recordsTotal = ref(0)
+  const error = ref<string | null>(null)
 
   async function fetchAll(filterUserId: string = '') {
     loading.value = true
@@ -38,15 +40,27 @@ export const useQueryStatsStore = defineStore('queryStats', () => {
       statsByStrict.value = bs
       records.value = r.records
       recordsTotal.value = r.total
+      error.value = null
+    } catch (e: any) {
+      const message = e?.response?.data?.detail || '质量统计加载失败'
+      error.value = message
+      Message.error(message)
     } finally {
       loading.value = false
     }
   }
 
   async function fetchRecords(page: number, filterUserId: string = '', flavor: string = '') {
-    const r = await getQueryStatsRecords(page, 15, filterUserId, flavor)
-    records.value = r.records
-    recordsTotal.value = r.total
+    try {
+      const r = await getQueryStatsRecords(page, 15, filterUserId, flavor)
+      records.value = r.records
+      recordsTotal.value = r.total
+      error.value = null
+    } catch (e: any) {
+      const message = e?.response?.data?.detail || '检索记录加载失败'
+      error.value = message
+      Message.error(message)
+    }
   }
 
   return {
@@ -57,6 +71,7 @@ export const useQueryStatsStore = defineStore('queryStats', () => {
     statsByStrict,
     records,
     recordsTotal,
+    error,
     fetchAll,
     fetchRecords,
   }
