@@ -25,4 +25,26 @@ def validate_citations_node(state: QueryState) -> dict:
             citation.update(context_map[cid])
             valid_citations.append(citation)
 
+    if not valid_citations and _should_fallback_to_context_citations(state):
+        valid_citations = _fallback_context_citations(context_map)
+
     return {"citations": valid_citations}
+
+
+def _should_fallback_to_context_citations(state: QueryState) -> bool:
+    """Discovery answers sometimes omit inline [C#]; still expose supporting sources."""
+    plan = state.get("query_plan") or {}
+    return (
+        plan.get("retrieval_flavor") == "discovery"
+        or state.get("hop_plan") == "discovery"
+        or state.get("entity_mode") == "multi_hop"
+    )
+
+
+def _fallback_context_citations(context_map: dict[str, dict], limit: int = 5) -> list[dict]:
+    citations = []
+    for cid, meta in list(context_map.items())[:limit]:
+        citation = {"id": cid}
+        citation.update(meta)
+        citations.append(citation)
+    return citations

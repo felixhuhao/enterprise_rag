@@ -67,6 +67,7 @@ docs/*
 !docs/evaluation.md
 !docs/DEVELOPMENT_CONTEXT.md
 !docs/query_flavor_roadmap.md
+!docs/smoke_test.md
 !docs/images/
 !docs/images/*.png
 docs/archive/
