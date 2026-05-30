@@ -124,7 +124,7 @@ const pageMeta = computed(() => {
     '/query-chat': { title: '知识查询', subtitle: '基于引用、检索链路和耗时追踪回答问题。' },
     '/documents': { title: '文档管理', subtitle: '上传、处理、重试和修复知识库文档。' },
     '/retrieval-test': { title: '检索测试', subtitle: '只运行召回和重排，检查 Top K chunks 与检索策略。' },
-    '/evaluate': { title: '运行监控', subtitle: '查询成功率、延迟、fallback、命中分布。' },
+    '/evaluate': { title: '运行监控', subtitle: '查询成功率、延迟、扩大范围比例、命中分布。' },
     '/evaluation': { title: '回归评测', subtitle: 'Golden Set 质量验证、pass rate、失败用例。' },
     '/settings': { title: '系统设置', subtitle: '配置模型、检索和运行时行为。' },
     '/acl-audit': { title: '权限审计', subtitle: '查看文档 ACL、owner/read 分配和清理状态。' },

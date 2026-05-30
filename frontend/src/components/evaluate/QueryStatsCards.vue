@@ -9,16 +9,16 @@
 
   <section v-if="flavorRows.length || strictRows.length" class="metric-section">
     <a-tabs default-active-key="flavor" size="small" animation>
-      <a-tab-pane key="flavor" title="按 Flavor">
+      <a-tab-pane key="flavor" title="按策略">
         <div class="metric-table">
           <div class="metric-row metric-header">
             <span>策略</span>
             <span>查询数</span>
             <span>成功率</span>
             <span>平均结果</span>
-            <span>平均 Rerank</span>
+            <span>平均相关性重排</span>
             <span>P95 延迟</span>
-            <span>Fallback</span>
+            <span>扩大范围</span>
           </div>
           <div class="metric-row" v-for="row in flavorRows" :key="row.key">
             <strong>{{ row.label }}</strong>
@@ -31,16 +31,16 @@
           </div>
         </div>
       </a-tab-pane>
-      <a-tab-pane key="strict" title="Strict Evidence">
+      <a-tab-pane key="strict" title="按证据模式">
         <div class="metric-table">
           <div class="metric-row metric-header">
             <span>证据策略</span>
             <span>查询数</span>
             <span>成功率</span>
             <span>平均结果</span>
-            <span>平均 Rerank</span>
+            <span>平均相关性重排</span>
             <span>P95 延迟</span>
-            <span>Fallback</span>
+            <span>扩大范围</span>
           </div>
           <div class="metric-row" v-for="row in strictRows" :key="row.key">
             <strong>{{ row.label }}</strong>
@@ -65,24 +65,13 @@ import type {
   QueryStatsByFlavor,
   QueryStatsByStrict,
 } from '../../api/queryStats'
+import { FLAVOR_KEYS, STRICT_MODE_LABELS, flavorLabel } from '../../utils/labelMaps'
 
 const props = defineProps<{
   stats: QueryStats | null
   byFlavor?: QueryStatsByFlavor | null
   byStrict?: QueryStatsByStrict | null
 }>()
-
-const flavorLabels: Record<string, string> = {
-  balanced: '标准问答',
-  exact: '精确查找',
-  recall: '全面查找',
-  discovery: '关联查找',
-}
-
-const strictLabels: Record<string, string> = {
-  non_strict: '非严格',
-  strict: '严格',
-}
 
 const emptyMetric: FlavorMetric = {
   count: 0,
@@ -103,18 +92,18 @@ const cards = computed(() => {
     { label: '总查询数', value: s.total_queries, precision: 0 },
     { label: '成功率', value: formatPercent(1 - s.failure_rate) },
     { label: '平均结果数', value: s.avg_result_count, precision: 1 },
-    { label: '平均 Rerank', value: s.avg_rerank_score, precision: 3 },
+    { label: '平均相关性重排', value: s.avg_rerank_score, precision: 3 },
     { label: 'P95 延迟', value: formatMs(s.p95_ms) },
-    { label: 'Fallback 比例', value: formatPercent(s.fallback_ratio) },
+    { label: '扩大范围比例', value: formatPercent(s.fallback_ratio) },
   ]
 })
 
 const flavorRows = computed<Array<{ key: string; label: string; stats: FlavorMetric }>>(() => {
   const stats = props.byFlavor
   if (!stats) return []
-  return (['balanced', 'exact', 'recall', 'discovery'] as const).map((key) => ({
+  return FLAVOR_KEYS.map((key) => ({
     key,
-    label: flavorLabels[key],
+    label: flavorLabel(key),
     stats: stats[key] ?? emptyMetric,
   }))
 })
@@ -124,7 +113,7 @@ const strictRows = computed<Array<{ key: string; label: string; stats: FlavorMet
   if (!stats) return []
   return (['non_strict', 'strict'] as const).map((key) => ({
     key,
-    label: strictLabels[key],
+    label: STRICT_MODE_LABELS[key],
     stats: stats[key] ?? emptyMetric,
   }))
 })

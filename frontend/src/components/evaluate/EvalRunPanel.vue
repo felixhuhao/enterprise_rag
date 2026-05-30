@@ -25,7 +25,7 @@
       </div>
 
       <div v-if="flavorRows.length" class="flavor-breakdown">
-        <div class="breakdown-title">按 Flavor</div>
+        <div class="breakdown-title">按策略</div>
         <div class="breakdown-grid">
           <div v-for="row in flavorRows" :key="row.key" class="breakdown-card">
             <span>{{ row.label }}</span>
@@ -37,7 +37,7 @@
       </div>
 
       <div v-if="summary.per_strict" class="strict-breakdown">
-        Strict：{{ summary.per_strict.count }} 题，
+        仅基于资料回答：{{ summary.per_strict.count }} 题，
         均分 {{ percent(summary.per_strict.avg_score) }}，
         通过 {{ percent(summary.per_strict.pass_rate) }}
       </div>
@@ -51,6 +51,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useAuthStore } from '../../stores/auth'
 import { getEvalStatus, runEval, type EvalSummary } from '../../api/adminEval'
+import { FLAVOR_KEYS, flavorLabel } from '../../utils/labelMaps'
 
 const authStore = useAuthStore()
 const status = ref('idle')
@@ -72,22 +73,15 @@ const BUTTON_LABELS: Record<string, string> = {
   failed: '重试评估',
 }
 
-const flavorLabels: Record<string, string> = {
-  balanced: '标准问答',
-  exact: '精确查找',
-  recall: '全面查找',
-  discovery: '关联查找',
-}
-
 const statusLabel = computed(() => STATUS_LABELS[status.value] ?? status.value)
 const buttonLabel = computed(() => BUTTON_LABELS[status.value] ?? '运行')
 
 const flavorRows = computed(() => {
   const data = summary.value?.per_flavor
   if (!data) return []
-  return (['balanced', 'exact', 'recall', 'discovery'] as const)
+  return FLAVOR_KEYS
     .filter((key) => data[key])
-    .map((key) => ({ key, label: flavorLabels[key], metric: data[key] }))
+    .map((key) => ({ key, label: flavorLabel(key), metric: data[key] }))
 })
 
 function percent(value: number | null | undefined): string {

@@ -8,10 +8,10 @@
     <!-- 收起状态：核心 tag -->
     <span class="tag">{{ info.results_count }} 条结果</span>
     <span v-if="entityTag.text" class="tag" :class="entityTag.cls">{{ entityTag.text }}</span>
-    <span v-if="info.search_mode" class="tag" :class="{ warn: combinedWarn }">
+    <span v-if="combinedSearchModeLabel" class="tag" :class="{ warn: combinedWarn }">
       {{ combinedSearchModeLabel }}
     </span>
-    <span v-if="expansionCount" class="tag accent">扩展查询 {{ expansionCount }}</span>
+    <span v-if="expansionCount" class="tag accent">{{ STRATEGY_LABELS.expansion }} {{ expansionCount }}</span>
     <span v-if="fallbackTag.text" class="tag" :class="fallbackTag.cls">
       {{ fallbackTag.text }}
     </span>
@@ -26,7 +26,7 @@
       <!-- Multi-hop trace -->
       <div v-if="info.hop_plan === 'discovery' && info.hop_trace?.length" class="hop-trace-panel">
         <div class="hop-trace-title" @click="showHopTrace = !showHopTrace">
-          检索跳转 (multi-hop)
+          多跳发现
           <span class="hop-count">{{ info.hop_trace.length }} hops</span>
         </div>
         <template v-if="showHopTrace">
@@ -112,7 +112,7 @@
               <td>{{ item.index }}</td>
               <td class="cell-ellipsis" :title="item.file_title">{{ item.file_title }}</td>
               <td class="cell-ellipsis" :title="item.section_title">{{ item.section_title || '—' }}</td>
-              <td>{{ item.source_type }}</td>
+              <td>{{ sourceTypeLabel(item.source_type) }}</td>
               <td>{{ item.llm_score }}</td>
               <td>{{ item.rrf_score }}</td>
               <td class="cell-score">{{ item.final_score }}</td>
@@ -127,17 +127,17 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { RetrievalInfo as RetrievalInfoType, RerankItem, TraceData } from '../../stores/queryChat'
+import { FALLBACK_LABELS, STRATEGY_LABELS, searchModeLabel, sourceTypeLabel } from '../../utils/labelMaps'
 
-/** 优先级：post_rerank > fallback > filtered > base */
 function resolveSearchMode(mode: string, modeHyde: string): { label: string; warn: boolean } {
   const all = [mode, modeHyde].filter(Boolean)
-  const hasPattern = (p: string) => all.some(s => s.includes(p))
-
-  if (hasPattern('post_rerank_fallback')) return { label: '混合搜索(Rerank回退)', warn: true }
-  if (hasPattern('fallback')) return { label: '混合搜索(回退全量)', warn: true }
-  if (hasPattern('filtered')) return { label: '混合搜索(已过滤)', warn: false }
-  if (all.length > 0) return { label: '混合搜索', warn: false }
-  return { label: '', warn: false }
+  const labels = all
+    .map((item) => searchModeLabel(item))
+    .filter((label) => label && label !== '—' && label !== '已关闭')
+  return {
+    label: Array.from(new Set(labels)).join(' + '),
+    warn: all.some((item) => item.includes('fallback')),
+  }
 }
 
 const props = withDefaults(defineProps<{
@@ -157,8 +157,8 @@ const combinedWarn = computed(() => resolved.value.warn)
 
 const fallbackTag = computed(() => {
   const info = props.info.fallback_info
-  if (info?.used) return { text: '已扩大查找范围', cls: 'warn' }
-  if (info?.blocked) return { text: '未扩大查找范围', cls: 'blocked' }
+  if (info?.used) return { text: FALLBACK_LABELS.used, cls: 'warn' }
+  if (info?.blocked) return { text: FALLBACK_LABELS.blocked, cls: 'blocked' }
   return { text: '', cls: '' }
 })
 
@@ -251,12 +251,12 @@ const traceRows = computed<TraceRow[]>(() => {
   const rows: TraceRow[] = []
   if (t.entity_confirm_ms != null) rows.push({ label: '主体确认', value: entityTag.value.text || undefined, ms: t.entity_confirm_ms })
   if (t.rewrite_ms != null) rows.push({ label: '查询改写', value: props.info.rewritten_query || undefined, ms: t.rewrite_ms })
-  if (t.search_hyde_ms != null) rows.push({ label: expansionCount.value ? '搜索 + 扩展查询' : '搜索 + HyDE (并行)', ms: t.search_hyde_ms })
+  if (t.search_hyde_ms != null) rows.push({ label: expansionCount.value ? `搜索 + ${STRATEGY_LABELS.expansion}` : '搜索 + 假设文档（并行）', ms: t.search_hyde_ms })
   if (t.rrf_fusion_ms != null) rows.push({ label: 'RRF 融合', ms: t.rrf_fusion_ms })
   if (t.table_expand_ms != null) rows.push({ label: '表格扩展', ms: t.table_expand_ms })
-  if (t.rerank_ms != null) rows.push({ label: 'Rerank', ms: t.rerank_ms })
-  if (t.post_rerank_fallback_ms != null) rows.push({ label: 'Post-rerank Fallback', ms: t.post_rerank_fallback_ms })
-  if (t.context_expand_ms != null) rows.push({ label: '上下文扩展', ms: t.context_expand_ms })
+  if (t.rerank_ms != null) rows.push({ label: STRATEGY_LABELS.rerankOn, ms: t.rerank_ms })
+  if (t.post_rerank_fallback_ms != null) rows.push({ label: '重排后扩大范围', ms: t.post_rerank_fallback_ms })
+  if (t.context_expand_ms != null) rows.push({ label: STRATEGY_LABELS.contextExpand, ms: t.context_expand_ms })
   if (t.build_prompt_ms != null) rows.push({ label: 'Prompt 构建', ms: t.build_prompt_ms })
   return rows
 })

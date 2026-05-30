@@ -1,5 +1,5 @@
 <!--
-  Groundedness Card — 答案依据覆盖检查结果。
+  资料支持度卡片 — 答案依据覆盖检查结果。
   收起态显示分数摘要，展开态列 claims。
   低分或 warning 时默认展开。
 -->
@@ -48,13 +48,13 @@ const expanded = ref(
 
 const summaryText = computed(() => {
   if (!props.result) return ''
-  if (props.result.status === 'skipped') return '依据覆盖检查已跳过'
-  if (props.result.status === 'unavailable') return '依据覆盖检查失败'
+  if (props.result.status === 'skipped') return '资料支持度检查已跳过'
+  if (props.result.status === 'unavailable') return '资料支持度检查失败'
   const score = props.result.groundedness_score
-  if (score == null) return '依据覆盖：不适用'
+  if (score == null) return '资料支持度：不适用'
   const pct = Math.round(score * 100)
   const total = props.result.claims.length
-  return `依据覆盖：${pct}%  ${total} claims`
+  return `资料支持度：${pct}%  ${total} 条主张`
 })
 
 const VERDICT_LABELS: Record<string, string> = {

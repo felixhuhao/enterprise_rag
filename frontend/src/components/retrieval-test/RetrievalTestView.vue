@@ -49,22 +49,22 @@
           </div>
           <div class="strategy-tags">
             <a-tag :color="response.strategy.hybrid ? 'arcoblue' : 'gray'">
-              {{ response.strategy.hybrid ? 'Hybrid' : 'Dense Only' }}
+              {{ response.strategy.hybrid ? STRATEGY_LABELS.hybridOn : STRATEGY_LABELS.hybridOff }}
             </a-tag>
             <a-tag :color="response.strategy.hyde ? 'purple' : 'gray'">
-              HyDE {{ response.strategy.hyde ? '开启' : '关闭' }}
+              {{ response.strategy.hyde ? STRATEGY_LABELS.hydeOn : STRATEGY_LABELS.hydeOff }}
             </a-tag>
             <a-tag v-if="response.strategy.query_expansion" color="arcoblue">
-              扩展查询 {{ queryExpansionCount }}
+              {{ STRATEGY_LABELS.expansion }} {{ queryExpansionCount }}
             </a-tag>
             <a-tag :color="response.strategy.rerank ? 'green' : 'gray'">
-              重排 {{ response.strategy.rerank ? '开启' : '关闭' }}
+              {{ response.strategy.rerank ? STRATEGY_LABELS.rerankOn : STRATEGY_LABELS.rerankOff }}
             </a-tag>
             <a-tag :color="response.strategy.fallback ? 'orange' : 'gray'">
-              {{ response.strategy.fallback ? '已回退' : '无回退' }}
+              {{ response.strategy.fallback ? FALLBACK_LABELS.used : '未扩大范围' }}
             </a-tag>
             <a-tag v-if="response.fallback_info?.blocked" color="red">
-              回退已阻止
+              {{ FALLBACK_LABELS.blocked }}
             </a-tag>
           </div>
         </div>
@@ -121,7 +121,7 @@
 
         <div v-if="queryExpansionEntries.length" class="expansion-panel">
           <div class="expansion-head">
-            <span>扩展查询</span>
+            <span>{{ STRATEGY_LABELS.expansion }}</span>
             <strong>{{ queryExpansionCount }} 条</strong>
           </div>
           <div class="expansion-list">
@@ -182,7 +182,7 @@
             <p v-else>展示检索、融合、表格展开和重排后的候选 chunks。</p>
           </div>
           <div class="trace-mini">
-            <span v-if="response.trace.context_expand_ms != null">上下文扩展 {{ response.trace.context_expand_ms }}ms</span>
+            <span v-if="response.trace.context_expand_ms != null">{{ STRATEGY_LABELS.contextExpand }} {{ response.trace.context_expand_ms }}ms</span>
             <span v-if="response.trace.multi_hop_ms != null">关联 {{ response.trace.multi_hop_ms }}ms</span>
             <span v-else>搜索 {{ response.trace.search_hyde_ms ?? 0 }}ms</span>
             <span v-if="response.trace.rrf_fusion_ms != null">融合 {{ response.trace.rrf_fusion_ms }}ms</span>
@@ -204,7 +204,7 @@
               </template>
             </a-table-column>
 
-            <a-table-column title="来源" :width="260">
+            <a-table-column title="来源" :width="150">
               <template #cell="{ record }">
                 <div class="source-cell">
                   <button type="button" @click="openDocument(record)">
@@ -221,20 +221,21 @@
               </template>
             </a-table-column>
 
-            <a-table-column title="路径" :width="170">
+            <a-table-column title="路径" :width="86">
               <template #cell="{ record }">
-                <a-tag color="arcoblue" size="small">{{ record.retrieval_path }}</a-tag>
-                <a-tag
-                  v-if="record.context_expanded_chunk_ids?.length"
-                  color="green"
-                  size="small"
-                >
-                  扩展 {{ record.context_expanded_chunk_ids.join(', ') }}
-                </a-tag>
+                <div class="path-cell">
+                  <span class="path-pill">{{ retrievalPathLabel(record.retrieval_path) }}</span>
+                  <span
+                    v-if="record.context_expanded_chunk_ids?.length"
+                    class="path-pill expanded"
+                  >
+                    补充 {{ record.context_expanded_chunk_ids.join(', ') }}
+                  </span>
+                </div>
               </template>
             </a-table-column>
 
-            <a-table-column title="分数" :width="116" align="center">
+            <a-table-column title="分数" :width="82" align="center">
               <template #cell="{ record }">
                 <div class="score-cell">
                   <strong>{{ formatScore(record.final_score ?? record.score) }}</strong>
@@ -281,6 +282,15 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { IconSearch } from '@arco-design/web-vue/es/icon'
+import {
+  FALLBACK_LABELS,
+  FLAVOR_OPTIONS,
+  STRATEGY_LABELS,
+  flavorLabel,
+  retrievalPathLabel,
+  searchModeLabel,
+  sourceTypeLabel,
+} from '../../utils/labelMaps'
 
 defineOptions({ name: 'RetrievalTestView' })
 import type { HopTraceEntry, RetrievalBudget, RetrievalTestResponse } from '../../api/retrievalTest'
@@ -302,16 +312,11 @@ interface QueryExpansionRow {
   count: number
 }
 
-const flavorModes = [
-  { id: 'balanced', name: '标准问答', desc: '平衡速度和准确率，适合日常资料问答' },
-  { id: 'exact', name: '精确查找', desc: '优先匹配条款、金额、日期和明确事实' },
-  { id: 'recall', name: '全面查找', desc: '扩大召回范围，适合模糊或同义表达' },
-  { id: 'discovery', name: '关联查找', desc: '先发现相关实体，再按实体查找证据' },
-]
+const flavorModes = FLAVOR_OPTIONS
 
 const budgetFields: Array<{ key: keyof RetrievalBudget; label: string }> = [
   { key: 'search_limit', label: '主检索' },
-  { key: 'hyde_limit', label: 'HyDE' },
+  { key: 'hyde_limit', label: '假设文档' },
   { key: 'rrf_top_k', label: '融合' },
   { key: 'rerank_candidate_k', label: '重排候选' },
   { key: 'final_context_k', label: '最终上下文' },
@@ -322,9 +327,9 @@ const budgetFields: Array<{ key: keyof RetrievalBudget; label: string }> = [
 const strategyText = computed(() => {
   if (!response.value) return ''
   const s = response.value.strategy
-  const weights = s.hybrid ? `Dense ${s.dense_weight} / Sparse ${s.sparse_weight}` : 'Dense 1.0'
+  const weights = s.hybrid ? `语义 ${s.dense_weight} / 关键词 ${s.sparse_weight}` : '语义 1.0'
   const mode = flavorLabel(response.value.retrieval_flavor || s.retrieval_flavor)
-  return `${mode}，Top ${s.top_k}，${weights}，主检索：${s.search_mode || '—'}，HyDE：${s.search_mode_hyde || '—'}`
+  return `${mode}，Top ${s.top_k}，${weights}，主检索：${searchModeLabel(s.search_mode)}，假设文档：${searchModeLabel(s.search_mode_hyde)}`
 })
 
 const queryBudget = computed<RetrievalBudget | null>(() => response.value?.query_plan?.budget ?? null)
@@ -493,28 +498,8 @@ function expansionLabel(label: string) {
   return label
 }
 
-function flavorLabel(flavor: string) {
-  const map: Record<string, string> = {
-    balanced: '标准问答',
-    exact: '精确查找',
-    recall: '全面查找',
-    discovery: '关联查找',
-  }
-  return map[flavor] ?? flavor
-}
-
 function sourceTypeColor(sourceType: string) {
   return sourceType.startsWith('table_') ? 'orange' : 'arcoblue'
-}
-
-function sourceTypeLabel(sourceType: string) {
-  const map: Record<string, string> = {
-    text: '文本',
-    table_summary: '表格摘要',
-    table_full: '完整表格',
-    table_row_group: '表格行组',
-  }
-  return map[sourceType] ?? (sourceType || '未知')
 }
 
 function filterToScope(filter: string) {
@@ -1002,27 +987,61 @@ function filterToScope(filter: string) {
 
 .source-cell button {
   display: block;
-  max-width: 230px;
+  max-width: 100%;
   border: none;
   background: transparent;
   padding: 0;
   color: var(--accent);
   cursor: pointer;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+  word-break: break-word;
   font-size: 13px;
+  line-height: 1.35;
+  text-align: left;
 }
 
 .source-cell span {
   display: block;
   margin-top: 4px;
-  max-width: 230px;
+  max-width: 100%;
   color: var(--text-muted);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: normal;
+  word-break: break-word;
   font-size: 12px;
+  line-height: 1.35;
+}
+
+.path-cell {
+  display: grid;
+  gap: 4px;
+}
+
+.path-pill {
+  display: inline-block;
+  max-width: 100%;
+  padding: 2px 5px;
+  border-radius: 4px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.path-pill.expanded {
+  color: #166534;
+  border-color: #bbf7d0;
+  background: #f0fdf4;
 }
 
 .score-cell strong,

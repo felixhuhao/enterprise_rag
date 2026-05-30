@@ -47,7 +47,7 @@
     <div v-if="showDebug" class="debug-panel">
       <div class="debug-title">检索调试</div>
       <label class="debug-row">
-        <span>Groundedness 检查</span>
+        <span>资料支持度检查</span>
         <a-switch :model-value="store.debugConfig.use_groundedness"
                   @change="store.debugConfig.use_groundedness = $event as boolean" size="small" />
       </label>
@@ -79,16 +79,12 @@ import { onBeforeUnmount, ref } from 'vue'
 import { useQueryChatStore } from '../../stores/queryChat'
 import QueryMessageList from './QueryMessageList.vue'
 import QueryChatInput from './QueryChatInput.vue'
+import { FLAVOR_OPTIONS } from '../../utils/labelMaps'
 
 const store = useQueryChatStore()
 const showDetail = ref(false)
 const showDebug = ref(false)
-const flavorModes = [
-  { id: 'balanced', name: '标准问答', desc: '平衡速度和准确率，适合日常资料问答' },
-  { id: 'exact', name: '精确查找', desc: '优先匹配条款、金额、日期和明确事实' },
-  { id: 'recall', name: '全面查找', desc: '扩大召回范围，适合模糊或同义表达' },
-  { id: 'discovery', name: '关联查找', desc: '先发现相关实体，再按实体查找证据' },
-]
+const flavorModes = FLAVOR_OPTIONS
 
 function onSend(text: string) {
   store.sendMessage(text)

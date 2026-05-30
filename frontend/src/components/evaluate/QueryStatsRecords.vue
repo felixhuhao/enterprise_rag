@@ -2,67 +2,72 @@
   <div class="records-card">
     <div class="records-head">
       <div class="records-title">检索记录</div>
-      <a-select
-        :model-value="flavorFilter"
-        :style="{ width: '150px' }"
-        size="small"
-        placeholder="Flavor"
-        allow-clear
-        @change="onFlavorChange"
-      >
-        <a-option value="">全部 Flavor</a-option>
-        <a-option value="balanced">标准问答</a-option>
-        <a-option value="exact">精确查找</a-option>
-        <a-option value="recall">全面查找</a-option>
-        <a-option value="discovery">关联查找</a-option>
-      </a-select>
+      <div class="records-actions">
+        <a-button size="mini" @click="recordColumns.resetColumnWidths()">重置列宽</a-button>
+        <a-select
+          :model-value="flavorFilter"
+          :style="{ width: '150px' }"
+          size="small"
+          placeholder="策略"
+          allow-clear
+          @change="onFlavorChange"
+        >
+          <a-option value="">全部策略</a-option>
+          <a-option v-for="mode in FLAVOR_OPTIONS" :key="mode.id" :value="mode.id">
+            {{ mode.name }}
+          </a-option>
+        </a-select>
+      </div>
     </div>
 
     <a-table
       :data="records"
-      :pagination="{ current: currentPage, total, pageSize: 20, showTotal: true }"
+      :pagination="{ current: currentPage, total, pageSize: 15, showTotal: true }"
       row-key="id"
+      class="records-table"
+      column-resizable
+      @column-resize="recordColumns.onColumnResize"
       @page-change="onPageChange"
     >
       <template #columns>
-        <a-table-column title="时间" :width="172">
+        <a-table-column title="时间" data-index="created_at" :width="recordColumns.columnWidth('created_at')">
           <template #cell="{ record }">
             <span class="time-cell">{{ formatTime(record.created_at) }}</span>
           </template>
         </a-table-column>
-        <a-table-column title="问题" :width="300" :ellipsis="true">
+        <a-table-column title="问题" data-index="query" :width="recordColumns.columnWidth('query')" :ellipsis="true">
           <template #cell="{ record }">
             <span class="query-cell" :title="record.query">{{ record.query }}</span>
           </template>
         </a-table-column>
-        <a-table-column title="状态" :width="76">
+        <a-table-column title="状态" data-index="status" :width="recordColumns.columnWidth('status')">
           <template #cell="{ record }">
             <span class="status-tag" :class="statusClass(record.status)" :title="record.error_code || undefined">
               {{ statusLabel(record.status) }}
             </span>
           </template>
         </a-table-column>
-        <a-table-column title="Flavor" :width="90">
+        <a-table-column title="策略" data-index="retrieval_flavor" :width="recordColumns.columnWidth('retrieval_flavor')">
           <template #cell="{ record }">
             <span class="flavor-tag" :class="'flavor-' + flavorValue(record)">
               {{ flavorLabel(record.retrieval_flavor) }}
             </span>
           </template>
         </a-table-column>
-        <a-table-column title="Strict" :width="72" align="center">
+        <a-table-column title="仅资料" data-index="strict_evidence" :width="recordColumns.columnWidth('strict_evidence')" align="center">
           <template #cell="{ record }">
             <span class="strict-tag" :class="{ on: !!record.strict_evidence }">
               {{ record.strict_evidence ? '是' : '否' }}
             </span>
           </template>
         </a-table-column>
-        <a-table-column title="结果" data-index="result_count" :width="68" />
-        <a-table-column title="Rerank" :width="90">
+        <a-table-column title="结果" data-index="result_count" :width="recordColumns.columnWidth('result_count')" />
+        <a-table-column title="相关性重排" data-index="rerank_avg_score" :width="recordColumns.columnWidth('rerank_avg_score')">
           <template #cell="{ record }">
             <span class="quality-cell">{{ formatRerank(record.rerank_avg_score) }}</span>
           </template>
         </a-table-column>
-        <a-table-column title="耗时" :width="68">
+        <a-table-column title="耗时" data-index="total_ms" :width="recordColumns.columnWidth('total_ms')">
           <template #cell="{ record }">
             <span v-if="record.total_ms" class="time-ms" :title="timingTitle(record)">
               {{ formatMs(record.total_ms) }}
@@ -70,7 +75,13 @@
             <span v-else class="time-dash">-</span>
           </template>
         </a-table-column>
-        <a-table-column title="命中" :width="80" align="center">
+        <a-table-column data-index="hits" :width="recordColumns.columnWidth('hits')" align="center">
+          <template #title>
+            <span class="resize-title center">
+              命中
+              <span class="manual-resize-handle" @mousedown="recordColumns.startResize('hits', $event)" />
+            </span>
+          </template>
           <template #cell="{ record }">
             <button v-if="hasChunks(record)" class="hits-btn" @click="openHits(record)">查看</button>
             <span v-else class="hits-empty">-</span>
@@ -90,10 +101,10 @@
       @cancel="drawerOpen = false"
     >
       <div v-if="drawerRecord" class="run-summary">
-        <span>Flavor: {{ flavorLabel(drawerRecord.retrieval_flavor) }}</span>
-        <span>Strict: {{ drawerRecord.strict_evidence ? '是' : '否' }}</span>
-        <span>模式: {{ drawerRecord.search_mode || '-' }}</span>
-        <span>HyDE: {{ drawerRecord.search_mode_hyde || '-' }}</span>
+        <span>策略：{{ flavorLabel(drawerRecord.retrieval_flavor) }}</span>
+        <span>仅基于资料回答：{{ drawerRecord.strict_evidence ? '是' : '否' }}</span>
+        <span>主检索：{{ searchModeLabel(drawerRecord.search_mode) }}</span>
+        <span>假设文档：{{ searchModeLabel(drawerRecord.search_mode_hyde) }}</span>
       </div>
       <div v-if="drawerError" class="drawer-error">{{ drawerError }}</div>
       <div v-else-if="!drawerChunks.length" class="drawer-empty">暂无命中记录</div>
@@ -171,6 +182,8 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { QueryStatsRecord, RetrievedChunkItem } from '../../api/queryStats'
+import { useResizableColumns } from '../../composables/useResizableColumns'
+import { FLAVOR_OPTIONS, flavorLabel, retrievalPathLabel, searchModeLabel } from '../../utils/labelMaps'
 
 defineProps<{
   records: QueryStatsRecord[]
@@ -189,6 +202,17 @@ const drawerOpen = ref(false)
 const drawerRecord = ref<QueryStatsRecord | null>(null)
 const drawerChunks = ref<RetrievedChunkItem[]>([])
 const drawerError = ref('')
+const recordColumns = useResizableColumns('enterprise-rag:query-stats-records:v1', {
+  created_at: 172,
+  query: 276,
+  status: 74,
+  retrieval_flavor: 86,
+  strict_evidence: 88,
+  result_count: 68,
+  rerank_avg_score: 108,
+  total_ms: 68,
+  hits: 80,
+})
 
 function onPageChange(page: number) {
   emit('page-change', page)
@@ -248,7 +272,7 @@ function formatLocation(record: RetrievedChunkItem): string {
 }
 
 function formatPath(record: RetrievedChunkItem): string {
-  return record.retrieval_path || record.stage || '主检索'
+  return retrievalPathLabel(record.retrieval_path || record.stage || 'primary')
 }
 
 function formatScore(score?: number | null): string {
@@ -285,16 +309,6 @@ function formatTime(value: string) {
 
 function flavorValue(record: QueryStatsRecord): string {
   return record.retrieval_flavor || 'balanced'
-}
-
-function flavorLabel(flavor: string): string {
-  const map: Record<string, string> = {
-    balanced: '标准问答',
-    exact: '精确查找',
-    recall: '全面查找',
-    discovery: '关联查找',
-  }
-  return map[flavor || 'balanced'] ?? flavor
 }
 
 function formatRerank(value?: number | null): string {
@@ -352,6 +366,41 @@ function statusClass(status: string): string {
   font-size: 13px;
   font-weight: 700;
   color: var(--text-secondary);
+}
+
+.records-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.records-table :deep(.arco-table-th) {
+  white-space: nowrap;
+}
+
+.resize-title {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+
+.resize-title.center {
+  justify-content: center;
+}
+
+.manual-resize-handle {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  bottom: -8px;
+  width: 8px;
+  cursor: col-resize;
+}
+
+.manual-resize-handle:hover {
+  background: rgba(37, 99, 235, 0.08);
 }
 
 .time-cell {

@@ -6,7 +6,7 @@
     <div class="evaluate-header">
       <div>
         <h3>查询质量与运行状态</h3>
-        <p>跟踪成功率、未完成率、fallback、rerank 分数和端到端耗时。</p>
+        <p>跟踪成功率、未完成率、扩大范围比例、相关性重排分数和端到端耗时。</p>
       </div>
       <a-select v-if="authStore.isAdmin" v-model="filterUserId" :style="{ width: '160px' }" size="small"
                 placeholder="筛选记录用户" @change="onFilterChange" allow-clear>

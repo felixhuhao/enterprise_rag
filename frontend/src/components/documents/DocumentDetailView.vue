@@ -177,6 +177,7 @@ import type { TableData } from '@arco-design/web-vue/es/table/interface'
 import type { Document, DocumentChunk, DocumentChunksSource } from '../../api/documents'
 import { getDocumentChunks, getRelatedDocuments } from '../../api/documents'
 import { ERROR_HINTS } from '../../utils/errorHints'
+import { sourceTypeLabel } from '../../utils/labelMaps'
 
 const route = useRoute()
 const router = useRouter()
@@ -245,16 +246,6 @@ function statusLabel(status: string) {
 
 function statusColor(status: string) {
   return STATUS_MAP[status]?.color ?? 'gray'
-}
-
-function sourceTypeLabel(sourceType: string) {
-  const map: Record<string, string> = {
-    text: '文本',
-    table_summary: '表格摘要',
-    table_full: '完整表格',
-    table_row_group: '表格行组',
-  }
-  return map[sourceType] ?? sourceType
 }
 
 function sourceTypeColor(sourceType: string) {

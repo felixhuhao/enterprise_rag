@@ -11,6 +11,9 @@
           <h3>文档管理</h3>
           <p class="documents-desc">上传 PDF 或 Markdown 文档，解析后写入向量知识库</p>
         </div>
+        <div class="documents-header-actions">
+          <a-button size="mini" @click="documentColumns.resetColumnWidths()">重置列宽</a-button>
+        </div>
       </div>
 
       <div class="summary-row">
@@ -77,9 +80,11 @@
         :bordered="false"
         row-key="document_id"
         class="doc-table"
+        column-resizable
+        @column-resize="documentColumns.onColumnResize"
       >
         <template #columns>
-          <a-table-column title="文件名" data-index="filename">
+          <a-table-column title="文件名" data-index="filename" :width="documentColumns.columnWidth('filename')">
             <template #cell="{ record }">
               <button class="doc-name doc-link" type="button" @click="openDocument(record.document_id)">
                 <icon-file class="doc-icon" :style="{ color: record.file_type === 'pdf' ? 'var(--error)' : 'var(--accent)' }" />
@@ -88,7 +93,7 @@
             </template>
           </a-table-column>
 
-          <a-table-column title="状态" data-index="status" :width="100" align="center">
+          <a-table-column title="状态" data-index="status" :width="documentColumns.columnWidth('status')" align="center">
             <template #cell="{ record }">
               <a-tag v-if="record.cleanup_status === 'milvus_delete_failed'" color="orangered" size="small">
                 待清理
@@ -99,7 +104,7 @@
             </template>
           </a-table-column>
 
-          <a-table-column title="文档主体" data-index="entity_name" :width="180">
+          <a-table-column title="文档主体" data-index="entity_name" :width="documentColumns.columnWidth('entity_name')">
             <template #cell="{ record }">
               <a-input
                 v-if="record.status === 'uploaded' && record.cleanup_status !== 'milvus_delete_failed'"
@@ -113,16 +118,22 @@
             </template>
           </a-table-column>
 
-          <a-table-column title="Chunks" data-index="chunk_count" :width="80" align="center" />
-          <a-table-column title="图片" data-index="image_count" :width="70" align="center" />
+          <a-table-column title="Chunks" data-index="chunk_count" :width="documentColumns.columnWidth('chunk_count')" align="center" />
+          <a-table-column title="图片" data-index="image_count" :width="documentColumns.columnWidth('image_count')" align="center" />
 
-          <a-table-column title="上传时间" data-index="created_at" :width="180">
+          <a-table-column title="上传时间" data-index="created_at" :width="documentColumns.columnWidth('created_at')">
             <template #cell="{ record }">
               {{ formatTime(record.created_at) }}
             </template>
           </a-table-column>
 
-          <a-table-column title="操作" :width="180" align="center">
+          <a-table-column data-index="actions" :width="documentColumns.columnWidth('actions')" align="center">
+            <template #title>
+              <span class="resize-title center">
+                操作
+                <span class="manual-resize-handle" @mousedown="documentColumns.startResize('actions', $event)" />
+              </span>
+            </template>
             <template #cell="{ record }">
               <a-space>
                 <!-- cleanup_status 优先：待清理状态只显示修复删除 -->
@@ -185,6 +196,7 @@ import {
 } from '@arco-design/web-vue/es/icon'
 import type { FileItem } from '@arco-design/web-vue'
 import type { Document } from '../../api/documents'
+import { useResizableColumns } from '../../composables/useResizableColumns'
 import { ERROR_HINTS } from '../../utils/errorHints'
 import {
   listDocuments,
@@ -206,6 +218,15 @@ const pendingEntityName = ref('')
 const pollingIds = ref<Map<string, number>>(new Map())
 const uploadRef = ref<any>(null)
 const statusFilter = ref('all')
+const documentColumns = useResizableColumns('enterprise-rag:documents:v1', {
+  filename: undefined,
+  status: 100,
+  entity_name: 170,
+  chunk_count: 80,
+  image_count: 70,
+  created_at: 160,
+  actions: 180,
+})
 
 const BUSY_STATUSES = ['processing', 'parsing', 'reading', 'normalizing', 'chunking', 'embedding', 'saving']
 
@@ -450,6 +471,12 @@ onUnmounted(() => {
   color: var(--text-muted);
 }
 
+.documents-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .summary-row {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -550,6 +577,32 @@ onUnmounted(() => {
 .doc-table {
   margin-bottom: 16px;
 }
+
+.resize-title {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+
+.resize-title.center {
+  justify-content: center;
+}
+
+.manual-resize-handle {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  bottom: -8px;
+  width: 8px;
+  cursor: col-resize;
+}
+
+.manual-resize-handle:hover {
+  background: rgba(37, 99, 235, 0.08);
+}
+
 .doc-name {
   display: inline-flex;
   align-items: center;
