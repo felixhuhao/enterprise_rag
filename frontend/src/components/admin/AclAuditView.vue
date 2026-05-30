@@ -3,13 +3,6 @@
 -->
 <template>
   <div class="acl-page">
-    <div class="acl-header">
-      <div>
-        <h3>权限审计</h3>
-        <p>查看每个文档的访问权限分配。</p>
-      </div>
-    </div>
-
     <div v-if="!authStore.isAdmin" class="acl-forbidden">
       <a-empty description="仅管理员可查看权限审计" />
     </div>
@@ -22,29 +15,31 @@
         </span>
       </div>
       <div v-if="data" class="acl-table-wrap">
-        <a-table :data="data.documents" :pagination="{ pageSize: 20 }" row-key="document_id" size="small">
+        <a-table :data="data.documents" :pagination="{ pageSize: 20 }" row-key="document_id" size="small" :bordered="false">
           <template #columns>
             <a-table-column title="文档" data-index="filename" :ellipsis="true" />
-            <a-table-column title="主体" data-index="entity_name" :width="100" />
-            <a-table-column title="状态" :width="100">
+            <a-table-column title="主体" data-index="entity_name" :width="120" />
+            <a-table-column title="状态" :width="92" align="center">
               <template #cell="{ record }">
                 <a-tag :color="statusColor(record.status)" size="small">
                   {{ statusLabel(record.status) }}
                 </a-tag>
 	            </template>
             </a-table-column>
-            <a-table-column title="清理" :width="80">
+            <a-table-column title="清理" :width="72" align="center">
               <template #cell="{ record }">
                 <span v-if="record.cleanup_status === 'milvus_delete_failed'" class="cleanup-warn">待清理</span>
                 <span v-else class="cleanup-ok">—</span>
               </template>
             </a-table-column>
-            <a-table-column title="权限">
+            <a-table-column title="权限" :width="420">
               <template #cell="{ record }">
-                <span v-if="!record.permissions.length" class="perm-empty">未授权</span>
-                <span v-for="p in record.permissions" :key="p.user_id" class="perm-tag" :class="'perm-' + p.permission">
-                  {{ p.username }}({{ permLabel(p.permission) }})
-                </span>
+                <div class="perm-list">
+                  <span v-if="!record.permissions.length" class="perm-empty">未授权</span>
+                  <span v-for="p in record.permissions" :key="p.user_id" class="perm-tag" :class="'perm-' + p.permission">
+                    {{ p.username }}({{ permLabel(p.permission) }})
+                  </span>
+                </div>
               </template>
             </a-table-column>
           </template>
@@ -91,16 +86,23 @@ function permLabel(p: string) { return p === 'owner' ? '管理' : '只读' }
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 20px;
+  padding: 16px;
   height: 100%;
   overflow-y: auto;
   animation: fadeIn 0.22s var(--ease-out);
 }
-.acl-header { margin-bottom: 16px; }
-.acl-header h3 { margin: 0; font-size: 18px; font-weight: 700; color: var(--text-primary); }
-.acl-header p { margin: 6px 0 0; color: var(--text-muted); font-size: 13px; }
 
-.acl-users { margin-bottom: 12px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.acl-users {
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-base);
+}
 .users-label { font-size: 12px; color: var(--text-muted); }
 .user-badge {
   font-size: 11px; padding: 2px 8px; border-radius: 999px;
@@ -113,13 +115,18 @@ function permLabel(p: string) { return p === 'owner' ? '管理' : '只读' }
 .cleanup-warn { color: #c2410c; font-size: 12px; font-weight: 600; }
 .cleanup-ok { color: var(--text-muted); }
 
+.perm-list {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
 .perm-empty { color: var(--text-muted); font-size: 12px; }
 .perm-tag {
   display: inline-block;
   font-size: 11px;
   padding: 1px 6px;
   border-radius: 999px;
-  margin-right: 4px;
 }
 .perm-read { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
 .perm-owner { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }

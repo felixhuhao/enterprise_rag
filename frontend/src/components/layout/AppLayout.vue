@@ -22,35 +22,27 @@
         </a-menu-item>
         <a-menu-item key="/documents">
           <template #icon><icon-storage /></template>
-          文档管理
-        </a-menu-item>
-        <a-menu-item key="/retrieval-test">
-          <template #icon><icon-search /></template>
-          检索测试
-        </a-menu-item>
-        <a-menu-item key="/evaluate">
-          <template #icon><icon-bar-chart /></template>
-          运行监控
-        </a-menu-item>
-        <a-menu-item key="/settings">
-          <template #icon><icon-settings /></template>
-          系统设置
-        </a-menu-item>
-        <a-menu-item v-if="authStore.isAdmin" key="/acl-audit">
-          <template #icon><icon-safe /></template>
-          权限审计
+          {{ authStore.isAdmin ? '文档管理' : '知识库文档' }}
         </a-menu-item>
         <a-menu-item v-if="authStore.isAdmin" key="/entity-aliases">
           <template #icon><icon-safe /></template>
           实体别名
         </a-menu-item>
-        <a-menu-item key="/evaluation">
-          <template #icon><icon-bar-chart /></template>
-          回归评测
+        <a-menu-item v-if="authStore.isAdmin" key="/acl-audit">
+          <template #icon><icon-safe /></template>
+          权限审计
         </a-menu-item>
-        <a-menu-item v-if="authStore.isAdmin" key="/feedback">
-          <template #icon><icon-message /></template>
-          答案反馈
+        <a-menu-item key="/evaluate">
+          <template #icon><icon-bar-chart /></template>
+          {{ authStore.isAdmin ? '质量中心' : '查询记录' }}
+        </a-menu-item>
+        <a-menu-item v-if="authStore.isAdmin" key="/retrieval-test">
+          <template #icon><icon-search /></template>
+          检索测试
+        </a-menu-item>
+        <a-menu-item v-if="authStore.isAdmin" key="/settings">
+          <template #icon><icon-settings /></template>
+          系统设置
         </a-menu-item>
       </a-menu>
       <!-- Demo 用户切换 -->
@@ -110,7 +102,6 @@ import {
   IconStorage,
   IconBarChart,
   IconSettings,
-  IconMessage,
   IconSafe,
   IconSearch,
 } from '@arco-design/web-vue/es/icon'
@@ -118,13 +109,24 @@ import {
 const router = useRouter()
 const route = useRoute()
 
-const currentRoute = computed(() => route.path)
+const currentRoute = computed(() => {
+  if (route.path.startsWith('/documents/')) return '/documents'
+  if (route.path === '/evaluation' || route.path === '/feedback') return '/evaluate'
+  return route.path
+})
 const pageMeta = computed(() => {
+  const isAdmin = authStore.isAdmin
   const map: Record<string, { title: string; subtitle: string }> = {
     '/query-chat': { title: '知识查询', subtitle: '基于引用、检索链路和耗时追踪回答问题。' },
-    '/documents': { title: '文档管理', subtitle: '上传、处理、重试和修复知识库文档。' },
-    '/retrieval-test': { title: '检索测试', subtitle: '只运行召回和重排，检查 Top K chunks 与检索策略。' },
-    '/evaluate': { title: '运行监控', subtitle: '查询成功率、延迟、扩大范围比例、命中分布。' },
+    '/documents': {
+      title: isAdmin ? '文档管理' : '知识库文档',
+      subtitle: isAdmin ? '上传、处理、重试和修复知识库文档。' : '查看可访问的知识库文档。',
+    },
+    '/retrieval-test': { title: '检索测试', subtitle: '检查检索链路、扩展查询、预算和 Top K chunks。' },
+    '/evaluate': {
+      title: isAdmin ? '质量中心' : '查询记录',
+      subtitle: isAdmin ? '查询监控、检索记录、答案反馈和 Golden Set 回归评测。' : '查看自己的查询记录和反馈。',
+    },
     '/evaluation': { title: '回归评测', subtitle: 'Golden Set 质量验证、pass rate、失败用例。' },
     '/settings': { title: '系统设置', subtitle: '配置模型、检索和运行时行为。' },
     '/acl-audit': { title: '权限审计', subtitle: '查看文档 ACL、owner/read 分配和清理状态。' },
@@ -310,7 +312,7 @@ function saveCustomToken() {
 /* ---- Content ---- */
 .content {
   background: var(--bg-base) !important;
-  padding: 20px;
+  padding: 12px;
   overflow: hidden;
   display: flex;
   flex-direction: column;

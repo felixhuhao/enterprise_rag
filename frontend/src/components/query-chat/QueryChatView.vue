@@ -7,38 +7,30 @@
   <div class="chat-container">
     <div class="chat-toolbar">
       <div class="toolbar-content">
-        <div class="toolbar-head">
-          <div>
-            <div class="toolbar-title">知识库问答工作台</div>
-            <div class="toolbar-subtitle">回答会附带引用来源、检索链路和耗时追踪。</div>
+        <div class="mode-strip">
+          <div class="mode-cards">
+            <button
+              v-for="mode in flavorModes"
+              :key="mode.id"
+              class="mode-card"
+              :class="{ active: store.debugConfig.retrieval_flavor === mode.id }"
+              type="button"
+              @click="store.debugConfig.retrieval_flavor = mode.id"
+            >
+              <span class="mode-name">{{ mode.name }}</span>
+              <span class="mode-desc">{{ mode.desc }}</span>
+            </button>
           </div>
-          <div class="toolbar-actions">
+          <div class="mode-tools">
+            <label class="evidence-toggle">
+              <span>仅基于资料回答</span>
+              <a-switch :model-value="store.debugConfig.strict_evidence"
+                        @change="store.debugConfig.strict_evidence = $event as boolean" size="small" />
+            </label>
             <button class="debug-toggle" :class="{ active: showDebug }" @click="showDebug = !showDebug">
               调试
             </button>
-            <div class="toolbar-pill">
-              <span class="dot" :class="{ active: store.isStreaming }"></span>
-              {{ store.isStreaming ? '生成中' : '就绪' }}
-            </div>
           </div>
-        </div>
-        <div class="mode-strip">
-          <button
-            v-for="mode in flavorModes"
-            :key="mode.id"
-            class="mode-card"
-            :class="{ active: store.debugConfig.retrieval_flavor === mode.id }"
-            type="button"
-            @click="store.debugConfig.retrieval_flavor = mode.id"
-          >
-            <span class="mode-name">{{ mode.name }}</span>
-            <span class="mode-desc">{{ mode.desc }}</span>
-          </button>
-          <label class="evidence-toggle">
-            <span>仅基于资料回答</span>
-            <a-switch :model-value="store.debugConfig.strict_evidence"
-                      @change="store.debugConfig.strict_evidence = $event as boolean" size="small" />
-          </label>
         </div>
       </div>
     </div>
@@ -148,61 +140,12 @@ onBeforeUnmount(() => {
   background: var(--bg-surface);
 }
 
-.toolbar-content {
-  display: grid;
-  gap: 10px;
-}
-
-.toolbar-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.toolbar-title {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-.toolbar-subtitle {
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-.toolbar-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--text-secondary);
-  background: var(--bg-hover);
-  font-size: 12px;
-  white-space: nowrap;
-}
-.dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--success);
-}
-.dot.active {
-  background: var(--info);
-}
-
-.toolbar-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .evidence-toggle {
   display: inline-flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  min-height: 58px;
+  min-height: 35px;
   padding: 0 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -214,9 +157,20 @@ onBeforeUnmount(() => {
 
 .mode-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(118px, 1fr)) auto;
+  grid-template-columns: minmax(0, 1fr) 190px;
   gap: 8px;
-  align-items: stretch;
+  align-items: start;
+}
+
+.mode-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(170px, 1fr));
+  gap: 8px;
+}
+
+.mode-tools {
+  display: grid;
+  gap: 8px;
 }
 
 .mode-card {
@@ -259,10 +213,9 @@ onBeforeUnmount(() => {
   color: var(--text-muted);
   font-size: 11px;
   line-height: 15px;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .debug-toggle {
@@ -311,22 +264,16 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 760px) {
-  .toolbar-head {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .toolbar-pill {
-    align-self: flex-start;
-  }
-
   .mode-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .mode-cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .evidence-toggle {
-    justify-content: space-between;
-    grid-column: 1 / -1;
+  .mode-tools {
+    grid-template-columns: 1fr auto;
   }
 }
 </style>

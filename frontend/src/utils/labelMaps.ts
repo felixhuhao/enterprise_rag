@@ -102,12 +102,13 @@ export function retrievalPathLabel(path: string | null | undefined): string {
     .map((part) => part.trim())
     .filter(Boolean)
     .map((part) => {
-      const expanded = part.match(/^expanded_(\d+)(_fallback)?$/)
+      const normalized = part.toLowerCase()
+      const expanded = normalized.match(/^expanded_(\d+)(_fallback)?$/)
       if (expanded) {
         const label = `扩展查询 ${expanded[1]}`
         return expanded[2] ? `${label}（已扩大范围）` : label
       }
-      return RETRIEVAL_PATH_LABELS[part] ?? part
+      return RETRIEVAL_PATH_LABELS[normalized] ?? part
     })
     .join(' + ')
 }

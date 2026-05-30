@@ -30,7 +30,7 @@ export const useQueryStatsStore = defineStore('queryStats', () => {
         getQueryStatsTrend(filterUserId),
         getQueryStatsByFlavor(filterUserId),
         getQueryStatsByStrict(filterUserId),
-        getQueryStatsRecords(1, 20, filterUserId),
+        getQueryStatsRecords(1, 15, filterUserId),
       ])
       stats.value = s
       trend.value = t
@@ -44,7 +44,7 @@ export const useQueryStatsStore = defineStore('queryStats', () => {
   }
 
   async function fetchRecords(page: number, filterUserId: string = '', flavor: string = '') {
-    const r = await getQueryStatsRecords(page, 20, filterUserId, flavor)
+    const r = await getQueryStatsRecords(page, 15, filterUserId, flavor)
     records.value = r.records
     recordsTotal.value = r.total
   }

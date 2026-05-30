@@ -1,17 +1,25 @@
 <template>
   <div class="retrieval-test-page">
     <section class="test-panel">
-      <div class="query-area">
-        <a-textarea
-          v-model="query"
-          placeholder="输入要测试的查询，例如：差旅报销需要哪些审批材料？"
-          :auto-size="{ minRows: 3, maxRows: 5 }"
-          allow-clear
-        />
-        <a-button type="primary" :loading="loading" @click="runTest">
-          <template #icon><icon-search /></template>
-          开始检索
-        </a-button>
+      <div class="query-toolbar">
+        <div class="query-field">
+          <a-textarea
+            v-model="query"
+            placeholder="输入要测试的查询，例如：差旅报销需要哪些审批材料？"
+            :auto-size="{ minRows: 2, maxRows: 4 }"
+            allow-clear
+          />
+        </div>
+        <div class="run-controls">
+          <label class="control-item">
+            <span>Top K</span>
+            <a-input-number v-model="topK" :min="1" :max="30" size="small" />
+          </label>
+          <a-button type="primary" :loading="loading" @click="runTest">
+            <template #icon><icon-search /></template>
+            开始测试
+          </a-button>
+        </div>
       </div>
 
       <div class="mode-strip">
@@ -27,13 +35,6 @@
           <span class="mode-desc">{{ mode.desc }}</span>
         </button>
       </div>
-
-      <div class="control-row">
-        <label class="control-item">
-          <span>Top K</span>
-          <a-input-number v-model="topK" :min="1" :max="30" size="small" />
-        </label>
-      </div>
     </section>
 
     <section v-if="errorMessage" class="error-panel">
@@ -44,7 +45,8 @@
       <section class="strategy-panel">
         <div class="strategy-main">
           <div>
-            <h3>当前策略</h3>
+            <span class="section-eyebrow">检索链路</span>
+            <h3>{{ flavorLabel(response.retrieval_flavor) }}</h3>
             <p>{{ strategyText }}</p>
           </div>
           <div class="strategy-tags">
@@ -60,8 +62,8 @@
             <a-tag :color="response.strategy.rerank ? 'green' : 'gray'">
               {{ response.strategy.rerank ? STRATEGY_LABELS.rerankOn : STRATEGY_LABELS.rerankOff }}
             </a-tag>
-            <a-tag :color="response.strategy.fallback ? 'orange' : 'gray'">
-              {{ response.strategy.fallback ? FALLBACK_LABELS.used : '未扩大范围' }}
+            <a-tag v-if="response.strategy.fallback" color="orange">
+              {{ FALLBACK_LABELS.used }}
             </a-tag>
             <a-tag v-if="response.fallback_info?.blocked" color="red">
               {{ FALLBACK_LABELS.blocked }}
@@ -96,55 +98,70 @@
           </div>
         </div>
 
-        <div v-if="hopTrace.length" class="hop-panel">
-          <div class="hop-head">
-            <span>关联路径</span>
-            <strong>{{ hopTrace.length }} hops</strong>
+        <div v-if="traceEntries.length" class="trace-panel">
+          <div class="trace-head">
+            <span>执行耗时</span>
+            <strong>{{ response.trace.retrieval_wall_ms ?? 0 }}ms</strong>
           </div>
-          <div class="hop-list">
-            <div v-for="hop in hopTrace" :key="hop.hop" class="hop-item">
-              <span class="hop-step">Hop {{ hop.hop }}</span>
-              <div class="hop-detail">
-                <span v-if="hop.query">查询：{{ hop.query }}</span>
-                <span v-if="hop.discovered_entities?.length">
-                  发现实体：{{ hop.discovered_entities.join(' / ') }}
-                </span>
-                <span v-if="formatHopCounts(hop)">
-                  命中：{{ formatHopCounts(hop) }}
-                </span>
+          <div class="trace-grid">
+            <div v-for="row in traceEntries" :key="row.key" class="trace-item">
+              <span>{{ row.label }}</span>
+              <strong>{{ row.value }}ms</strong>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="hopTrace.length || queryExpansionEntries.length" class="chain-grid">
+          <div v-if="queryExpansionEntries.length" class="expansion-panel">
+            <div class="expansion-head">
+              <span>{{ STRATEGY_LABELS.expansion }}</span>
+              <strong>{{ queryExpansionCount }} 条</strong>
+            </div>
+            <div class="expansion-list">
+              <div v-for="row in queryExpansionEntries" :key="row.label" class="expansion-item">
+                <span class="expansion-label">{{ row.label }}</span>
+                <span class="expansion-query">{{ row.query }}</span>
+                <span class="expansion-count">{{ row.count }} 条命中</span>
               </div>
-              <span class="hop-status">{{ hopStatusLabel(hop.status) }}</span>
-              <span class="hop-count">{{ hop.result_count }} 条</span>
+            </div>
+          </div>
+
+          <div v-if="hopTrace.length" class="hop-panel">
+            <div class="hop-head">
+              <span>关联路径</span>
+              <strong>{{ hopTrace.length }} hops</strong>
+            </div>
+            <div class="hop-list">
+              <div v-for="hop in hopTrace" :key="hop.hop" class="hop-item">
+                <span class="hop-step">Hop {{ hop.hop }}</span>
+                <div class="hop-detail">
+                  <span v-if="hop.query">查询：{{ hop.query }}</span>
+                  <span v-if="hop.discovered_entities?.length">
+                    发现实体：{{ hop.discovered_entities.join(' / ') }}
+                  </span>
+                  <span v-if="formatHopCounts(hop)">
+                    命中：{{ formatHopCounts(hop) }}
+                  </span>
+                </div>
+                <span class="hop-status">{{ hopStatusLabel(hop.status) }}</span>
+                <span class="hop-count">{{ hop.result_count }} 条</span>
+              </div>
             </div>
           </div>
         </div>
 
-        <div v-if="queryExpansionEntries.length" class="expansion-panel">
-          <div class="expansion-head">
-            <span>{{ STRATEGY_LABELS.expansion }}</span>
-            <strong>{{ queryExpansionCount }} 条</strong>
-          </div>
-          <div class="expansion-list">
-            <div v-for="row in queryExpansionEntries" :key="row.label" class="expansion-item">
-              <span class="expansion-label">{{ row.label }}</span>
-              <span class="expansion-query">{{ row.query }}</span>
-              <span class="expansion-count">{{ row.count }} 条命中</span>
-            </div>
-          </div>
-        </div>
-
-        <div v-if="budgetEntries.length" class="budget-panel">
-          <div class="budget-head">
+        <details v-if="budgetEntries.length" :key="budgetDetailsKey" class="debug-details">
+          <summary>
             <span>检索预算</span>
             <strong>{{ flavorLabel(response.retrieval_flavor) }}</strong>
-          </div>
+          </summary>
           <div class="budget-grid">
             <div v-for="item in budgetEntries" :key="item.key" class="budget-item">
               <span>{{ item.label }}</span>
               <strong>{{ item.value }}</strong>
             </div>
           </div>
-        </div>
+        </details>
 
         <div v-if="fallbackText" class="fallback-note">
           {{ fallbackText }}
@@ -179,15 +196,9 @@
             <p v-if="response.rewritten_query !== response.query">
               改写查询：{{ response.rewritten_query }}
             </p>
-            <p v-else>展示检索、融合、表格展开和重排后的候选 chunks。</p>
+            <p v-else>展示最终进入检索上下文的候选 chunks。</p>
           </div>
-          <div class="trace-mini">
-            <span v-if="response.trace.context_expand_ms != null">{{ STRATEGY_LABELS.contextExpand }} {{ response.trace.context_expand_ms }}ms</span>
-            <span v-if="response.trace.multi_hop_ms != null">关联 {{ response.trace.multi_hop_ms }}ms</span>
-            <span v-else>搜索 {{ response.trace.search_hyde_ms ?? 0 }}ms</span>
-            <span v-if="response.trace.rrf_fusion_ms != null">融合 {{ response.trace.rrf_fusion_ms }}ms</span>
-            <span v-if="response.trace.rerank_ms != null">重排 {{ response.trace.rerank_ms }}ms</span>
-          </div>
+          <a-button size="mini" @click="resultColumns.resetColumnWidths()">重置列宽</a-button>
         </div>
 
         <a-table
@@ -196,15 +207,17 @@
           :bordered="false"
           row-key="rank"
           class="retrieval-table"
+          column-resizable
+          @column-resize="resultColumns.onColumnResize"
         >
           <template #columns>
-            <a-table-column title="#" :width="58" align="center">
+            <a-table-column title="#" data-index="rank" :width="resultColumns.columnWidth('rank')" align="center">
               <template #cell="{ record }">
                 <strong>{{ record.rank }}</strong>
               </template>
             </a-table-column>
 
-            <a-table-column title="来源" :width="150">
+            <a-table-column title="来源" data-index="source" :width="resultColumns.columnWidth('source')">
               <template #cell="{ record }">
                 <div class="source-cell">
                   <button type="button" @click="openDocument(record)">
@@ -215,16 +228,23 @@
               </template>
             </a-table-column>
 
-            <a-table-column title="页码" :width="70" align="center">
+            <a-table-column title="页码" data-index="page" :width="resultColumns.columnWidth('page')" align="center">
               <template #cell="{ record }">
                 {{ record.page ?? '—' }}
               </template>
             </a-table-column>
 
-            <a-table-column title="路径" :width="86">
+            <a-table-column title="路径" data-index="path" :width="resultColumns.columnWidth('path')">
               <template #cell="{ record }">
                 <div class="path-cell">
-                  <span class="path-pill">{{ retrievalPathLabel(record.retrieval_path) }}</span>
+                  <span
+                    v-for="path in retrievalPathSummary(record.retrieval_path)"
+                    :key="path"
+                    class="path-pill"
+                    :title="retrievalPathLabel(record.retrieval_path)"
+                  >
+                    {{ path }}
+                  </span>
                   <span
                     v-if="record.context_expanded_chunk_ids?.length"
                     class="path-pill expanded"
@@ -235,7 +255,7 @@
               </template>
             </a-table-column>
 
-            <a-table-column title="分数" :width="82" align="center">
+            <a-table-column title="分数" data-index="score" :width="resultColumns.columnWidth('score')" align="center">
               <template #cell="{ record }">
                 <div class="score-cell">
                   <strong>{{ formatScore(record.final_score ?? record.score) }}</strong>
@@ -246,7 +266,7 @@
               </template>
             </a-table-column>
 
-            <a-table-column title="类型" :width="110" align="center">
+            <a-table-column title="类型" data-index="type" :width="resultColumns.columnWidth('type')" align="center">
               <template #cell="{ record }">
                 <a-tag :color="sourceTypeColor(record.source_type)" size="small">
                   {{ sourceTypeLabel(record.source_type) }}
@@ -254,7 +274,7 @@
               </template>
             </a-table-column>
 
-            <a-table-column title="内容">
+            <a-table-column title="内容" data-index="content" :width="resultColumns.columnWidth('content')">
               <template #cell="{ record }">
                 <div class="content-cell">
                   <p>{{ expandedKeys.has(record.rank) ? record.content : record.content_preview }}</p>
@@ -282,6 +302,7 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { IconSearch } from '@arco-design/web-vue/es/icon'
+import { useResizableColumns } from '../../composables/useResizableColumns'
 import {
   FALLBACK_LABELS,
   FLAVOR_OPTIONS,
@@ -305,11 +326,26 @@ const loading = ref(false)
 const errorMessage = ref('')
 const response = ref<RetrievalTestResponse | null>(null)
 const expandedKeys = ref<Set<number>>(new Set())
+const resultColumns = useResizableColumns('enterprise-rag:retrieval-test-results:v1', {
+  rank: 52,
+  source: 180,
+  page: 64,
+  path: 110,
+  score: 84,
+  type: 96,
+  content: undefined,
+})
 
 interface QueryExpansionRow {
   label: string
   query: string
   count: number
+}
+
+interface TraceRow {
+  key: string
+  label: string
+  value: number
 }
 
 const flavorModes = FLAVOR_OPTIONS
@@ -329,10 +365,15 @@ const strategyText = computed(() => {
   const s = response.value.strategy
   const weights = s.hybrid ? `语义 ${s.dense_weight} / 关键词 ${s.sparse_weight}` : '语义 1.0'
   const mode = flavorLabel(response.value.retrieval_flavor || s.retrieval_flavor)
-  return `${mode}，Top ${s.top_k}，${weights}，主检索：${searchModeLabel(s.search_mode)}，假设文档：${searchModeLabel(s.search_mode_hyde)}`
+  return `${mode}，Top ${s.top_k}，${weights}，主检索：${searchModeLabel(s.search_mode)}，假设文档：${s.hyde ? '开启' : '关闭'}`
 })
 
 const queryBudget = computed<RetrievalBudget | null>(() => response.value?.query_plan?.budget ?? null)
+const budgetDetailsKey = computed(() => {
+  const current = response.value
+  if (!current) return 'budget'
+  return `${current.query}-${current.retrieval_flavor}-${current.result_count}`
+})
 
 const budgetEntries = computed(() => {
   const budget = queryBudget.value
@@ -367,6 +408,28 @@ const queryExpansionEntries = computed<QueryExpansionRow[]>(() => {
     query,
     count: counts[`expanded_${index}`] ?? 0,
   }))
+})
+
+const traceEntries = computed<TraceRow[]>(() => {
+  const trace = response.value?.trace ?? {}
+  const fields = [
+    ['entity_confirm_ms', '实体识别'],
+    ['query_plan_ms', '策略规划'],
+    ['rewrite_ms', '问题改写'],
+    ['search_hyde_ms', '检索'],
+    ['multi_hop_ms', '关联发现'],
+    ['rrf_fusion_ms', 'RRF 融合'],
+    ['table_expand_ms', '表格扩展'],
+    ['rerank_ms', '相关性重排'],
+    ['context_expand_ms', STRATEGY_LABELS.contextExpand],
+  ] as const
+  return fields
+    .filter(([key]) => trace[key] !== undefined && trace[key] !== null)
+    .map(([key, label]) => ({
+      key,
+      label,
+      value: Number(trace[key] ?? 0),
+    }))
 })
 
 const entityModeLabel = computed(() => {
@@ -502,6 +565,22 @@ function sourceTypeColor(sourceType: string) {
   return sourceType.startsWith('table_') ? 'orange' : 'arcoblue'
 }
 
+function retrievalPathSummary(path: string | null | undefined) {
+  const parts = (path || 'primary')
+    .split('+')
+    .map((part) => part.trim())
+    .filter(Boolean)
+  if (!parts.length) return ['主检索']
+
+  const expandedCount = parts.filter((part) => /^expanded_\d+/i.test(part)).length
+  const labels: string[] = []
+  if (expandedCount) labels.push(`扩展查询 x${expandedCount}`)
+  if (parts.some((part) => part.toLowerCase() === 'hybrid' || part.toLowerCase() === 'primary')) labels.push('主检索')
+  if (parts.some((part) => part.toLowerCase() === 'hyde')) labels.push('假设文档')
+  if (parts.some((part) => part.toLowerCase().includes('fallback'))) labels.push('已扩大范围')
+  return labels.length ? labels : parts.slice(0, 2).map((part) => retrievalPathLabel(part))
+}
+
 function filterToScope(filter: string) {
   const matched = filter.match(/entity_name == "([^"]+)"/)
   return matched?.[1] || '原实体范围'
@@ -522,27 +601,36 @@ function filterToScope(filter: string) {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 18px;
+  padding: 14px 16px;
 }
 
-.query-area {
+.query-toolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) 150px;
   gap: 12px;
-  align-items: flex-start;
+  align-items: stretch;
 }
 
-.control-row {
+.query-field {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-top: 14px;
+  min-width: 0;
+}
+
+.query-field :deep(.arco-textarea-wrapper) {
+  height: 100%;
+}
+
+.run-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
 }
 
 .control-item {
   display: inline-flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   color: var(--text-secondary);
   font-size: 13px;
@@ -625,11 +713,15 @@ function filterToScope(filter: string) {
   gap: 16px;
 }
 
+.results-header > div {
+  min-width: 0;
+}
+
 .strategy-main h3,
 .results-header h3 {
   margin: 0;
   color: var(--text-primary);
-  font-size: 18px;
+  font-size: 17px;
 }
 
 .strategy-main p,
@@ -646,11 +738,19 @@ function filterToScope(filter: string) {
   flex-wrap: wrap;
 }
 
+.section-eyebrow {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .strategy-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
-  margin-top: 16px;
+  margin-top: 14px;
 }
 
 .metric {
@@ -693,7 +793,9 @@ function filterToScope(filter: string) {
   max-width: 100%;
 }
 
-.hop-panel {
+.trace-panel,
+.hop-panel,
+.expansion-panel {
   margin-top: 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -701,6 +803,7 @@ function filterToScope(filter: string) {
   padding: 12px;
 }
 
+.trace-head,
 .hop-head {
   display: flex;
   align-items: center;
@@ -710,10 +813,46 @@ function filterToScope(filter: string) {
   font-size: 12px;
 }
 
+.trace-head strong,
 .hop-head strong {
   color: var(--text-primary);
   font-size: 12px;
   font-weight: 600;
+}
+
+.trace-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.trace-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 112px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  font-size: 12px;
+}
+
+.trace-item span {
+  color: var(--text-muted);
+}
+
+.trace-item strong {
+  margin-left: auto;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.chain-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .hop-list {
@@ -760,11 +899,8 @@ function filterToScope(filter: string) {
 }
 
 .expansion-panel {
-  margin-top: 14px;
   border: 1px solid #bfdbfe;
-  border-radius: var(--radius-md);
   background: #eff6ff;
-  padding: 12px;
 }
 
 .expansion-head {
@@ -816,7 +952,7 @@ function filterToScope(filter: string) {
   white-space: nowrap;
 }
 
-.budget-panel {
+.debug-details {
   margin-top: 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -824,19 +960,36 @@ function filterToScope(filter: string) {
   padding: 12px;
 }
 
-.budget-head {
+.debug-details summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  cursor: pointer;
+  list-style: none;
   color: var(--text-muted);
   font-size: 12px;
 }
 
-.budget-head strong {
+.debug-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.debug-details summary::after {
+  content: '展开';
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.debug-details[open] summary::after {
+  content: '收起';
+}
+
+.debug-details summary strong {
   color: var(--text-primary);
   font-size: 12px;
   font-weight: 600;
+  margin-left: auto;
 }
 
 .budget-grid {
@@ -1022,6 +1175,7 @@ function filterToScope(filter: string) {
 .path-cell {
   display: grid;
   gap: 4px;
+  justify-items: start;
 }
 
 .path-pill {
@@ -1034,8 +1188,9 @@ function filterToScope(filter: string) {
   color: #1d4ed8;
   font-size: 11px;
   line-height: 1.35;
-  white-space: normal;
-  word-break: break-word;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .path-pill.expanded {
@@ -1101,6 +1256,10 @@ function filterToScope(filter: string) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .chain-grid {
+    grid-template-columns: 1fr;
+  }
+
   .strategy-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -1120,8 +1279,13 @@ function filterToScope(filter: string) {
 }
 
 @media (max-width: 760px) {
-  .query-area {
+  .query-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .run-controls {
+    flex-direction: row;
+    align-items: center;
   }
 
   .mode-strip {

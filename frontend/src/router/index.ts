@@ -23,7 +23,7 @@ const router = createRouter({
     {
       path: '/evaluation',
       name: 'Evaluation',
-      component: () => import('../components/evaluation/EvalView.vue'),
+      redirect: { path: '/evaluate', query: { tab: 'eval' } },
     },
     {
       path: '/documents',
@@ -58,7 +58,7 @@ const router = createRouter({
     {
       path: '/feedback',
       name: 'Feedback',
-      component: () => import('../components/feedback/FeedbackView.vue'),
+      redirect: { path: '/evaluate', query: { tab: 'feedback' } },
     },
   ],
 })

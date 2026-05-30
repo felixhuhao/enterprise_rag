@@ -3,12 +3,8 @@
 -->
 <template>
   <div class="feedback-page">
-    <div class="fb-header">
-      <div>
-        <h3>答案反馈</h3>
-        <p>用户对回答质量的反馈记录和 Golden Set 草稿管理。</p>
-      </div>
-      <a-select v-if="authStore.isAdmin" v-model="filterUserId" :style="{ width: '160px' }" size="small"
+    <div v-if="authStore.isAdmin" class="fb-header">
+      <a-select v-model="filterUserId" :style="{ width: '160px' }" size="small"
                 placeholder="筛选用户" allow-clear>
         <a-option value="">全部用户</a-option>
         <a-option value="u_alice">Alice</a-option>
@@ -44,11 +40,9 @@ const filterUserId = ref('')
 }
 .fb-header {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 16px;
+  justify-content: flex-end;
+  align-items: center;
+  margin-bottom: 12px;
 }
-.fb-header h3 { margin: 0; font-size: 18px; font-weight: 700; color: var(--text-primary); }
-.fb-header p { margin: 6px 0 0; color: var(--text-muted); font-size: 13px; }
 .fb-forbidden { padding: 60px 0; }
 </style>

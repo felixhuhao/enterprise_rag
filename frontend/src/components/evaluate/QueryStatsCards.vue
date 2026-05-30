@@ -1,60 +1,108 @@
 <template>
-  <div class="section-label">总体</div>
-  <div class="stats-cards stagger">
-    <div class="stat-card" v-for="item in cards" :key="item.label">
-      <div class="stat-value">{{ formatValue(item) }}</div>
-      <div class="stat-label">{{ item.label }}</div>
+  <section class="overview-section">
+    <div class="section-head">
+      <div>
+        <h3>整体表现</h3>
+        <p>当前筛选范围内的在线查询质量指标。</p>
+      </div>
     </div>
-  </div>
-
-  <section v-if="flavorRows.length || strictRows.length" class="metric-section">
-    <a-tabs default-active-key="flavor" size="small" animation>
-      <a-tab-pane key="flavor" title="按策略">
-        <div class="metric-table">
-          <div class="metric-row metric-header">
-            <span>策略</span>
-            <span>查询数</span>
-            <span>成功率</span>
-            <span>平均结果</span>
-            <span>平均相关性重排</span>
-            <span>P95 延迟</span>
-            <span>扩大范围</span>
-          </div>
-          <div class="metric-row" v-for="row in flavorRows" :key="row.key">
-            <strong>{{ row.label }}</strong>
-            <span>{{ row.stats.count }}</span>
-            <span>{{ formatPercent(row.stats.success_rate) }}</span>
-            <span>{{ formatNumber(row.stats.avg_results, 1) }}</span>
-            <span>{{ formatNumber(row.stats.avg_rerank, 3) }}</span>
-            <span>{{ formatMs(row.stats.p95_ms) }}</span>
-            <span>{{ formatPercent(row.stats.fallback_ratio) }}</span>
-          </div>
-        </div>
-      </a-tab-pane>
-      <a-tab-pane key="strict" title="按证据模式">
-        <div class="metric-table">
-          <div class="metric-row metric-header">
-            <span>证据策略</span>
-            <span>查询数</span>
-            <span>成功率</span>
-            <span>平均结果</span>
-            <span>平均相关性重排</span>
-            <span>P95 延迟</span>
-            <span>扩大范围</span>
-          </div>
-          <div class="metric-row" v-for="row in strictRows" :key="row.key">
-            <strong>{{ row.label }}</strong>
-            <span>{{ row.stats.count }}</span>
-            <span>{{ formatPercent(row.stats.success_rate) }}</span>
-            <span>{{ formatNumber(row.stats.avg_results, 1) }}</span>
-            <span>{{ formatNumber(row.stats.avg_rerank, 3) }}</span>
-            <span>{{ formatMs(row.stats.p95_ms) }}</span>
-            <span>{{ formatPercent(row.stats.fallback_ratio) }}</span>
-          </div>
-        </div>
-      </a-tab-pane>
-    </a-tabs>
+    <div class="stats-cards">
+      <div class="stat-card" v-for="item in cards" :key="item.label">
+        <div class="stat-value">{{ formatValue(item) }}</div>
+        <div class="stat-label">{{ item.label }}</div>
+      </div>
+    </div>
   </section>
+
+  <section v-if="flavorRows.length || strictRows.length" class="metric-layout">
+    <div v-if="flavorRows.length" class="metric-section primary">
+      <div class="section-head compact">
+        <div>
+          <h3>按策略</h3>
+          <p>不同检索策略的延迟和质量不能混在一起判断。</p>
+        </div>
+      </div>
+      <div class="metric-table">
+        <div class="metric-row metric-header">
+          <span>策略</span>
+          <span>查询数</span>
+          <span>成功率</span>
+          <span>平均结果</span>
+          <span>Rerank</span>
+          <span>P95 延迟</span>
+        </div>
+        <div class="metric-row" v-for="row in flavorRows" :key="row.key">
+          <strong>{{ row.label }}</strong>
+          <span>{{ row.stats.count }}</span>
+          <span>{{ formatPercent(row.stats.success_rate) }}</span>
+          <span>{{ formatNumber(row.stats.avg_results, 1) }}</span>
+          <span>{{ formatNumber(row.stats.avg_rerank, 3) }}</span>
+          <span>{{ formatMs(row.stats.p95_ms) }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="strictRows.length" class="metric-section secondary">
+      <div class="section-head compact">
+        <div>
+          <h3>证据模式</h3>
+          <p>普通回答与仅基于资料回答分开看。</p>
+        </div>
+      </div>
+      <div class="strict-cards">
+        <div v-for="row in strictRows" :key="row.key" class="strict-card">
+          <div>
+            <strong>{{ row.label }}</strong>
+            <span>{{ row.stats.count }} 次</span>
+          </div>
+          <dl>
+            <div>
+              <dt>成功率</dt>
+              <dd>{{ formatPercent(row.stats.success_rate) }}</dd>
+            </div>
+            <div>
+              <dt>Rerank</dt>
+              <dd>{{ formatNumber(row.stats.avg_rerank, 3) }}</dd>
+            </div>
+            <div>
+              <dt>P95</dt>
+              <dd>{{ formatMs(row.stats.p95_ms) }}</dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <details v-if="flavorRows.length || strictRows.length" class="raw-metrics">
+    <summary>更多聚合指标</summary>
+    <div class="raw-metric-grid">
+      <div v-if="flavorRows.length" class="metric-table compact-table">
+        <div class="metric-row metric-header">
+          <span>策略</span>
+          <span>扩大范围</span>
+          <span>失败数</span>
+        </div>
+        <div class="metric-row" v-for="row in flavorRows" :key="row.key">
+          <strong>{{ row.label }}</strong>
+          <span>{{ formatPercent(row.stats.fallback_ratio) }}</span>
+          <span>{{ row.stats.failed_count }}</span>
+        </div>
+      </div>
+      <div v-if="strictRows.length" class="metric-table compact-table">
+        <div class="metric-row metric-header">
+          <span>证据模式</span>
+          <span>扩大范围</span>
+          <span>失败数</span>
+        </div>
+        <div class="metric-row" v-for="row in strictRows" :key="row.key">
+          <strong>{{ row.label }}</strong>
+          <span>{{ formatPercent(row.stats.fallback_ratio) }}</span>
+          <span>{{ row.stats.failed_count }}</span>
+        </div>
+      </div>
+    </div>
+  </details>
 </template>
 
 <script setup lang="ts">
@@ -92,9 +140,9 @@ const cards = computed(() => {
     { label: '总查询数', value: s.total_queries, precision: 0 },
     { label: '成功率', value: formatPercent(1 - s.failure_rate) },
     { label: '平均结果数', value: s.avg_result_count, precision: 1 },
-    { label: '平均相关性重排', value: s.avg_rerank_score, precision: 3 },
+    { label: 'Rerank', value: s.avg_rerank_score, precision: 3 },
     { label: 'P95 延迟', value: formatMs(s.p95_ms) },
-    { label: '扩大范围比例', value: formatPercent(s.fallback_ratio) },
+    { label: '扩大范围', value: formatPercent(s.fallback_ratio) },
   ]
 })
 
@@ -139,19 +187,41 @@ function formatMs(ms: number): string {
 </script>
 
 <style scoped>
-.stats-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
-  gap: 12px;
-  margin-bottom: 14px;
+.overview-section,
+.metric-section,
+.raw-metrics {
+  margin-bottom: 16px;
 }
 
-.section-label {
-  margin: 0 0 8px;
-  color: var(--text-secondary);
-  font-family: var(--font-display);
-  font-size: 13px;
+.section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.section-head h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 15px;
   font-weight: 700;
+}
+
+.section-head p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.section-head.compact {
+  margin-bottom: 8px;
+}
+
+.stats-cards {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .stat-card {
@@ -161,20 +231,15 @@ function formatMs(ms: number): string {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 12px 14px;
-  transition: border-color 0.15s var(--ease-out), background 0.15s var(--ease-out);
-}
-
-.stat-card:hover {
-  border-color: var(--border-hover);
-  background: #f8fafc;
 }
 
 .stat-value {
   font-family: var(--font-display);
-  font-size: 22px;
+  font-size: 21px;
   font-weight: 700;
   color: var(--text-primary);
   line-height: 1.2;
+  font-variant-numeric: tabular-nums;
 }
 
 .stat-label {
@@ -185,12 +250,12 @@ function formatMs(ms: number): string {
   margin-top: 6px;
 }
 
-.metric-section {
-  margin-bottom: 18px;
-}
-
-.metric-section :deep(.arco-tabs-content) {
-  padding-top: 8px;
+.metric-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(280px, 0.9fr);
+  gap: 14px;
+  align-items: start;
+  margin-bottom: 12px;
 }
 
 .metric-table {
@@ -202,11 +267,11 @@ function formatMs(ms: number): string {
 
 .metric-row {
   display: grid;
-  grid-template-columns: minmax(92px, 1.2fr) repeat(6, minmax(76px, 1fr));
+  grid-template-columns: minmax(90px, 1.15fr) repeat(5, minmax(72px, 1fr));
   align-items: center;
   gap: 10px;
-  min-height: 42px;
-  padding: 9px 12px;
+  min-height: 40px;
+  padding: 8px 12px;
   border-top: 1px solid var(--border);
   color: var(--text-secondary);
   font-size: 12px;
@@ -234,13 +299,121 @@ function formatMs(ms: number): string {
   font-weight: 700;
 }
 
+.strict-cards {
+  display: grid;
+  gap: 8px;
+}
+
+.strict-card {
+  display: grid;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #fbfdff;
+}
+
+.strict-card > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.strict-card strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.strict-card span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.strict-card dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+}
+
+.strict-card dl div {
+  min-width: 0;
+}
+
+.strict-card dt {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.strict-card dd {
+  margin: 3px 0 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.raw-metrics {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #fbfdff;
+}
+
+.raw-metrics summary {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.raw-metrics summary::-webkit-details-marker {
+  display: none;
+}
+
+.raw-metrics summary::after {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-weight: 400;
+  content: '展开';
+}
+
+.raw-metrics[open] summary::after {
+  content: '收起';
+}
+
+.raw-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.compact-table .metric-row {
+  grid-template-columns: minmax(100px, 1fr) repeat(2, minmax(72px, 0.7fr));
+}
+
 @media (max-width: 900px) {
+  .stats-cards,
+  .metric-layout,
+  .raw-metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stats-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .metric-table {
     overflow-x: auto;
   }
 
   .metric-row {
-    min-width: 720px;
+    min-width: 620px;
   }
 }
 </style>

@@ -6,47 +6,35 @@
 <template>
   <div class="documents-page">
     <div class="documents-card">
-      <div class="documents-header">
-        <div>
-          <h3>文档管理</h3>
-          <p class="documents-desc">上传 PDF 或 Markdown 文档，解析后写入向量知识库</p>
-        </div>
-        <div class="documents-header-actions">
-          <a-button size="mini" @click="documentColumns.resetColumnWidths()">重置列宽</a-button>
-        </div>
-      </div>
-
-      <div class="summary-row">
-        <button
-          v-for="item in summaryItems"
-          :key="item.key"
-          class="summary-item"
-          :class="{ active: statusFilter === item.key }"
-          type="button"
-          @click="statusFilter = item.key"
-        >
-          <span class="summary-value">{{ item.value }}</span>
-          <span class="summary-label">{{ item.label }}</span>
-        </button>
-      </div>
-
-      <!-- 上传区域 -->
-      <div class="upload-area">
+      <div class="summary-strip">
         <a-upload
           ref="uploadRef"
+          class="upload-trigger"
           :auto-upload="false"
           :show-file-list="false"
           accept=".pdf,.md,.markdown,.zip"
           @change="onFileSelect"
         >
           <template #upload-button>
-            <a-button type="primary" :disabled="uploading">
+            <a-button type="primary" size="small" :disabled="uploading">
               <template #icon><icon-upload /></template>
-              选择文件
+              上传文档
             </a-button>
           </template>
         </a-upload>
-        <span class="upload-hint">支持 .pdf .md .markdown .zip</span>
+        <div class="summary-row">
+          <button
+            v-for="item in summaryItems"
+            :key="item.key"
+            class="summary-item"
+            :class="{ active: statusFilter === item.key }"
+            type="button"
+            @click="statusFilter = item.key"
+          >
+            <span class="summary-value">{{ item.value }}</span>
+            <span class="summary-label">{{ item.label }}</span>
+          </button>
+        </div>
       </div>
 
       <!-- 文件预览 + entity 编辑 -->
@@ -79,6 +67,7 @@
         :pagination="{ pageSize: 20 }"
         :bordered="false"
         row-key="document_id"
+        size="small"
         class="doc-table"
         column-resizable
         @column-resize="documentColumns.onColumnResize"
@@ -218,14 +207,14 @@ const pendingEntityName = ref('')
 const pollingIds = ref<Map<string, number>>(new Map())
 const uploadRef = ref<any>(null)
 const statusFilter = ref('all')
-const documentColumns = useResizableColumns('enterprise-rag:documents:v1', {
+const documentColumns = useResizableColumns('enterprise-rag:documents:v6', {
   filename: undefined,
-  status: 100,
-  entity_name: 170,
-  chunk_count: 80,
-  image_count: 70,
-  created_at: 160,
-  actions: 180,
+  status: 80,
+  entity_name: 90,
+  chunk_count: 65,
+  image_count: 60,
+  created_at: 180,
+  actions: 140,
 })
 
 const BUSY_STATUSES = ['processing', 'parsing', 'reading', 'normalizing', 'chunking', 'embedding', 'saving']
@@ -447,48 +436,40 @@ onUnmounted(() => {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 20px;
+  padding: 16px;
   overflow: hidden;
 }
 
-.documents-header {
-  margin-bottom: 16px;
+.summary-strip {
+  margin-bottom: 12px;
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-.documents-header h3 {
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-.documents-desc {
-  margin: 6px 0 0;
-  font-size: 13px;
-  color: var(--text-muted);
+  align-items: stretch;
+  gap: 10px;
 }
 
-.documents-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.upload-trigger {
+  display: inline-flex;
+  flex: 0 0 132px;
+}
+
+.upload-trigger :deep(.arco-upload-trigger),
+.upload-trigger :deep(.arco-btn) {
+  width: 100%;
+  height: 100%;
 }
 
 .summary-row {
+  flex: 1;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
-  margin-bottom: 16px;
 }
 .summary-item {
   text-align: left;
   border: 1px solid var(--border);
   background: var(--bg-surface);
   border-radius: var(--radius-md);
-  padding: 10px 12px;
+  padding: 8px 10px;
   cursor: pointer;
   transition: border-color 0.15s var(--ease-out), background 0.15s var(--ease-out);
 }
@@ -499,7 +480,7 @@ onUnmounted(() => {
 }
 .summary-value {
   display: block;
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1;
   font-weight: 700;
   color: var(--text-primary);
@@ -507,22 +488,7 @@ onUnmounted(() => {
 }
 .summary-label {
   display: block;
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.upload-area {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: #f8fafc;
-}
-.upload-hint {
+  margin-top: 5px;
   font-size: 12px;
   color: var(--text-muted);
 }
@@ -530,9 +496,9 @@ onUnmounted(() => {
 .upload-preview {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 12px 16px;
-  margin-bottom: 20px;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
   background: #f8fafc;
   border: 1px solid var(--border);
   border-radius: var(--radius-md, 8px);
@@ -608,7 +574,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  max-width: 520px;
+  max-width: 100%;
   min-width: 0;
 }
 .doc-link {

@@ -1,13 +1,5 @@
 <template>
   <div class="alias-page">
-    <div class="alias-header">
-      <div>
-        <h3>实体别名</h3>
-        <p>维护查询时使用的简称、缩写和英文别名。</p>
-      </div>
-      <a-button size="small" :loading="loading" @click="loadAliases">刷新</a-button>
-    </div>
-
     <div v-if="!authStore.isAdmin" class="alias-forbidden">
       <a-empty description="仅管理员可管理实体别名" />
     </div>
@@ -18,9 +10,14 @@
           <a-input v-model="aliasInput" placeholder="别名，如 SMIC" allow-clear />
           <a-input v-model="canonicalInput" placeholder="标准实体，如 中芯国际" allow-clear />
           <a-button type="primary" :loading="saving" @click="onCreate">新增</a-button>
+          <a-button size="small" :loading="loading" @click="loadAliases">刷新</a-button>
         </div>
 
-        <div class="batch-box">
+        <details class="batch-box">
+          <summary>
+            <span>批量导入</span>
+            <small>每行一个映射：别名,标准实体</small>
+          </summary>
           <a-textarea
             v-model="batchInput"
             placeholder="批量导入：每行一个映射，格式为 别名,标准实体"
@@ -30,7 +27,7 @@
             <span class="hint">重复映射会自动跳过；标准实体必须已存在于索引。</span>
             <a-button size="small" :loading="batchSaving" @click="onBatchCreate">批量导入</a-button>
           </div>
-        </div>
+        </details>
       </div>
 
       <a-table
@@ -172,33 +169,23 @@ function parseBatchInput(value: string): EntityAliasBatchItem[] {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 20px;
+  padding: 16px;
   height: 100%;
   overflow-y: auto;
   animation: fadeIn 0.22s var(--ease-out);
 }
 
-.alias-header {
-  margin-bottom: 16px;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-.alias-header h3 { margin: 0; font-size: 18px; font-weight: 700; color: var(--text-primary); }
-.alias-header p { margin: 6px 0 0; color: var(--text-muted); font-size: 13px; }
-
 .alias-forbidden { padding: 60px 0; }
 
 .alias-tools {
   display: grid;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
 .alias-form {
   display: grid;
-  grid-template-columns: minmax(160px, 220px) minmax(220px, 1fr) auto;
+  grid-template-columns: minmax(150px, 220px) minmax(220px, 1fr) auto auto;
   gap: 8px;
   align-items: center;
 }
@@ -206,12 +193,50 @@ function parseBatchInput(value: string): EntityAliasBatchItem[] {
 .batch-box {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 10px;
   background: var(--bg-base);
 }
 
+.batch-box summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  list-style: none;
+}
+
+.batch-box summary::-webkit-details-marker {
+  display: none;
+}
+
+.batch-box summary::after {
+  content: '展开';
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.batch-box[open] summary::after {
+  content: '收起';
+}
+
+.batch-box summary small {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.batch-box :deep(.arco-textarea-wrapper) {
+  margin: 0 10px;
+  width: calc(100% - 20px);
+}
+
 .batch-actions {
-  margin-top: 8px;
+  padding: 8px 10px 10px;
   display: flex;
   align-items: center;
   justify-content: space-between;

@@ -11,10 +11,7 @@
           <div class="detail-header">
             <div class="document-title">
               <icon-file class="document-icon" :style="{ color: document.file_type === 'pdf' ? 'var(--error)' : 'var(--accent)' }" />
-              <div>
-                <h3>{{ document.filename }}</h3>
-                <p>文档主体：{{ document.entity_name || '—' }}</p>
-              </div>
+              <span :title="document.filename">{{ document.filename }}</span>
             </div>
             <div class="status-stack">
               <a-tag
@@ -70,7 +67,7 @@
           <div class="chunks-toolbar">
             <div>
               <h3>Chunk 列表</h3>
-              <p>共 {{ filteredChunks.length }} / {{ chunks.length }} 个 chunks</p>
+              <p>{{ filteredChunks.length }} / {{ chunks.length }} 个 chunks</p>
             </div>
             <a-input-search
               v-model="keyword"
@@ -88,15 +85,18 @@
             :row-class="rowClass"
             @page-change="onPageChange"
             class="chunk-table"
+            size="small"
+            column-resizable
+            @column-resize="chunkColumns.onColumnResize"
           >
             <template #columns>
-              <a-table-column title="#" :width="56" align="center" :body-cell-class="bodyCellClass">
+              <a-table-column title="#" data-index="sequence" :width="chunkColumns.columnWidth('sequence')" align="center" :body-cell-class="bodyCellClass">
                 <template #cell="{ record }">
                   {{ record.sequence }}
                 </template>
               </a-table-column>
 
-              <a-table-column title="章节" data-index="section_title" :width="230" :body-cell-class="bodyCellClass">
+              <a-table-column title="章节" data-index="section_title" :width="chunkColumns.columnWidth('section_title')" :body-cell-class="bodyCellClass">
                 <template #cell="{ record }">
                   <span class="section-cell" :title="record.section_title || record.title">
                     {{ record.section_title || record.title || '—' }}
@@ -104,13 +104,13 @@
                 </template>
               </a-table-column>
 
-              <a-table-column title="页码" data-index="page" :width="84" align="center" :sortable="{ sortDirections: ['ascend', 'descend'] }" :body-cell-class="bodyCellClass">
+              <a-table-column title="页码" data-index="page" :width="chunkColumns.columnWidth('page')" align="center" :sortable="{ sortDirections: ['ascend', 'descend'] }" :body-cell-class="bodyCellClass">
                 <template #cell="{ record }">
                   {{ record.page ?? '—' }}
                 </template>
               </a-table-column>
 
-              <a-table-column title="类型" data-index="source_type" :width="88" align="center" :body-cell-class="bodyCellClass">
+              <a-table-column title="类型" data-index="source_type" :width="chunkColumns.columnWidth('source_type')" align="center" :body-cell-class="bodyCellClass">
                 <template #cell="{ record }">
                   <a-tag :color="sourceTypeColor(record.source_type)" size="small">
                     {{ sourceTypeLabel(record.source_type) }}
@@ -118,9 +118,9 @@
                 </template>
               </a-table-column>
 
-              <a-table-column title="长度" data-index="content_length" :width="82" align="center" :sortable="{ sortDirections: ['ascend', 'descend'] }" :body-cell-class="bodyCellClass" />
+              <a-table-column title="长度" data-index="content_length" :width="chunkColumns.columnWidth('content_length')" align="center" :sortable="{ sortDirections: ['ascend', 'descend'] }" :body-cell-class="bodyCellClass" />
 
-              <a-table-column title="内容预览" data-index="content" :body-cell-class="bodyCellClass">
+              <a-table-column title="内容预览" data-index="content" :width="chunkColumns.columnWidth('content')" :body-cell-class="bodyCellClass">
                 <template #cell="{ record }">
                   <div class="content-preview">
                     <p>{{ preview(record.content) }}</p>
@@ -137,7 +137,7 @@
                 </template>
               </a-table-column>
 
-              <a-table-column title="图片" data-index="image_paths" :width="70" align="center" :body-cell-class="bodyCellClass">
+              <a-table-column title="图片" data-index="image_paths" :width="chunkColumns.columnWidth('image_paths')" align="center" :body-cell-class="bodyCellClass">
                 <template #cell="{ record }">
                   <a-badge v-if="record.image_paths?.length" :count="record.image_paths.length" />
                   <span v-else>—</span>
@@ -178,6 +178,7 @@ import type { Document, DocumentChunk, DocumentChunksSource } from '../../api/do
 import { getDocumentChunks, getRelatedDocuments } from '../../api/documents'
 import { ERROR_HINTS } from '../../utils/errorHints'
 import { sourceTypeLabel } from '../../utils/labelMaps'
+import { useResizableColumns } from '../../composables/useResizableColumns'
 
 const route = useRoute()
 const router = useRouter()
@@ -194,6 +195,15 @@ const highlightChunkId = ref<string | null>(null)
 const highlightChunkKey = ref<string | null>(null)
 const related = ref<Document[]>([])
 const relatedEntity = ref('')
+const chunkColumns = useResizableColumns('enterprise-rag:document-chunks:v2', {
+  sequence: 56,
+  section_title: 260,
+  page: 86,
+  source_type: 92,
+  content_length: 86,
+  content: undefined,
+  image_paths: 64,
+})
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
   uploaded: { label: '已上传', color: 'arcoblue' },
@@ -426,7 +436,7 @@ onMounted(loadDetail)
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
   border: none;
   background: transparent;
   color: var(--text-secondary);
@@ -446,42 +456,37 @@ onMounted(loadDetail)
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 20px;
+  padding: 14px 16px;
   overflow: hidden;
 }
 .chunks-card {
-  margin-top: 16px;
+  margin-top: 12px;
 }
 
 .detail-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding-bottom: 18px;
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--border);
 }
 .document-title {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 10px;
   min-width: 0;
 }
 .document-icon {
   flex: 0 0 auto;
-  margin-top: 4px;
 }
-.document-title h3 {
-  margin: 0;
+.document-title span {
   color: var(--text-primary);
-  font-size: 18px;
-  line-height: 1.35;
-  word-break: break-word;
-}
-.document-title p {
-  margin: 6px 0 0;
-  color: var(--text-muted);
   font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .status-stack {
   display: inline-flex;
@@ -494,14 +499,14 @@ onMounted(loadDetail)
 .metadata-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 16px;
+  gap: 8px;
+  margin-top: 12px;
 }
 .metadata-item {
   border: 1px solid var(--border);
   background: #f8fafc;
   border-radius: var(--radius-md);
-  padding: 10px 12px;
+  padding: 8px 10px;
   min-width: 0;
 }
 .metadata-item span {
@@ -511,7 +516,7 @@ onMounted(loadDetail)
 }
 .metadata-item strong {
   display: block;
-  margin-top: 6px;
+  margin-top: 4px;
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 600;
@@ -537,10 +542,10 @@ onMounted(loadDetail)
 
 .chunks-toolbar {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 .chunks-toolbar h3 {
   margin: 0;
@@ -548,18 +553,18 @@ onMounted(loadDetail)
   font-size: 18px;
 }
 .chunks-toolbar p {
-  margin: 6px 0 0;
+  margin: 2px 0 0;
   color: var(--text-muted);
   font-size: 13px;
 }
 .chunk-search {
-  width: 280px;
+  width: 260px;
   max-width: 100%;
 }
 
 .section-cell {
   display: inline-block;
-  max-width: 210px;
+  max-width: 100%;
   color: var(--text-secondary);
   line-height: 1.45;
   white-space: normal;
@@ -620,7 +625,7 @@ onMounted(loadDetail)
 }
 
 .related-section {
-  margin-top: 16px;
+  margin-top: 12px;
 }
 
 .related-section h3 {
