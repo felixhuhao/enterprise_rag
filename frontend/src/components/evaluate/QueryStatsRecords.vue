@@ -146,6 +146,19 @@
                 <span class="score-cell">{{ formatScore(record.score) }}</span>
               </template>
             </a-table-column>
+            <a-table-column title="标签" data-index="tags" :width="drawerColumns.columnWidth('tags')">
+              <template #cell="{ record }">
+                <div v-if="chunkTags(record).length" class="chunk-tags" :title="chunkTagsTitle(record)">
+                  <span v-for="tag in chunkTags(record)" :key="tag.value" class="chunk-tag">
+                    {{ tag.label }}
+                  </span>
+                  <span v-if="hiddenChunkTagCount(record)" class="chunk-tag more">
+                    +{{ hiddenChunkTagCount(record) }}
+                  </span>
+                </div>
+                <span v-else class="muted-text">—</span>
+              </template>
+            </a-table-column>
             <a-table-column title="内容预览" data-index="preview" :width="drawerColumns.columnWidth('preview')">
               <template #cell="{ record }">
                 <div class="preview-cell" :class="{ muted: !record.content_preview }">
@@ -186,7 +199,7 @@ import { ref, type ComponentPublicInstance } from 'vue'
 import { useRouter } from 'vue-router'
 import type { QueryStatsRecord, RetrievedChunkItem } from '../../api/queryStats'
 import { useAutoFitColumns } from '../../composables/useAutoFitColumns'
-import { FLAVOR_OPTIONS, flavorLabel, retrievalPathLabel, searchModeLabel } from '../../utils/labelMaps'
+import { FLAVOR_OPTIONS, flavorLabel, retrievalPathLabel, searchModeLabel, structuredTagLabel } from '../../utils/labelMaps'
 
 defineProps<{
   records: QueryStatsRecord[]
@@ -216,11 +229,12 @@ const recordColumns = useAutoFitColumns('enterprise-rag:query-stats-records:auto
   total_ms: { width: 68, minWidth: 58, maxWidth: 86 },
   hits: { width: 80, minWidth: 62, maxWidth: 92 },
 }, { minWidth: 52 })
-const drawerColumns = useAutoFitColumns('enterprise-rag:query-stats-drawer:auto-v1', {
+const drawerColumns = useAutoFitColumns('enterprise-rag:query-stats-drawer:auto-v2', {
   rank: { width: 50, minWidth: 44, maxWidth: 60 },
   hit: { width: 232, minWidth: 160, maxWidth: 300 },
   path: { width: 90, minWidth: 72, maxWidth: 130 },
   score: { width: 82, minWidth: 70, maxWidth: 96 },
+  tags: { width: 126, minWidth: 96, maxWidth: 170 },
   preview: { width: 430, minWidth: 260, flex: true },
   jump: { width: 68, minWidth: 60, maxWidth: 86 },
 }, { minWidth: 44 })
@@ -296,6 +310,30 @@ function formatPath(record: RetrievedChunkItem): string {
 
 function formatScore(score?: number | null): string {
   return typeof score === 'number' ? score.toFixed(4) : '-'
+}
+
+function chunkTags(record: RetrievedChunkItem) {
+  return uniqueStrings(record.structured_tags).slice(0, 3).map((value) => ({
+    value,
+    label: structuredTagLabel(value),
+  }))
+}
+
+function hiddenChunkTagCount(record: RetrievedChunkItem) {
+  return Math.max(0, uniqueStrings(record.structured_tags).length - chunkTags(record).length)
+}
+
+function chunkTagsTitle(record: RetrievedChunkItem) {
+  const structured = uniqueStrings(record.structured_tags).map(structuredTagLabel)
+  const keywords = uniqueStrings(record.keywords)
+  const parts = []
+  if (structured.length) parts.push(`标签：${structured.join(' / ')}`)
+  if (keywords.length) parts.push(`关键词：${keywords.join(' / ')}`)
+  return parts.join('\n')
+}
+
+function uniqueStrings(values: string[] | null | undefined) {
+  return Array.from(new Set((values ?? []).filter(Boolean)))
 }
 
 function rawValue(value: unknown): string {
@@ -559,6 +597,35 @@ function statusClass(status: string): string {
 
 .path-cell {
   color: var(--text-secondary);
+}
+
+.chunk-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.chunk-tag {
+  max-width: 100%;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: #166534;
+  background: #dcfce7;
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chunk-tag.more {
+  color: var(--text-muted);
+  background: var(--bg-hover);
+}
+
+.muted-text {
+  color: var(--text-muted);
 }
 
 .preview-cell {

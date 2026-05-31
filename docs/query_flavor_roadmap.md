@@ -408,8 +408,9 @@ This is not mainly a rerank problem. The correct chunk must first become easier 
 9. Add alias matching.
 10. Polish user-facing terminology.
 11. Add ingestion-time chunk search enrichment and rebuild the demo index.
-12. Run a Section Probe Retrieval experiment if long-document/long-section recall still fails.
-13. Add Doc2Query only if search enrichment and section probes are not enough for recall-heavy cases.
+12. Add tag governance and UI exposure rules.
+13. Run a Section Probe Retrieval experiment if long-document/long-section recall still fails.
+14. Add Doc2Query only if search enrichment and section probes are not enough for recall-heavy cases.
 
 ## Success Criteria
 
@@ -631,7 +632,7 @@ citations: original anchor chunk
 - 不把 generated terms 注入 `content`
 - 不让 LLM 引用 `search_text`
 - 不做自动 destructive migration
-- 不用这个替代 Doc2Query；Doc2Query remains Phase 10
+- 不用这个替代 Doc2Query；Doc2Query remains a later recall bridge phase
 
 #### 验证
 
@@ -646,11 +647,243 @@ citations: original anchor chunk
 
 ---
 
-## Phase 10A: Section Probe Retrieval Experiment
+## Phase 10: Tag Governance And UI Exposure
+
+Goal: turn Phase 9 enrichment signals into a controlled tag system. Phase 9 generates retrieval signals. Phase 10 decides which signals are trusted tags, how many are allowed, where they are shown, and how quality is measured.
+
+This phase should not add more extraction rules first. It should reduce noise and make tags governable.
+
+### Product Research Notes
+
+Mature search and knowledge-base systems usually separate metadata/facets from free-form keywords:
+
+- Azure AI Search models fields explicitly as `searchable`, `filterable`, `facetable`, `retrievable`, and sortable. Search behavior and UI exposure are field-level decisions, not automatic output of an extractor.
+- Amazon Kendra treats document fields/attributes as filter, facet, display, and relevance-tuning signals.
+- Google Gemini Enterprise / Discovery Engine uses structured metadata for filters and recommends evaluating search quality after enabling filters.
+- Pinecone treats metadata as flat JSON used for filtering; searches without metadata filters do not use metadata to narrow results.
+- Weaviate creates separate inverted indexes per property and per index type, so enabling searchable/filterable properties has storage and indexing cost.
+- Azure Key Phrase Extraction returns key phrases ordered by importance, but these are enrichment outputs, not necessarily user-facing tags.
+- Algolia warns that unique/high-cardinality identifiers are bad facets and that facet/filter choices affect performance.
+
+Implication for this project:
+
+```text
+structured_tags = controlled metadata/facet/debug signal
+keywords        = retrieval enrichment/search_text signal
+```
+
+Do not display all keywords as primary UI tags.
+
+### Tag Taxonomy
+
+Define a controlled enum for `structured_tags`. P1 examples:
+
+```text
+amount_threshold
+approval_rule
+training_budget
+deadline_rule
+payment_rule
+reimbursement_rule
+procurement_rule
+budget_rule
+```
+
+Rules:
+
+- `structured_tags` must come from a whitelist.
+- Each tag needs a short Chinese label, description, and evidence rule.
+- Each tag needs an explicit priority. When more than 4 tags match one chunk, priority decides which tags are kept.
+- Tags should be domain/profile aware. `enterprise_policy` tags should not be assumed useful for academic papers or generic corpora.
+- Unknown extracted phrases must stay in `keywords`, not be promoted to `structured_tags`.
+
+### Scope Levels
+
+Support three scopes, but implement chunk scope first:
+
+```text
+document_tags:
+  coarse classification, ingestion profile selection, admin filtering
+
+section_tags:
+  future section probe / long-document routing
+
+chunk_tags:
+  retrieval explanation, debug, and optional filtering
+```
+
+Tag scope should be explicit in stored artifacts:
+
+```json
+{
+  "scope": "chunk",
+  "structured_tags": ["amount_threshold", "approval_rule"],
+  "keywords": ["VP审批", "10,000元", "外部培训管理"]
+}
+```
+
+### Quantity Policy
+
+Default limits:
+
+```text
+structured_tags per chunk: 0-3 visible, hard cap 4
+keywords per chunk: 3-8 useful, hard cap 10
+UI visible tags: structured_tags only, max 3 + overflow count
+keywords UI: tooltip, technical details, or debug drawer only
+```
+
+Rationale:
+
+- `structured_tags` are for controlled interpretation.
+- `keywords` are for recall and diagnostics.
+- Showing too many keywords makes the UI noisy and implies false precision.
+
+### Quality Gates
+
+Each structured tag needs a deterministic evidence rule:
+
+```text
+amount_threshold:
+  amount expression + threshold term
+
+approval_rule:
+  approval/signature/review term + role/person/org term
+
+deadline_rule:
+  date/duration expression + action/requirement term
+```
+
+Quality checks:
+
+- Unit tests for every tag rule.
+- Negative tests for nearby but invalid matches.
+- Golden Set slice comparing Hit@5, Hit@10, and Citation Hit Rate with tags/search_text enabled.
+- Tag distribution report after ingestion:
+  - top tags
+  - chunks with zero tags
+  - chunks with too many keywords
+  - high-cardinality keywords
+  - tags by document/entity/source type
+
+### UI Policy
+
+User-facing pages:
+
+- Retrieval Test Top Chunks: show only `structured_tags`, max 3, overflow as `+N`.
+- Query Stats / hit drawer: show `structured_tags`; `keywords` inside technical details.
+- Document Detail chunk list: show `structured_tags` as optional technical metadata, not as the main content.
+- Chat citations: do not show tags by default.
+
+Admin/debug pages:
+
+- Show full `structured_tags`, `keywords`, `search_text` length, and `enrichment_profile`.
+- Add filters by tag only after tag quality is stable.
+
+### Implementation Plan
+
+#### Step Breakdown
+
+10.1 Registry + Backend Validation
+- Add built-in `structured_tags` registry.
+- Validate enrichment output through the registry.
+- Drop or downgrade unknown tags.
+- Add caps for `structured_tags` and `keywords`.
+- Tests: whitelist, labels, unknown tags, disabled/default behavior, caps.
+
+10.2 UI Display Convergence
+- Retrieval Test Top Chunks shows only `structured_tags`.
+- Move `keywords` to tooltip/details/debug output.
+- Query Stats hit drawer uses the same display policy.
+- Tests: frontend build.
+
+10.3 Admin Override API
+- Add SQLite admin override table.
+- Add list/update/reset API.
+- Only allow label, description, enabled, and UI-visible edits.
+- Return `reindex_required` when changes affect ingestion output.
+
+10.4 Tag Governance UI
+- Add `标签治理` page under System Settings or Quality Center.
+- Show tag key, label, scope, profile, enabled, UI-visible, counts, and actions.
+- Support edit and preview only; no free create/delete.
+
+10.5 Preview + Metrics
+- Preview tag extraction from pasted text or selected document without writing to storage.
+- Add ingestion tag distribution report.
+- Run Golden Set recall slice before/after governance changes.
+
+#### Detailed Tasks
+
+1. Add Tag Registry.
+   - Backend defines built-in `structured_tags`.
+   - Registry fields: `tag_key`, Chinese label, description, priority, scope, profile, default enabled, default UI visible.
+   - P1 registry only includes tags currently emitted by extraction rules. Future tags are added when their extraction rules exist.
+   - Built-in tags cannot be deleted and `tag_key` cannot be edited.
+
+2. Add Admin Tag Settings.
+   - Store admin overrides in SQLite.
+   - Admin can edit Chinese label, description, enabled state, and UI-visible state.
+   - Admin cannot freely create/delete tags in P1.
+   - Disabling a tag affects new enrichment, UI, filtering, and search_text expansion. Historical chunk artifacts can remain unchanged until reindex.
+
+3. Wire enrichment through registry.
+   - Enrichment rules may only emit registered `structured_tags`.
+   - Unknown rule outputs are dropped or downgraded to `keywords`.
+   - Disabled tags are excluded from new enrichment output.
+   - Settings changes should clearly show `reindex required`.
+
+4. Add caps and UI exposure rules.
+   - Add caps for visible tags and stored keywords.
+   - Update Retrieval Test table to show only `structured_tags` in the primary `标签` column.
+   - Move `keywords` to tooltip/details/debug output.
+   - Add a shared frontend/backend label map for `structured_tags`.
+
+5. Add Preview.
+   - Admin selects a document or pastes text.
+   - Backend runs tag rules without writing to storage.
+   - Return matched tags, evidence snippets, keywords, and `search_text` summary.
+   - Preview is required before making tag rule changes user-visible in later versions.
+
+6. Add Metrics.
+   - Add ingestion tag distribution report:
+     - top tags
+     - chunks per tag
+     - documents per tag
+     - zero-tag chunks
+     - too-many-keywords chunks
+     - high-cardinality keywords
+     - tags by document/entity/source type
+   - UI shows summary metrics; detailed JSON can stay debug/download only.
+
+7. Add Frontend Admin UI.
+   - Place under System Settings or Quality Center as `标签治理`.
+   - Table columns: label, tag key, scope, profile, enabled, UI visible, chunk count, actions.
+   - Actions: edit display fields, preview.
+   - No free create/delete controls in P1.
+
+8. Add tests and validation.
+   - Unit tests for registry validation, disabled tags, caps, and negative extraction cases.
+   - API tests for admin override behavior.
+   - Run Golden Set recall slice before/after tag governance changes.
+
+### Not Doing
+
+- No free-form LLM-generated structured tags.
+- No admin free-create/free-delete tags in P1.
+- No manual per-chunk tagging.
+- No query-time automatic promotion from keyword to tag.
+- No user-facing keyword cloud.
+- No tag filters until tag quality metrics are stable.
+- No universal domain tag system in P1; start with `enterprise_policy`.
+
+---
+
+## Phase 11A: Section Probe Retrieval Experiment
 
 Goal: test a coarse-to-fine retrieval path for long documents and long sections. Section probes should help when a whole section is relevant to the query, but individual chunks are too local or too weakly worded to be retrieved directly.
 
-This is an experiment after Phase 9, not a default path. Enable it only for `recall` and compare against the challenge set before making it permanent.
+This is an experiment after Phase 9 and Phase 10, not a default path. Enable it only for `recall` and compare against the challenge set before making it permanent.
 
 ### Design
 
@@ -735,15 +968,15 @@ Mitigation: keep it recall-only, low-weight, capped, and disabled by default unt
 
 ---
 
-## Phase 10B: Doc2Query — Chunk Question Generation
+## Phase 11B: Doc2Query — Chunk Question Generation
 
 Goal: generate 3-5 answerable questions per text chunk, index in a companion Milvus collection, and use as a recall bridge during retrieval. Only active for `recall` flavor initially.
 
 Positioning after Phase 9:
 
 - Phase 9 fixes deterministic lexical gaps: tags, amount phrases, approval roles, aliases, and `search_text`.
-- Phase 10A tests whether section probes solve long-document recall before adding generated questions per chunk.
-- Phase 10B fixes semantic question-form gaps: users ask a natural question that the original chunk can answer, but neither exact keywords, rule-based tags, nor section probes cover it.
+- Phase 11A tests whether section probes solve long-document recall before adding generated questions per chunk.
+- Phase 11B fixes semantic question-form gaps: users ask a natural question that the original chunk can answer, but neither exact keywords, rule-based tags, nor section probes cover it.
 - Do not use Doc2Query as the first fix for every missed recall case. It adds LLM cost, generated-content QA, another collection, and more ingestion complexity.
 
 Doc2Query should be enabled only after Phase 9 and the Section Probe experiment are measured against the challenge set and still leave recall-heavy cases failing.

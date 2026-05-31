@@ -35,6 +35,21 @@ export function sourceTypeLabel(sourceType: string): string {
   return SOURCE_TYPE_LABELS[sourceType] ?? (sourceType || '未知')
 }
 
+export const STRUCTURED_TAG_LABELS: Record<string, string> = {
+  amount_threshold: '金额阈值',
+  approval_rule: '审批规则',
+  training_budget: '培训预算',
+  deadline_rule: '时限规则',
+  payment_rule: '付款规则',
+  reimbursement_rule: '报销规则',
+  procurement_rule: '采购规则',
+  budget_rule: '预算规则',
+}
+
+export function structuredTagLabel(tagKey: string): string {
+  return STRUCTURED_TAG_LABELS[tagKey] ?? (tagKey || '未知')
+}
+
 export const SEARCH_MODE_LABELS: Record<string, string> = {
   hybrid: '语义 + 关键词',
   dense: '语义匹配',

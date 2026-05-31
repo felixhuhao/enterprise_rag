@@ -9,6 +9,8 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Mapping
 
+from app.rag.chunking.structured_tag_registry import normalize_structured_tags
+
 MAX_KEYWORDS = 8
 
 _HEADING_RE = re.compile(r"^\s*#{1,6}\s+(.+?)\s*$", re.MULTILINE)
@@ -70,7 +72,8 @@ def extract_keywords(content: str, section_title: str = "", profile: str = "ente
 
 def extract_structured_tags(content: str, section_title: str = "", profile: str = "enterprise_policy") -> list[str]:
     """Return coarse structured tags used to build search_text."""
-    if _normalize_profile(profile) != "enterprise_policy":
+    profile = _normalize_profile(profile)
+    if profile != "enterprise_policy":
         return []
 
     text = f"{section_title}\n{content or ''}"
@@ -97,7 +100,7 @@ def extract_structured_tags(content: str, section_title: str = "", profile: str 
     if _DATE_TIME_RE.search(text) and any(word in text for word in ("提交", "报告", "响应", "处理", "申请")):
         tags.append("deadline_rule")
 
-    return _dedupe(tags)
+    return normalize_structured_tags(_dedupe(tags), profile=profile)
 
 
 def build_search_text(chunk: Mapping[str, object], profile: str = "enterprise_policy") -> str:
@@ -109,7 +112,10 @@ def build_search_text(chunk: Mapping[str, object], profile: str = "enterprise_po
     entity_name = str(chunk.get("entity_name") or "")
     table_title = str(chunk.get("table_title") or "")
     keywords = list(chunk.get("keywords") or extract_keywords(content, section_title, profile=profile))
-    tags = list(chunk.get("structured_tags") or extract_structured_tags(content, section_title, profile=profile))
+    tags = normalize_structured_tags(
+        chunk.get("structured_tags") or extract_structured_tags(content, section_title, profile=profile),
+        profile=profile,
+    )
 
     pieces = [
         entity_name,

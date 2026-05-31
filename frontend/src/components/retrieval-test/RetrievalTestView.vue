@@ -275,6 +275,24 @@
               </template>
             </a-table-column>
 
+            <a-table-column title="标签" data-index="tags" :width="resultColumns.columnWidth('tags')">
+              <template #cell="{ record }">
+                <div v-if="chunkTags(record).length" class="chunk-tags" :title="chunkTagsTitle(record)">
+                  <span
+                    v-for="tag in chunkTags(record)"
+                    :key="tag.value"
+                    class="chunk-tag"
+                  >
+                    {{ tag.label }}
+                  </span>
+                  <span v-if="hiddenChunkTagCount(record)" class="chunk-tag more">
+                    +{{ hiddenChunkTagCount(record) }}
+                  </span>
+                </div>
+                <span v-else class="muted-text">—</span>
+              </template>
+            </a-table-column>
+
             <a-table-column title="内容" data-index="content" :width="resultColumns.columnWidth('content')">
               <template #cell="{ record }">
                 <div class="content-cell">
@@ -313,6 +331,7 @@ import {
   retrievalPathLabel,
   searchModeLabel,
   sourceTypeLabel,
+  structuredTagLabel,
 } from '../../utils/labelMaps'
 
 defineOptions({ name: 'RetrievalTestView' })
@@ -328,13 +347,14 @@ const loading = ref(false)
 const errorMessage = ref('')
 const response = ref<RetrievalTestResponse | null>(null)
 const expandedKeys = ref<Set<number>>(new Set())
-const resultColumns = useAutoFitColumns('enterprise-rag:retrieval-test-results:auto-v1', {
+const resultColumns = useAutoFitColumns('enterprise-rag:retrieval-test-results:auto-v2', {
   rank: { width: 52, minWidth: 44, maxWidth: 64 },
   source: { width: 180, minWidth: 130, maxWidth: 240 },
   page: { width: 64, minWidth: 56, maxWidth: 76 },
   path: { width: 110, minWidth: 84, maxWidth: 150 },
   score: { width: 84, minWidth: 74, maxWidth: 100 },
   type: { width: 96, minWidth: 78, maxWidth: 120 },
+  tags: { width: 150, minWidth: 110, maxWidth: 220 },
   content: { width: 520, minWidth: 260, flex: true },
 }, { minWidth: 44 })
 
@@ -352,6 +372,11 @@ interface TraceRow {
   key: string
   label: string
   value: number
+}
+
+interface ChunkTag {
+  label: string
+  value: string
 }
 
 const flavorModes = FLAVOR_OPTIONS
@@ -569,6 +594,31 @@ function expansionLabel(label: string) {
 
 function sourceTypeColor(sourceType: string) {
   return sourceType.startsWith('table_') ? 'orange' : 'arcoblue'
+}
+
+function chunkTags(record: RetrievalTestResponse['results'][number]): ChunkTag[] {
+  return uniqueStrings(record.structured_tags).slice(0, 3).map((value) => ({
+    value,
+    label: structuredTagLabel(value),
+  }))
+}
+
+function hiddenChunkTagCount(record: RetrievalTestResponse['results'][number]) {
+  const total = uniqueStrings(record.structured_tags).length
+  return Math.max(0, total - chunkTags(record).length)
+}
+
+function chunkTagsTitle(record: RetrievalTestResponse['results'][number]) {
+  const structured = uniqueStrings(record.structured_tags).map(structuredTagLabel)
+  const keywords = uniqueStrings(record.keywords)
+  const parts = []
+  if (structured.length) parts.push(`标签：${structured.join(' / ')}`)
+  if (keywords.length) parts.push(`关键词：${keywords.join(' / ')}`)
+  return parts.join('\n')
+}
+
+function uniqueStrings(values: string[] | null | undefined) {
+  return Array.from(new Set((values ?? []).filter(Boolean)))
 }
 
 function retrievalPathSummary(path: string | null | undefined) {
@@ -1223,6 +1273,35 @@ function filterToScope(filter: string) {
 .score-cell span {
   color: var(--text-muted);
   font-size: 11px;
+}
+
+.chunk-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.chunk-tag {
+  max-width: 100%;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #166534;
+  background: #dcfce7;
+}
+
+.chunk-tag.more {
+  color: var(--text-muted);
+  background: var(--bg-hover);
+}
+
+.muted-text {
+  color: var(--text-muted);
 }
 
 .content-cell {
