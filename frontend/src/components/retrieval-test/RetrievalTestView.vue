@@ -192,11 +192,11 @@
       <section class="results-panel">
         <div class="results-header">
           <div>
-            <h3>Top Chunks</h3>
+            <h3>Top 切片</h3>
             <p v-if="response.rewritten_query !== response.query">
               改写查询：{{ response.rewritten_query }}
             </p>
-            <p v-else>展示最终进入检索上下文的候选 chunks。</p>
+            <p v-else>展示最终进入检索上下文的候选切片。</p>
           </div>
           <a-button size="mini" @click="resultColumns.resetColumnWidths()">重置列宽</a-button>
         </div>

@@ -40,7 +40,7 @@
               <strong>{{ document.entity_name || '—' }}</strong>
             </div>
             <div class="metadata-item">
-              <span>Chunks</span>
+              <span>切片数</span>
               <strong>{{ chunks.length }}</strong>
             </div>
             <div class="metadata-item">
@@ -66,13 +66,13 @@
         <section class="detail-card chunks-card">
           <div class="chunks-toolbar">
             <div>
-              <h3>Chunk 列表</h3>
-              <p>{{ filteredChunks.length }} / {{ chunks.length }} 个 chunks</p>
+              <h3>切片列表</h3>
+              <p>{{ filteredChunks.length }} / {{ chunks.length }} 个切片</p>
             </div>
             <a-input-search
               v-model="keyword"
               class="chunk-search"
-              placeholder="搜索 chunk 内容"
+              placeholder="搜索切片内容"
               allow-clear
             />
           </div>
@@ -159,7 +159,7 @@
             @click="router.push('/documents/' + doc.document_id)"
           >
             <span class="related-name">{{ doc.filename }}</span>
-            <span class="related-meta">{{ doc.chunk_count }} chunks</span>
+            <span class="related-meta">{{ doc.chunk_count }} 个切片</span>
             <span class="related-meta">{{ formatTime(doc.updated_at) }}</span>
           </div>
         </section>
@@ -367,7 +367,7 @@ function applyHighlight() {
   }
   highlightChunkId.value = requestedLegacyId || requestedKey
   highlightChunkKey.value = null
-  // 确保 keyword 不干扰高亮 chunk 的可见性
+  // 确保 keyword 不干扰高亮切片的可见性
   keyword.value = ''
 
   let index = -1
@@ -380,7 +380,7 @@ function applyHighlight() {
     )
   }
   if (index === -1) {
-    Message.warning('未找到对应 chunk，可能索引已重建或链接来自旧记录。')
+    Message.warning('未找到对应切片，可能索引已重建或链接来自旧记录。')
     return
   }
   highlightChunkKey.value = chunks.value[index].chunk_key

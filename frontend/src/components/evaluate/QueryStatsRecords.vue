@@ -180,7 +180,7 @@
                 <button
                   class="jump-btn"
                   :disabled="!record.document_id"
-                  :title="!record.document_id ? '缺少文档信息' : '打开文档并定位到命中 chunk'"
+                  :title="!record.document_id ? '缺少文档信息' : '打开文档并定位到命中切片'"
                   @click="openDocument(record)"
                 >
                   定位

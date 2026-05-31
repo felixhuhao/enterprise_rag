@@ -109,7 +109,7 @@
             </template>
           </a-table-column>
 
-          <a-table-column title="Chunks" data-index="chunk_count" :width="documentColumns.columnWidth('chunk_count')" align="center" />
+          <a-table-column title="切片数" data-index="chunk_count" :width="documentColumns.columnWidth('chunk_count')" align="center" />
           <a-table-column title="图片" data-index="image_count" :width="documentColumns.columnWidth('image_count')" align="center" />
 
           <a-table-column title="上传时间" data-index="created_at" :width="documentColumns.columnWidth('created_at')">

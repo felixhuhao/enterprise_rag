@@ -122,7 +122,7 @@ const pageMeta = computed(() => {
       title: isAdmin ? '文档管理' : '知识库文档',
       subtitle: isAdmin ? '上传、处理、重试和修复知识库文档。' : '查看可访问的知识库文档。',
     },
-    '/retrieval-test': { title: '检索测试', subtitle: '检查检索链路、扩展查询、预算和 Top K chunks。' },
+    '/retrieval-test': { title: '检索测试', subtitle: '检查检索链路、扩展查询、预算和 Top K 切片。' },
     '/evaluate': {
       title: isAdmin ? '质量中心' : '查询记录',
       subtitle: isAdmin ? '查询监控、检索记录、答案反馈和基准测试集回归评测。' : '查看自己的查询记录和反馈。',

@@ -181,11 +181,11 @@
                 <strong>{{ tagMetrics?.summary.document_count ?? 0 }}</strong>
               </div>
               <div class="tag-metric-card">
-                <span>Chunks</span>
+                <span>切片数</span>
                 <strong>{{ tagMetrics?.summary.chunk_count ?? 0 }}</strong>
               </div>
               <div class="tag-metric-card">
-                <span>无标签 Chunks</span>
+                <span>无标签切片</span>
                 <strong>{{ tagMetrics?.summary.zero_tag_chunks ?? 0 }}</strong>
               </div>
               <div class="tag-metric-card">
@@ -205,7 +205,7 @@
                 <span>选择文档</span>
                 <a-select
                   v-model="previewDocumentId"
-                  placeholder="可选，选择后预览该文档 chunks"
+                  placeholder="可选，选择后预览该文档切片"
                   allow-clear
                   :loading="previewDocsLoading"
                 >
@@ -233,7 +233,7 @@
             </div>
             <div v-if="previewResult" class="tag-preview-result">
               <div class="tag-preview-summary">
-                <span>{{ previewResult.summary.matched_chunks }} / {{ previewResult.summary.chunk_count }} chunks 命中标签</span>
+                <span>{{ previewResult.summary.matched_chunks }} / {{ previewResult.summary.chunk_count }} 个切片命中标签</span>
                 <span>{{ previewResult.summary.tag_count }} 个标签</span>
               </div>
               <div v-if="previewResult.tag_counts.length" class="tag-preview-tags">
@@ -752,7 +752,7 @@ function clearTagPreview() {
 }
 
 function tagScopeLabel(scope: string) {
-  return scope === 'chunk' ? 'Chunk' : scope
+  return scope === 'chunk' ? '切片' : scope
 }
 
 function tagProfileLabel(profile: string) {
