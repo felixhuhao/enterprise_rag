@@ -49,8 +49,9 @@ _ROLES = (
 )
 
 
-def extract_keywords(content: str, section_title: str = "") -> list[str]:
+def extract_keywords(content: str, section_title: str = "", profile: str = "enterprise_policy") -> list[str]:
     """Extract deterministic searchable keywords from one chunk."""
+    profile = _normalize_profile(profile)
     text = _clean_text(content)
     candidates: list[str] = []
 
@@ -61,13 +62,17 @@ def extract_keywords(content: str, section_title: str = "") -> list[str]:
     candidates.extend(_POLICY_PHRASE_RE.findall(text))
     candidates.extend(_ACRONYM_RE.findall(text))
     candidates.extend(_AMOUNT_RE.findall(text))
-    candidates.extend(_role_approval_terms(text))
+    if profile == "enterprise_policy":
+        candidates.extend(_role_approval_terms(text))
 
     return _dedupe(_clean_keyword(item) for item in candidates)[:MAX_KEYWORDS]
 
 
-def extract_structured_tags(content: str, section_title: str = "") -> list[str]:
+def extract_structured_tags(content: str, section_title: str = "", profile: str = "enterprise_policy") -> list[str]:
     """Return coarse structured tags used to build search_text."""
+    if _normalize_profile(profile) != "enterprise_policy":
+        return []
+
     text = f"{section_title}\n{content or ''}"
     tags: list[str] = []
 
@@ -95,15 +100,16 @@ def extract_structured_tags(content: str, section_title: str = "") -> list[str]:
     return _dedupe(tags)
 
 
-def build_search_text(chunk: Mapping[str, object]) -> str:
+def build_search_text(chunk: Mapping[str, object], profile: str = "enterprise_policy") -> str:
     """Build enriched sparse/BM25 text without changing source content."""
+    profile = _normalize_profile(profile)
     content = str(chunk.get("content") or "")
     section_title = str(chunk.get("section_title") or "")
     file_title = str(chunk.get("file_title") or "")
     entity_name = str(chunk.get("entity_name") or "")
     table_title = str(chunk.get("table_title") or "")
-    keywords = list(chunk.get("keywords") or extract_keywords(content, section_title))
-    tags = list(chunk.get("structured_tags") or extract_structured_tags(content, section_title))
+    keywords = list(chunk.get("keywords") or extract_keywords(content, section_title, profile=profile))
+    tags = list(chunk.get("structured_tags") or extract_structured_tags(content, section_title, profile=profile))
 
     pieces = [
         entity_name,
@@ -114,40 +120,72 @@ def build_search_text(chunk: Mapping[str, object]) -> str:
         " ".join(str(item) for item in keywords),
         " ".join(str(item) for item in tags),
         " ".join(_normalized_amounts(content)),
-        " ".join(_recall_terms(tags)),
+        " ".join(_recall_terms(tags)) if profile == "enterprise_policy" else "",
     ]
     return _clean_text(" ".join(piece for piece in pieces if piece))
 
 
-def enrich_chunks(chunks: list[dict]) -> list[dict]:
+def enrich_chunks(chunks: list[dict], profile: str = "enterprise_policy") -> list[dict]:
     """Return copies of chunks with keywords, structured_tags, and search_text."""
+    profile = _normalize_profile(profile)
+    if profile == "none":
+        return [dict(chunk) for chunk in chunks]
+
     enriched: list[dict] = []
     for chunk in chunks:
         row = dict(chunk)
         content = str(row.get("content") or "")
         section_title = str(row.get("section_title") or "")
-        row["keywords"] = extract_keywords(content, section_title)
-        row["structured_tags"] = extract_structured_tags(content, section_title)
-        row["search_text"] = build_search_text(row)
+        row["enrichment_profile"] = profile
+        row["keywords"] = extract_keywords(content, section_title, profile=profile)
+        row["structured_tags"] = extract_structured_tags(content, section_title, profile=profile)
+        row["search_text"] = build_search_text(row, profile=profile)
         enriched.append(row)
     return enriched
+
+
+def _normalize_profile(profile: str) -> str:
+    if profile in {"none", "general", "enterprise_policy"}:
+        return profile
+    return "enterprise_policy"
 
 
 def _recall_terms(tags: list[str]) -> list[str]:
     terms: list[str] = []
     tag_set = set(tags)
-    if "amount_threshold" in tag_set:
-        terms.extend(["金额阈值", "费用标准", "金额上限", "金额下限", "金额范围", "费用门槛"])
+    has_approval = "approval_rule" in tag_set
     if {"amount_threshold", "approval_rule"}.issubset(tag_set):
-        terms.extend(["金额审批阈值", "费用审批门槛", "超过金额审批", "审批权限", "审批标准", "金额审批", "费用审批"])
+        terms.extend([
+            "金额阈值",
+            "费用标准",
+            "金额上限",
+            "金额下限",
+            "金额范围",
+            "费用门槛",
+            "金额审批阈值",
+            "费用审批门槛",
+            "超过金额审批",
+            "审批权限",
+            "审批标准",
+            "金额审批",
+            "费用审批",
+        ])
     if "payment_rule" in tag_set:
-        terms.extend(["付款审批", "支付审批"])
+        terms.extend(["付款金额", "支付金额"])
+        if has_approval:
+            terms.extend(["付款审批", "支付审批"])
     if "budget_rule" in tag_set:
-        terms.extend(["预算审批", "预算金额"])
+        terms.extend(["预算金额"])
+        if has_approval:
+            terms.append("预算审批")
     if "reimbursement_rule" in tag_set:
-        terms.extend(["报销审批", "报销金额"])
+        terms.extend(["报销金额", "费用标准"])
+        if has_approval:
+            terms.append("报销审批")
     if "procurement_rule" in tag_set:
-        terms.extend(["采购审批", "供应商付款"])
+        terms.append("供应商金额")
+        if has_approval:
+            terms.extend(["采购审批", "供应商付款"])
     if "training_budget" in tag_set:
         terms.extend(["培训费用", "外部培训", "培训预算"])
     if "deadline_rule" in tag_set:
@@ -163,11 +201,13 @@ def _section_keywords(section_title: str) -> list[str]:
 def _role_approval_terms(text: str) -> list[str]:
     if not any(word in text for word in _APPROVAL_WORDS):
         return []
-    terms = []
-    for role in _ROLES:
+    matched: list[str] = []
+    for role in sorted(_ROLES, key=len, reverse=True):
         if role in text:
-            terms.append(f"{role}审批")
-    return terms
+            if any(role in existing for existing in matched):
+                continue
+            matched.append(role)
+    return [f"{role}审批" for role in matched]
 
 
 def _normalized_amounts(text: str) -> list[str]:

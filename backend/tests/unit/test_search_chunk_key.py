@@ -30,3 +30,19 @@ def test_parse_hits_preserves_milvus_chunk_key():
     rows = _parse_hits([{"id": 123, "distance": 0.9, "entity": entity}])
 
     assert rows[0]["chunk_key"] == "ck_existing"
+
+
+def test_parse_hits_decodes_enrichment_metadata():
+    entity = {
+        "chunk_key": "ck_existing",
+        "document_id": "doc-1",
+        "source_type": "text",
+        "content": "hello world",
+        "keywords": '["VP审批"]',
+        "structured_tags": '["amount_threshold", "approval_rule"]',
+    }
+
+    rows = _parse_hits([{"id": 123, "distance": 0.9, "entity": entity}])
+
+    assert rows[0]["keywords"] == ["VP审批"]
+    assert rows[0]["structured_tags"] == ["amount_threshold", "approval_rule"]

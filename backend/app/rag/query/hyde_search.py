@@ -19,6 +19,7 @@ from app.rag.query.fallback import (
     fallback_used,
 )
 from app.rag.query.filter_utils import build_acl_expr, combine_filters, get_allowed_ids
+from app.rag.query.metadata_utils import parse_json_list
 from app.rag.query.planner import get_query_plan, plan_allows_entity_fallback, plan_budget
 from app.rag.query.search import SEARCH_TIMEOUT
 from app.rag.query.state import QueryState
@@ -29,6 +30,8 @@ logger = logging.getLogger(__name__)
 OUTPUT_FIELDS = [
     "chunk_key",
     "content",
+    "keywords",
+    "structured_tags",
     "title",
     "section_title",
     "source_type",
@@ -166,6 +169,8 @@ def _parse_hits(hits) -> list[dict]:
             "table_tokens": entity.get("table_tokens"),
             "raw_table_path": entity.get("raw_table_path", ""),
             "content": entity.get("content", ""),
+            "keywords": parse_json_list(entity.get("keywords")),
+            "structured_tags": parse_json_list(entity.get("structured_tags")),
             "part": entity.get("part"),
             "score": hit["distance"],
         })

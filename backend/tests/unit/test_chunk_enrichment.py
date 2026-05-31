@@ -48,6 +48,43 @@ def test_does_not_add_finance_recall_terms_without_amount_approval_evidence():
     assert "费用审批门槛" not in search_text
 
 
+def test_amount_threshold_without_approval_keeps_approval_recall_terms_out():
+    content = "年度预算总额500万元以上，作为年度规划参考。"
+
+    tags = extract_structured_tags(content, "年度预算")
+    search_text = build_search_text({
+        "content": content,
+        "section_title": "年度预算",
+        "structured_tags": tags,
+    })
+
+    assert "amount_threshold" in tags
+    assert "approval_rule" not in tags
+    assert "预算金额" in search_text
+    assert "金额阈值" not in search_text
+    assert "金额审批阈值" not in search_text
+    assert "审批权限" not in search_text
+
+
+def test_general_profile_skips_enterprise_policy_terms():
+    content = "金额超过50万元的付款须额外经CFO审批。"
+
+    enriched = enrich_chunks([{"content": content, "section_title": "付款管理"}], profile="general")[0]
+
+    assert enriched["enrichment_profile"] == "general"
+    assert "50万元" in enriched["keywords"]
+    assert "CFO审批" not in enriched["keywords"]
+    assert enriched["structured_tags"] == []
+    assert "金额审批阈值" not in enriched["search_text"]
+    assert "审批权限" not in enriched["search_text"]
+
+
+def test_date_duration_without_action_does_not_trigger_deadline_rule():
+    tags = extract_structured_tags("制度有效期90天，P1事件定义见附录。", "信息安全策略")
+
+    assert "deadline_rule" not in tags
+
+
 def test_extracts_policy_titles_bold_text_and_acronyms():
     content = "依据《供应商管理制度》执行。**P1响应时间**必须满足SLA要求。"
 
@@ -101,20 +138,34 @@ def test_table_chunk_amount_approval_enrichment():
     assert "5000-20000元" in search_text
 
 
+def test_role_approval_terms_prefer_specific_roles():
+    content = "直属经理审批，部门经理复核，分管VP批准。"
+
+    keywords = extract_keywords(content, "")
+
+    assert "直属经理审批" in keywords
+    assert "部门经理审批" in keywords
+    assert "分管VP审批" in keywords
+    assert "经理审批" not in keywords
+    assert "VP审批" not in keywords
+
+
 def test_empty_content_and_section_do_not_crash():
     assert extract_keywords("", "") == []
     assert extract_structured_tags("", "") == []
     assert build_search_text({"content": "", "section_title": ""}) == ""
+    assert enrich_chunks([]) == []
     assert enrich_chunks([{}])[0]["search_text"] == ""
 
 
 def test_normalized_amounts_preserve_boundaries_and_ranges():
-    text = "3万元、600 元/晚、50万以上、5,000元以下、5,000 - 20,000元"
+    text = "3万元、600 元/晚、50万以上、5,000元以下、5,000 - 20,000元以下、3万-5万元"
 
     assert _normalized_amounts(text) == [
         "3万元",
         "600元/晚",
         "50万以上",
         "5000元以下",
-        "5000-20000元",
+        "5000-20000元以下",
+        "3万-5万元",
     ]

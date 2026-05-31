@@ -11,6 +11,7 @@ from pathlib import Path
 from app.config import settings
 from app.core.database import get_db
 from app.rag.chunking.chunk_keys import base_chunk_key
+from app.rag.query.metadata_utils import parse_json_list
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ PROCESSING_STATUSES = (
     "reading",
     "normalizing",
     "chunking",
+    "enriching",
     "embedding",
     "saving",
 )
@@ -425,6 +427,8 @@ def _normalize_chunk(row: dict, document_id: str, sequence_index: int) -> dict:
             image_paths = []
     if not isinstance(image_paths, list):
         image_paths = []
+    keywords = parse_json_list(row.get("keywords"))
+    structured_tags = parse_json_list(row.get("structured_tags"))
 
     content = row.get("content", "") or ""
     source_type = row.get("source_type", "text") or "text"
@@ -452,8 +456,11 @@ def _normalize_chunk(row: dict, document_id: str, sequence_index: int) -> dict:
         "raw_table_path": row.get("raw_table_path"),
         "table_tokens": row.get("table_tokens"),
         "image_paths": image_paths,
+        "keywords": keywords,
+        "structured_tags": structured_tags,
         "content_length": len(content),
     }
+
 
 
 def _sort_chunks(chunks: list[dict]) -> list[dict]:

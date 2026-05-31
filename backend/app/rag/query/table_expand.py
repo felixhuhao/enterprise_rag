@@ -8,6 +8,7 @@ from langgraph.graph.state import RunnableConfig
 
 from app.rag.chunking.chunk_keys import base_chunk_key
 from app.rag.query.config import get_query_config
+from app.rag.query.metadata_utils import parse_json_list
 from app.rag.query.search import SEARCH_TIMEOUT
 from app.rag.query.state import QueryState
 from app.rag.vectorstores.general_milvus import COLLECTION_NAME, available_output_fields, client
@@ -16,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 _EXPAND_FIELDS = [
     "content",
+    "keywords",
+    "structured_tags",
     "title",
     "section_title",
     "source_type",
@@ -100,6 +103,8 @@ def table_expand_node(state: QueryState, config: RunnableConfig) -> dict:
                 "table_tokens": row.get("table_tokens"),
                 "raw_table_path": row.get("raw_table_path", ""),
                 "content": row.get("content", ""),
+                "keywords": parse_json_list(row.get("keywords")),
+                "structured_tags": parse_json_list(row.get("structured_tags")),
                 "part": row.get("part"),
                 "score": hit.get("score", 0),
                 "retrieval_paths": retrieval_paths,

@@ -478,6 +478,57 @@ For each text/table chunk, generate three artifact fields:
 
 `content` stays unchanged and remains the only source shown to the LLM and citations. `search_text` is only for retrieval.
 
+#### Enrichment Profile And Tag Linkage
+
+Enrichment should not be treated as one universal rule set. The current enterprise finance/policy rules are valuable for this demo, but they are not suitable for unrelated corpora such as academic papers.
+
+Supported profiles:
+
+```python
+chunk_enrichment_profile = "enterprise_policy"
+# "none" | "general" | "enterprise_policy"
+```
+
+- `none`: do not add retrieval enrichment fields.
+- `general`: add broadly useful lexical enrichment such as headings, bold text, book titles, acronyms, policy/document names, and normalized numeric/amount phrases.
+- `enterprise_policy`: add `general` plus enterprise policy rules such as amount thresholds, approval roles, reimbursement, payment, budget, procurement, supplier, and deadline recall terms.
+
+Profile selection is an ingestion-time decision because it changes persisted `search_text`, `keywords`, and `structured_tags`. Query-time auto selection is not enough unless multiple indexes/search_text fields are maintained.
+
+Future tag-system linkage:
+
+```python
+def resolve_enrichment_profile(document_tags: list[str], override: str = "auto") -> str:
+    if override != "auto":
+        return override
+    if "enterprise_policy" in document_tags:
+        return "enterprise_policy"
+    if "academic_paper" in document_tags:
+        return "academic_paper"
+    return "general"
+```
+
+Target behavior:
+
+```text
+document tags / collection tags
+  -> resolve enrichment profile before ingestion
+  -> persist enrichment_profile on chunks
+  -> index search_text with the selected profile
+  -> query uses the already-built representation
+```
+
+Upload/UI should eventually expose an override:
+
+```text
+Auto by tags
+General
+Enterprise policy
+Off
+```
+
+This keeps enrichment explainable and correctable: admins can adjust tags or override the profile before reingestion.
+
 提取规则：
 - Markdown heading（`#` 标题）→ 关键词
 - **粗体文本**（`**xxx**`）→ 关键词
@@ -561,6 +612,7 @@ citations: original anchor chunk
 
 **修改**: `backend/app/rag/ingestion/config.py`
 - `chunk_enrichment_enabled: bool = True`
+- `chunk_enrichment_profile: str = "enterprise_policy"`
 
 **修改**: Milvus schema / row mapping
 - Add `search_text`, `keywords`, `structured_tags`

@@ -42,6 +42,8 @@ export interface DocumentChunk {
   raw_table_path?: string | null
   table_tokens?: number | null
   image_paths: string[]
+  keywords?: string[]
+  structured_tags?: string[]
   content_length: number
 }
 

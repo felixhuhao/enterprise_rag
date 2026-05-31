@@ -16,6 +16,10 @@ class IngestionConfig:
     table_group_hard_tokens: int = 1400
     table_group_max_rows: int = 10
 
+    # Chunk search enrichment
+    chunk_enrichment_enabled: bool = True
+    chunk_enrichment_profile: str = "enterprise_policy"
+
 
 def get_ingestion_config(config: RunnableConfig) -> IngestionConfig:
     """从 RunnableConfig 中提取 IngestionConfig，无则返回默认值。"""

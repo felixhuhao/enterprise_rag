@@ -218,6 +218,7 @@ const STATUS_MAP: Record<string, { label: string; color: string }> = {
   reading: { label: '读取中', color: 'orange' },
   normalizing: { label: '标准化', color: 'orange' },
   chunking: { label: '切片中', color: 'orange' },
+  enriching: { label: '增强中', color: 'orange' },
   embedding: { label: '向量化', color: 'orange' },
   saving: { label: '写入中', color: 'orange' },
   completed: { label: '已完成', color: 'green' },

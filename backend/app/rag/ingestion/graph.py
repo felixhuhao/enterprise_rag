@@ -1,11 +1,13 @@
 """LangGraph-based ingestion workflow.
 
-Deterministic state machine: entry → route → parse/read → normalize → chunk → embed_and_save.
+Deterministic state machine:
+entry → route → parse/read → normalize → chunk → enrich_search_metadata → embed_and_save.
 No checkpointing, no agent loops.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from typing import Callable, TypedDict
@@ -207,6 +209,45 @@ def chunk(state: IngestionState, config: RunnableConfig) -> dict:
     return {"chunks": chunks, "status": "chunking"}
 
 
+def enrich_search_metadata(state: IngestionState, config: RunnableConfig) -> dict:
+    """Add retrieval-only enrichment fields and persist parsed artifacts."""
+    from app.rag.chunking.enrichment import enrich_chunks as _enrich_chunks
+    from app.rag.ingestion.config import get_ingestion_config
+
+    chunks = state.get("chunks", [])
+    cfg = get_ingestion_config(config)
+    if not cfg.chunk_enrichment_enabled or cfg.chunk_enrichment_profile == "none":
+        return {"chunks": chunks}
+
+    updater = _get_updater(config)
+    if updater:
+        updater(state["document_id"], "enriching")
+
+    enriched = _enrich_chunks(chunks, profile=cfg.chunk_enrichment_profile)
+    _write_enrichment_artifacts(state["parsed_dir"], enriched)
+    return {"chunks": enriched, "status": "enriching"}
+
+
+def _write_enrichment_artifacts(parsed_dir: str, chunks: list[dict]) -> None:
+    chunks_path = os.path.join(parsed_dir, "chunks.json")
+    with open(chunks_path, "w", encoding="utf-8") as f:
+        json.dump(chunks, f, ensure_ascii=False, indent=2)
+
+    enrichment = [
+        {
+            "chunk_key": chunk.get("chunk_key", ""),
+            "enrichment_profile": chunk.get("enrichment_profile", ""),
+            "keywords": chunk.get("keywords", []),
+            "structured_tags": chunk.get("structured_tags", []),
+            "search_text": chunk.get("search_text", ""),
+        }
+        for chunk in chunks
+    ]
+    artifact_path = os.path.join(parsed_dir, "chunk_enrichment.json")
+    with open(artifact_path, "w", encoding="utf-8") as f:
+        json.dump(enrichment, f, ensure_ascii=False, indent=2)
+
+
 def embed_and_save(state: IngestionState, config: RunnableConfig) -> dict:
     """Embedding + Milvus 入库。"""
     from app.rag.embeddings.dense_embedding import embed_chunks
@@ -256,6 +297,7 @@ _builder.add_node("read_markdown", read_markdown_file)
 _builder.add_node("describe_images", describe_images)
 _builder.add_node("normalize", normalize)
 _builder.add_node("chunk", chunk)
+_builder.add_node("enrich_search_metadata", enrich_search_metadata)
 _builder.add_node("embed_and_save", embed_and_save)
 
 _builder.add_edge(START, "entry")
@@ -269,7 +311,8 @@ _builder.add_edge("parse_md_zip", "describe_images")
 _builder.add_edge("read_markdown", "normalize")
 _builder.add_edge("describe_images", "normalize")
 _builder.add_edge("normalize", "chunk")
-_builder.add_edge("chunk", "embed_and_save")
+_builder.add_edge("chunk", "enrich_search_metadata")
+_builder.add_edge("enrich_search_metadata", "embed_and_save")
 _builder.add_edge("embed_and_save", END)
 
 ingestion_graph = _builder.compile()

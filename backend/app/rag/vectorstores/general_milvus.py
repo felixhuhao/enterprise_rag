@@ -18,6 +18,8 @@ CHUNK_OUTPUT_FIELDS = [
     "chunk_id",
     "chunk_key",
     "content",
+    "keywords",
+    "structured_tags",
     "title",
     "parent_title",
     "section_title",
@@ -35,7 +37,9 @@ CHUNK_OUTPUT_FIELDS = [
     "entity_name",
 ]
 
-OPTIONAL_OUTPUT_FIELDS = {"chunk_key"}
+ENRICHMENT_STORAGE_FIELDS = {"search_text", "keywords", "structured_tags"}
+SCHEMA_FIELD_NAMES = set(CHUNK_OUTPUT_FIELDS) | ENRICHMENT_STORAGE_FIELDS | {"dense", "sparse"}
+OPTIONAL_OUTPUT_FIELDS = {"chunk_key", "search_text", "keywords", "structured_tags"}
 _FIELD_NAMES_CACHE: set[str] | None = None
 
 
@@ -55,6 +59,15 @@ def ensure_collection():
         enable_analyzer=True,
         analyzer_params={"tokenizer": "jieba", "filter": ["cnalphanumonly"]},
     )
+    schema.add_field(
+        field_name="search_text",
+        datatype=DataType.VARCHAR,
+        max_length=65535,
+        enable_analyzer=True,
+        analyzer_params={"tokenizer": "jieba", "filter": ["cnalphanumonly"]},
+    )
+    schema.add_field(field_name="keywords", datatype=DataType.VARCHAR, max_length=8192, nullable=True)
+    schema.add_field(field_name="structured_tags", datatype=DataType.VARCHAR, max_length=4096, nullable=True)
     schema.add_field(field_name="title", datatype=DataType.VARCHAR, max_length=65535, nullable=True)
     schema.add_field(field_name="parent_title", datatype=DataType.VARCHAR, max_length=65535, nullable=True)
     schema.add_field(field_name="section_title", datatype=DataType.VARCHAR, max_length=65535, nullable=True)
@@ -74,8 +87,8 @@ def ensure_collection():
     schema.add_field(field_name="sparse", datatype=DataType.SPARSE_FLOAT_VECTOR)
 
     bm25_function = Function(
-        name="general_content_bm25",
-        input_field_names=["content"],
+        name="general_search_text_bm25",
+        input_field_names=["search_text"],
         output_field_names=["sparse"],
         function_type=FunctionType.BM25,
     )
@@ -110,7 +123,7 @@ def ensure_collection():
         schema=schema,
         index_params=index_params,
     )
-    _FIELD_NAMES_CACHE = set(CHUNK_OUTPUT_FIELDS) | {"dense", "sparse"}
+    _FIELD_NAMES_CACHE = set(SCHEMA_FIELD_NAMES)
     logger.info("创建 collection '%s' 成功 (dim=%d)", COLLECTION_NAME, settings.EMBEDDING_DIM)
 
 
@@ -221,14 +234,28 @@ def upsert_document_chunks(document_id: str, chunks: list[dict]):
     if not chunks:
         return {"insert_count": 0}
 
-    include_chunk_key = collection_has_field("chunk_key")
-    records = [_to_milvus_row(chunk, include_chunk_key=include_chunk_key) for chunk in chunks]
+    fields = collection_field_names()
+    include_chunk_key = "chunk_key" in fields
+    include_enrichment = ENRICHMENT_STORAGE_FIELDS.issubset(fields)
+    records = [
+        _to_milvus_row(
+            chunk,
+            include_chunk_key=include_chunk_key,
+            include_enrichment=include_enrichment,
+        )
+        for chunk in chunks
+    ]
     result = client.insert(collection_name=COLLECTION_NAME, data=records)
     client.flush(collection_name=COLLECTION_NAME)
     return result
 
 
-def _to_milvus_row(chunk: dict, *, include_chunk_key: bool = True) -> dict:
+def _to_milvus_row(
+    chunk: dict,
+    *,
+    include_chunk_key: bool = True,
+    include_enrichment: bool = True,
+) -> dict:
     row = {
         "content": chunk.get("content", ""),
         "title": chunk.get("title", ""),
@@ -250,4 +277,16 @@ def _to_milvus_row(chunk: dict, *, include_chunk_key: bool = True) -> dict:
     }
     if include_chunk_key:
         row["chunk_key"] = chunk.get("chunk_key", "")
+    if include_enrichment:
+        row["search_text"] = chunk.get("search_text") or chunk.get("content", "")
+        row["keywords"] = _json_list(chunk.get("keywords"))
+        row["structured_tags"] = _json_list(chunk.get("structured_tags"))
     return row
+
+
+def _json_list(value) -> str:
+    if value is None:
+        return "[]"
+    if isinstance(value, str):
+        return value
+    return json.dumps(list(value), ensure_ascii=False)
