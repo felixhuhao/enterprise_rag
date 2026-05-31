@@ -83,8 +83,13 @@ def run_retrieval_test(
         state.update(_rerank_node(state, run_config))
     else:
         state["search_results"] = state.get("search_results", [])[:cfg.rerank_max_top_k]
+        state["rerank_candidates"] = list(state.get("search_results", []))
         state["rerank_debug"] = []
     trace["rerank_ms"] = _tick_ms(t)
+
+    t = time.monotonic()
+    state.update(_diversify_context_node(state, run_config))
+    trace["diversify_context_ms"] = _tick_ms(t)
 
     t = time.monotonic()
     state.update(_context_expand_node(state, run_config))
@@ -441,6 +446,12 @@ def _rerank_node(state: dict, config: dict) -> dict:
     from app.rag.query.rerank import rerank_node
 
     return rerank_node(state, config)
+
+
+def _diversify_context_node(state: dict, config: dict) -> dict:
+    from app.rag.query.diversify_context import diversify_context_node
+
+    return diversify_context_node(state, config)
 
 
 def _context_expand_node(state: dict, config: dict) -> dict:

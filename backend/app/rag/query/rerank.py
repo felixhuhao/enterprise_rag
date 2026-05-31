@@ -43,7 +43,8 @@ def rerank_node(state: QueryState, config: RunnableConfig) -> dict:
     """LLM batch rerank + score fusion + cliff detection。"""
     cfg = get_query_config(config)
     if not cfg.use_rerank:
-        return {"search_results": state.get("search_results", [])}
+        results = state.get("search_results", [])
+        return {"search_results": results, "rerank_candidates": list(results)}
 
     budget = plan_budget(state, config)
     candidate_k = int(budget.get("rerank_candidate_k") or cfg.rerank_max_top_k)
@@ -51,7 +52,7 @@ def rerank_node(state: QueryState, config: RunnableConfig) -> dict:
     query = state.get("rewritten_query") or state["query"]
 
     if not results:
-        return {"search_results": [], "rerank_debug": []}
+        return {"search_results": [], "rerank_candidates": [], "rerank_debug": []}
 
     # 1. LLM batch 打分
     llm_scores = _batch_rerank(query, results, cfg)
@@ -71,6 +72,7 @@ def rerank_node(state: QueryState, config: RunnableConfig) -> dict:
 
     # 3. 排序
     results.sort(key=lambda x: x["score"], reverse=True)
+    rerank_candidates = list(results)
 
     # 4. 动态 Top-K (cliff detection)
     top_k = cliff_detect(results, cfg)
@@ -91,7 +93,7 @@ def rerank_node(state: QueryState, config: RunnableConfig) -> dict:
     ]
 
     logger.debug("Rerank: %d → %d results", len(llm_scores), len(results))
-    return {"search_results": results, "rerank_debug": rerank_debug}
+    return {"search_results": results, "rerank_candidates": rerank_candidates, "rerank_debug": rerank_debug}
 
 
 def _batch_rerank(query: str, results: list[dict], cfg) -> list[float]:

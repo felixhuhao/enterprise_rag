@@ -125,13 +125,13 @@ const pageMeta = computed(() => {
     '/retrieval-test': { title: '检索测试', subtitle: '检查检索链路、扩展查询、预算和 Top K chunks。' },
     '/evaluate': {
       title: isAdmin ? '质量中心' : '查询记录',
-      subtitle: isAdmin ? '查询监控、检索记录、答案反馈和 Golden Set 回归评测。' : '查看自己的查询记录和反馈。',
+      subtitle: isAdmin ? '查询监控、检索记录、答案反馈和基准测试集回归评测。' : '查看自己的查询记录和反馈。',
     },
-    '/evaluation': { title: '回归评测', subtitle: 'Golden Set 质量验证、pass rate、失败用例。' },
+    '/evaluation': { title: '回归评测', subtitle: '基准测试集质量验证、通过率、失败用例。' },
     '/settings': { title: '系统设置', subtitle: '配置模型、检索和运行时行为。' },
     '/acl-audit': { title: '权限审计', subtitle: '查看文档 ACL、owner/read 分配和清理状态。' },
     '/entity-aliases': { title: '实体别名', subtitle: '维护企业简称、缩写和英文别名，用于查询路由。' },
-    '/feedback': { title: '答案反馈', subtitle: '用户反馈记录和 Golden Set 草稿管理。' },
+    '/feedback': { title: '答案反馈', subtitle: '用户反馈记录和基准测试集草稿管理。' },
   }
   return map[route.path] ?? { title: 'Enterprise RAG', subtitle: '知识库运行控制台。' }
 })

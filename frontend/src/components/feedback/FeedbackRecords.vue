@@ -7,7 +7,7 @@
     </div>
     <div class="draft-panel">
       <div class="draft-head">
-        <span>Golden Set 草稿</span>
+        <span>基准测试集草稿</span>
         <span class="draft-count">{{ drafts.length }} 条</span>
       </div>
       <div v-if="draftPath" class="draft-path">{{ draftPath }}</div>
@@ -51,7 +51,7 @@
               <a-button size="mini" @click="openAnswer(record)">查看</a-button>
             </template>
           </a-table-column>
-          <a-table-column title="Golden Set" data-index="golden" :width="feedbackColumns.columnWidth('golden')">
+          <a-table-column title="基准测试集" data-index="golden" :width="feedbackColumns.columnWidth('golden')">
             <template #cell="{ record }">
               <a-button
                 size="mini"
@@ -129,7 +129,7 @@ async function loadDrafts() {
     drafts.value = res.drafts
     draftPath.value = res.path
   } catch {
-    Message.error('Golden Set 草稿加载失败')
+    Message.error('基准测试集草稿加载失败')
   }
 }
 
@@ -153,9 +153,9 @@ async function promoteToDraft(record: FeedbackRecord) {
     const res = await promoteFeedbackToGoldenDraft(record.id)
     record.in_golden_draft = true
     await loadDrafts()
-    Message.success(res.status === 'exists' ? '已在 Golden Set 草稿中' : '已加入 Golden Set 草稿')
+    Message.success(res.status === 'exists' ? '已在基准测试集草稿中' : '已加入基准测试集草稿')
   } catch (e: any) {
-    Message.error(e?.response?.data?.detail || '加入 Golden Set 草稿失败')
+    Message.error(e?.response?.data?.detail || '加入基准测试集草稿失败')
   } finally {
     const next = new Set(promotingIds.value)
     next.delete(record.id)

@@ -149,6 +149,28 @@ REFUSAL_SIGNALS = [
 ]
 
 FINANCIAL_UNIT_PATTERN = r"(\d+\.?\d*)\s*(亿元|亿美元|百万美元|万片|%|港币|人民币)"
+CHINESE_DIGITS = {
+    "零": 0,
+    "一": 1,
+    "二": 2,
+    "两": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+}
+UNIT_ALIASES = {
+    "个季度": ["个季度", "季度"],
+    "年": ["年"],
+    "个月": ["个月", "月"],
+    "天": ["天", "日"],
+    "个工作日": ["个工作日", "工作日"],
+    "小时": ["小时"],
+    "分钟": ["分钟", "分"],
+}
 
 
 def _has_refusal_signal(answer: str) -> bool:
@@ -158,6 +180,53 @@ def _has_refusal_signal(answer: str) -> bool:
 # ---------------------------------------------------------------------------
 # Numeric scoring
 # ---------------------------------------------------------------------------
+
+def _parse_chinese_int(value: str) -> int | None:
+    """Parse simple Chinese integers used in policy text, up to 99."""
+    value = value.strip()
+    if not value:
+        return None
+    if value in CHINESE_DIGITS:
+        return CHINESE_DIGITS[value]
+    if value == "十":
+        return 10
+    if "十" in value:
+        left, right = value.split("十", 1)
+        tens = CHINESE_DIGITS.get(left, 1 if left == "" else None)
+        ones = CHINESE_DIGITS.get(right, 0 if right == "" else None)
+        if tens is None or ones is None:
+            return None
+        return tens * 10 + ones
+    return None
+
+
+def _unit_aliases(unit: str) -> list[str]:
+    return UNIT_ALIASES.get(unit, [unit] if unit else [])
+
+
+def _find_chinese_numeric_match(answer: str, expected_val: float, expected_unit: str,
+                                tolerance: float) -> bool:
+    if expected_val != int(expected_val):
+        return False
+
+    units = _unit_aliases(expected_unit)
+    if expected_unit and not units:
+        return False
+
+    if expected_unit:
+        for unit in units:
+            pattern = rf"([零一二两三四五六七八九十]{{1,3}})\s*{re.escape(unit)}"
+            for match in re.finditer(pattern, answer):
+                found = _parse_chinese_int(match.group(1))
+                if found is not None and abs(found - expected_val) <= max(tolerance * abs(expected_val), 0):
+                    return True
+        return False
+
+    for token in re.findall(r"[零一二两三四五六七八九十]{1,3}", answer):
+        found = _parse_chinese_int(token)
+        if found is not None and abs(found - expected_val) <= max(tolerance * abs(expected_val), 0):
+            return True
+    return False
 
 
 def _find_numeric_match(answer: str, expected_val: float, expected_unit: str,
@@ -178,6 +247,8 @@ def _find_numeric_match(answer: str, expected_val: float, expected_unit: str,
                         return True
                 elif abs(found - expected_val) / abs(expected_val) <= tolerance:
                     return True
+        if _find_chinese_numeric_match(answer, expected_val, expected_unit, tolerance):
+            return True
         return False
     else:
         # No unit constraint — find value anywhere
@@ -191,7 +262,26 @@ def _find_numeric_match(answer: str, expected_val: float, expected_unit: str,
                     return True
             elif abs(found - expected_val) / abs(expected_val) <= tolerance:
                 return True
-        return False
+        return _find_chinese_numeric_match(answer, expected_val, expected_unit, tolerance)
+
+
+def _keyword_variants(keyword: str) -> set[str]:
+    variants = {keyword}
+    match = re.fullmatch(r"(\d+)(.+)", keyword)
+    if not match:
+        return variants
+    value = int(match.group(1))
+    suffix = match.group(2)
+    if value == 2:
+        variants.add(f"两{suffix}")
+    for chinese, parsed in CHINESE_DIGITS.items():
+        if parsed == value:
+            variants.add(f"{chinese}{suffix}")
+    return variants
+
+
+def _keyword_in_answer(keyword: str, answer: str) -> bool:
+    return any(variant in answer for variant in _keyword_variants(keyword))
 
 
 def score_numeric(answer: str, numeric_expectations: list[dict]) -> dict:
@@ -376,7 +466,7 @@ def score_rule(answer: str, citations: list, item: dict) -> dict:
     # --- Legacy backward compat ---
     if not must_have and not nice_to_have and not numeric_exps:
         expected_kw = item.get("expected_keywords", [])
-        kw_hits = [kw for kw in expected_kw if kw in answer]
+        kw_hits = [kw for kw in expected_kw if _keyword_in_answer(kw, answer)]
         kw_score = len(kw_hits) / len(expected_kw) if expected_kw else 1.0
 
         cite = score_citation(citations, expected_docs, min_citations)
@@ -400,10 +490,10 @@ def score_rule(answer: str, citations: list, item: dict) -> dict:
     num_result = score_numeric(answer, numeric_exps)
     numeric_score = num_result["numeric_score"] if num_result["numeric_score"] is not None else 0.0
 
-    must_hits = [kw for kw in must_have if kw in answer]
+    must_hits = [kw for kw in must_have if _keyword_in_answer(kw, answer)]
     must_score = len(must_hits) / len(must_have) if must_have else 1.0
 
-    nice_hits = [kw for kw in nice_to_have if kw in answer]
+    nice_hits = [kw for kw in nice_to_have if _keyword_in_answer(kw, answer)]
     nice_score = len(nice_hits) / len(nice_to_have) if nice_to_have else 1.0
 
     # Answer score composition
@@ -598,23 +688,106 @@ def _call_llm_judge(question: str, expected_answer: str, expected_points: list,
         citations_text=citations_text,
     )
 
-    try:
-        client = OpenAI(api_key=api_key, base_url=base_url)
-        resp = client.chat.completions.create(
-            model=chat_model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=500,
-        )
-        raw = resp.choices[0].message.content.strip()
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-            if raw.endswith("```"):
-                raw = raw[:-3]
-            raw = raw.strip()
-        return json.loads(raw)
-    except Exception as e:
-        return {"error": str(e)}
+    client = OpenAI(api_key=api_key, base_url=base_url)
+    last_result: dict = {"error": "judge did not run"}
+    for attempt in range(3):
+        try:
+            resp = client.chat.completions.create(
+                model=chat_model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=500,
+            )
+            raw = (resp.choices[0].message.content or "").strip()
+            last_result = _parse_judge_response(raw)
+            if "error" not in last_result:
+                return last_result
+        except Exception as e:
+            last_result = {"error": str(e)}
+        if attempt < 2:
+            time.sleep(0.5)
+    return last_result
+
+
+def _parse_judge_response(raw: str) -> dict:
+    """Parse judge JSON, tolerating code fences or prose around the object."""
+    raw = (raw or "").strip()
+    if not raw:
+        return {"error": "empty judge response"}
+
+    candidates = [raw]
+    if raw.startswith("```"):
+        fenced = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+        if fenced.rstrip().endswith("```"):
+            fenced = fenced.rstrip()[:-3]
+        candidates.append(fenced.strip())
+
+    extracted = _extract_json_object(raw)
+    if extracted and extracted not in candidates:
+        candidates.append(extracted)
+
+    last_error = ""
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError as exc:
+            last_error = str(exc)
+
+    fallback = _parse_judge_score_fallback(raw)
+    if fallback:
+        fallback["parse_warning"] = last_error or "judge response was not strict JSON"
+        fallback["raw_response"] = raw[:500]
+        return fallback
+
+    return {"error": last_error or "judge response was not JSON", "raw_response": raw[:500]}
+
+
+def _extract_json_object(raw: str) -> str:
+    start = raw.find("{")
+    if start < 0:
+        return ""
+
+    depth = 0
+    in_string = False
+    escape = False
+    for idx in range(start, len(raw)):
+        ch = raw[idx]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return raw[start:idx + 1]
+    return raw[start:]
+
+
+def _parse_judge_score_fallback(raw: str) -> dict | None:
+    score_match = re.search(r'"?score"?\s*[:：]\s*([01](?:\.\d+)?)', raw, re.IGNORECASE)
+    if not score_match:
+        return None
+    score = max(0.0, min(1.0, float(score_match.group(1))))
+    verdict_match = re.search(r'"?verdict"?\s*[:：]\s*"?\b(pass|warn|fail)\b"?', raw, re.IGNORECASE)
+    verdict = verdict_match.group(1).lower() if verdict_match else _verdict(score)
+    return {
+        "score": score,
+        "verdict": verdict,
+        "missing_points": [],
+        "unsupported_claims": [],
+        "reason": "Judge response was not strict JSON; used fallback score parsing.",
+    }
 
 
 def run_judge(results: list[dict], chat_model: str, api_key: str,
@@ -630,7 +803,9 @@ def run_judge(results: list[dict], chat_model: str, api_key: str,
 
     for r in to_judge:
         _apply_llm_judge(r, chat_model=chat_model, api_key=api_key, base_url=base_url)
-        if r.get("error"):
+        if r.get("judge_error"):
+            print(f"  {r['id']} {r.get('verdict', '?')} score={r.get('final_score', 0):.2f} | {r['judge_error']}")
+        elif r.get("error"):
             print(f"  {r['id']} judge error: {r['error']}")
         else:
             judge = r.get("judge", {})
@@ -652,9 +827,11 @@ def _apply_llm_judge(row: dict, chat_model: str, api_key: str, base_url: str) ->
     )
     row["judge"] = judge
     if "error" in judge:
-        row["error"] = f"judge error: {judge['error']}"
-        row["final_score"] = 0.0
-        row["verdict"] = "error"
+        citation_score = row.get("citation_score", 0)
+        row["judge_error"] = f"judge error: {judge['error']}"
+        row["judge_score"] = None
+        row["final_score"] = round(citation_score, 4)
+        row["verdict"] = _verdict(row["final_score"])
         return
 
     judge_score = judge.get("score", 0)
@@ -1040,6 +1217,8 @@ def build_summary(results: list[dict]) -> dict:
             reason = f"forbidden: {r['forbidden_hits']}"
         elif r.get("error"):
             reason = str(r["error"])[:80]
+        elif r.get("judge_error"):
+            reason = str(r["judge_error"])[:80]
         low_cases.append({"id": r["id"], "score": r["final_score"], "reason": reason})
 
     return {

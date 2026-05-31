@@ -81,6 +81,24 @@ class TestValidateCitations:
         result = validate_citations_node(state)
         assert [c["id"] for c in result["citations"]] == ["C1", "C2"]
 
+    def test_extracts_compound_citations(self):
+        state = {
+            "answer": "Multiple sources [C1/C6], [C2, C3] and [C4、C7].",
+            "context_map": {
+                f"C{i}": {"document_id": f"d{i}", "file_title": f"doc{i}.md"}
+                for i in range(1, 8)
+            },
+        }
+        result = validate_citations_node(state)
+        assert [c["id"] for c in result["citations"]] == [
+            "C1",
+            "C2",
+            "C3",
+            "C4",
+            "C6",
+            "C7",
+        ]
+
     def test_citation_preserves_chunk_id_and_page(self):
         state = {
             "answer": "See [C1].",

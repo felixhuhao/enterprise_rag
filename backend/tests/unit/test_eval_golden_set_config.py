@@ -1,5 +1,14 @@
 from scripts import eval_golden_set
-from scripts.eval_golden_set import _case_query_config, build_summary, load_golden_set, query_rag, run_eval, score_citation
+from scripts.eval_golden_set import (
+    _case_query_config,
+    _parse_judge_response,
+    build_summary,
+    load_golden_set,
+    query_rag,
+    run_eval,
+    score_citation,
+    score_rule,
+)
 from app.api.admin_eval import RunRequest, _failed_case_count, _filter_cases_for_run, _summarize_golden_case
 
 
@@ -103,6 +112,53 @@ def test_score_citation_clamps_zero_min_citations():
     assert result["citation_score"] == 1.0
 
 
+def test_score_rule_matches_chinese_number_variants():
+    result = score_rule(
+        answer="连续两个季度综合评分低于60分会被列入黑名单，三年内不得重新申请准入。",
+        citations=[{
+            "file_title": "08_供应商管理制度.md",
+            "section_title": "星辰科技供应商管理制度 > 4. 黑名单制度",
+        }],
+        item={
+            "numeric_expectations": [
+                {"value": 2, "unit": "个季度", "tolerance": 0},
+                {"value": 3, "unit": "年", "tolerance": 0},
+            ],
+            "must_have": ["2个季度", "60分", "3年"],
+            "nice_to_have": ["黑名单"],
+            "expected_documents": ["08_供应商管理制度"],
+            "expected_sections": ["黑名单制度"],
+            "min_expected_citations": 1,
+        },
+    )
+
+    assert result["numeric_score"] == 1.0
+    assert result["must_miss"] == []
+    assert result["final_score"] >= 0.8
+
+
+def test_parse_judge_response_extracts_json_from_prose_and_fence():
+    parsed = _parse_judge_response(
+        "结果如下：\n```json\n"
+        '{"score": 0.82, "verdict": "pass", "missing_points": [], '
+        '"unsupported_claims": [], "reason": "ok"}\n'
+        "```"
+    )
+
+    assert parsed["score"] == 0.82
+    assert parsed["verdict"] == "pass"
+
+
+def test_parse_judge_response_falls_back_to_score_when_json_is_malformed():
+    parsed = _parse_judge_response(
+        '{"score": 0.66, "verdict": "warn", "reason": "missing closing quote}'
+    )
+
+    assert parsed["score"] == 0.66
+    assert parsed["verdict"] == "warn"
+    assert "parse_warning" in parsed
+
+
 def test_run_eval_keeps_going_after_case_exception(monkeypatch):
     calls = {"count": 0}
 
@@ -202,6 +258,47 @@ def test_llm_judge_scores_before_case_finished(monkeypatch):
     assert results[0]["judge_score"] == 0.8
     assert results[0]["final_score"] == 0.85
     assert finished[0]["row"]["final_score"] == 0.85
+
+
+def test_llm_judge_error_falls_back_to_citation_score(monkeypatch):
+    def fake_query_rag(*_args, **_kwargs):
+        return {
+            "answer": "covered answer [C1]",
+            "citations": [{"id": "C1", "file_title": "doc.md"}],
+            "trace": {},
+            "retrieval_step": {},
+            "rerank_results": [],
+            "search_mode": "",
+            "retrieval_flavor": "balanced",
+            "strict_evidence": False,
+            "error": None,
+        }
+
+    def fake_judge(**_kwargs):
+        return {"error": "empty judge response"}
+
+    monkeypatch.setattr(eval_golden_set, "query_rag", fake_query_rag)
+    monkeypatch.setattr(eval_golden_set, "_call_llm_judge", fake_judge)
+
+    results = run_eval(
+        [{
+            "id": "judge-empty",
+            "question": "judge-empty",
+            "eval_type": "llm_judge",
+            "expected_points": ["covered"],
+            "expected_documents": ["doc.md"],
+            "min_expected_citations": 1,
+        }],
+        "http://test/api",
+        "token",
+        delay=0,
+        judge_config={"chat_model": "model", "api_key": "key", "base_url": "url"},
+    )
+
+    assert results[0].get("error") is None
+    assert results[0]["judge_error"] == "judge error: empty judge response"
+    assert results[0]["final_score"] == 1.0
+    assert results[0]["verdict"] == "pass"
 
 
 def test_filter_cases_for_run_supports_ids_flavor_and_limit():

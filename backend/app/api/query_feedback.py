@@ -111,7 +111,7 @@ async def list_golden_drafts(
 ):
     """List feedback-origin golden-set drafts (admin only)."""
     if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="仅管理员可查看 Golden Set 草稿")
+        raise HTTPException(status_code=403, detail="仅管理员可查看基准测试集草稿")
     return {
         "path": str(GOLDEN_DRAFT_PATH),
         "drafts": _load_golden_drafts(),
@@ -126,7 +126,7 @@ async def update_golden_draft(
 ):
     """Update one feedback-origin golden-set draft (admin only)."""
     if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="仅管理员可编辑 Golden Set 草稿")
+        raise HTTPException(status_code=403, detail="仅管理员可编辑基准测试集草稿")
     drafts = _load_golden_drafts()
     for idx, draft in enumerate(drafts):
         if draft.get("id") == draft_id:
@@ -134,7 +134,7 @@ async def update_golden_draft(
             drafts[idx] = updated
             _save_golden_drafts(drafts)
             return {"ok": True, "draft": updated, "path": str(GOLDEN_DRAFT_PATH)}
-    raise HTTPException(status_code=404, detail="Golden Set 草稿不存在")
+    raise HTTPException(status_code=404, detail="基准测试集草稿不存在")
 
 
 @router.delete("/query/feedback/golden-drafts/{draft_id}")
@@ -144,11 +144,11 @@ async def delete_golden_draft(
 ):
     """Delete one feedback-origin golden-set draft (admin only)."""
     if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="仅管理员可删除 Golden Set 草稿")
+        raise HTTPException(status_code=403, detail="仅管理员可删除基准测试集草稿")
     drafts = _load_golden_drafts()
     next_drafts = [draft for draft in drafts if draft.get("id") != draft_id]
     if len(next_drafts) == len(drafts):
-        raise HTTPException(status_code=404, detail="Golden Set 草稿不存在")
+        raise HTTPException(status_code=404, detail="基准测试集草稿不存在")
     _save_golden_drafts(next_drafts)
     return {"ok": True, "path": str(GOLDEN_DRAFT_PATH)}
 
@@ -160,24 +160,24 @@ async def publish_golden_draft(
 ):
     """Publish one complete draft into the active Golden Set JSONL file."""
     if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="仅管理员可发布 Golden Set 草稿")
+        raise HTTPException(status_code=403, detail="仅管理员可发布基准测试集草稿")
     from app.api.admin_eval import is_eval_running
 
     if is_eval_running():
-        raise HTTPException(status_code=409, detail="评测正在运行，不能修改 Golden Set")
+        raise HTTPException(status_code=409, detail="评测正在运行，不能修改基准测试集")
 
     drafts = _load_golden_drafts()
     draft = next((item for item in drafts if item.get("id") == draft_id), None)
     if not draft:
-        raise HTTPException(status_code=404, detail="Golden Set 草稿不存在")
+        raise HTTPException(status_code=404, detail="基准测试集草稿不存在")
     _validate_publishable_draft(draft)
 
     path = _active_golden_set_path()
     cases = _load_jsonl(path)
     if any(case.get("id") == draft["id"] for case in cases):
-        raise HTTPException(status_code=409, detail="Golden Set 中已存在相同 ID")
+        raise HTTPException(status_code=409, detail="基准测试集中已存在相同 ID")
     if any(case.get("question", "").strip() == draft.get("question", "").strip() for case in cases):
-        raise HTTPException(status_code=409, detail="Golden Set 中已存在相同问题")
+        raise HTTPException(status_code=409, detail="基准测试集中已存在相同问题")
 
     case = _draft_to_golden_case(draft)
     _append_jsonl_with_backup(path, case)
@@ -192,7 +192,7 @@ async def promote_feedback_to_golden_draft(
 ):
     """Add one feedback record to a golden-set draft JSONL file (admin only)."""
     if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="仅管理员可加入 Golden Set 草稿")
+        raise HTTPException(status_code=403, detail="仅管理员可加入基准测试集草稿")
 
     async with get_db() as db:
         async with db.execute("SELECT * FROM query_feedback WHERE id = ?", (feedback_id,)) as cursor:
@@ -400,7 +400,7 @@ def _build_golden_draft(record: dict) -> dict:
         "user_id": record.get("user_id", ""),
         "status": "draft",
         "created_at": created_at,
-        "notes": "Fill expected_answer/expected_points before adding this case to the official golden set.",
+        "notes": "发布到正式基准测试集前，请补充 expected_answer 和 expected_points。",
     }
 
 

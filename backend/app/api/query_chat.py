@@ -154,6 +154,7 @@ async def _stream_generator(
     from app.rag.query.planner import get_query_plan, plan_allows_entity_fallback, query_plan_node
     from app.rag.query.table_expand import table_expand_node
     from app.rag.query.rerank import rerank_node
+    from app.rag.query.diversify_context import diversify_context_node
     from app.rag.query.context_expand import context_expand_node
     from app.rag.query.build_prompt import build_prompt_node
     from app.rag.query.config import get_query_config
@@ -212,6 +213,10 @@ async def _stream_generator(
         else:
             # ── Direct path（含 post-rerank fallback）──
             _run_direct_with_fallback(state, run_config, trace)
+
+        t = time.monotonic()
+        state.update(diversify_context_node(state, run_config))
+        trace["diversify_context_ms"] = _tick_ms(t)
 
         t = time.monotonic()
         state.update(context_expand_node(state, run_config))

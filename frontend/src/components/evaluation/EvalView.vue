@@ -1,5 +1,5 @@
 <!--
-  回归评测 — Golden Set 运行、结果查看，admin-only。
+  回归评测 — 基准测试集运行、结果查看，admin-only。
 -->
 <template>
   <div class="eval-page">

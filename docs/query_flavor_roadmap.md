@@ -383,6 +383,18 @@ groundedness_score -> 资料支持度
 
 Main chat should show intent-level controls. Debug panels can still expose raw fields like `entity_mode`, `search_mode`, `fallback_info`, RRF rank, and rerank scores.
 
+Implementation status: Phases 0-8 are implemented. The next quality work should move from query-time tricks to ingestion-time enrichment, because some recall failures come from source chunks using different wording than user questions.
+
+Example failure:
+
+```text
+Query: 星辰科技有哪些制度文件提到了涉及金额审批的阈值？分别是什么金额？
+Missed evidence: 12_年度培训计划_2026 > 五、外部培训管理
+Source wording: 单次费用超过10,000元需VP级别审批，超过30,000元需CEO审批
+```
+
+This is not mainly a rerank problem. The correct chunk must first become easier to retrieve.
+
 ## Recommended Execution Order
 
 1. Freeze `demo_corpus_v1` and create `challenge_golden_set_v1.jsonl`.
@@ -395,6 +407,9 @@ Main chat should show intent-level controls. Debug panels can still expose raw f
 8. Add flavor-level metrics and regression page.
 9. Add alias matching.
 10. Polish user-facing terminology.
+11. Add ingestion-time chunk search enrichment and rebuild the demo index.
+12. Run a Section Probe Retrieval experiment if long-document/long-section recall still fails.
+13. Add Doc2Query only if search enrichment and section probes are not enough for recall-heavy cases.
 
 ## Success Criteria
 
@@ -407,17 +422,27 @@ The refactor is successful if:
 - `strict_evidence` prevents unsupported answers without becoming a separate pipeline.
 - p95 latency stays explainable by flavor.
 
-## Phase 9: Chunk Keyword Generation
+## Phase 9: Chunk Search Enrichment
 
-Goal: extract searchable keywords from each chunk during ingestion, improving BM25 recall for Chinese enterprise terminology without touching Milvus schema.
+Goal: improve recall for enterprise policy language by enriching each source chunk at ingestion time. This phase should make weakly worded but relevant chunks easier to retrieve, especially for amount thresholds, approval rules, dates, roles, aliases, and policy names.
+
+This is the right place to fix cases like `recall_agg_001`. Query expansion can help, but it is unstable when the source uses words like `单次费用超过` while the user asks for `金额审批阈值`.
 
 ### Design
 
-#### Rule-based extraction（P1，零 LLM 成本）
+#### Rule-based enrichment（P1，no LLM cost）
 
-从每个 text chunk 提取关键词，存为 parsed artifact。不进 Milvus，仅用于：
-- Document Detail 页面 chunk 表显示
-- 未来 search_text 合并（Phase 10）
+For each text/table chunk, generate three artifact fields:
+
+```json
+{
+  "keywords": ["外部培训管理", "单次费用", "VP审批", "CEO审批"],
+  "structured_tags": ["amount_threshold", "approval_rule", "training_budget"],
+  "search_text": "原始内容 + section_title + keywords + structured_tags + normalized_amount_phrases"
+}
+```
+
+`content` stays unchanged and remains the only source shown to the LLM and citations. `search_text` is only for retrieval.
 
 提取规则：
 - Markdown heading（`#` 标题）→ 关键词
@@ -426,56 +451,216 @@ Goal: extract searchable keywords from each chunk during ingestion, improving BM
 - 以"办法/制度/流程/规范/标准/政策/指南/规定/条例"结尾的短语 → 关键词
 - 大写缩写（`SLA`、`API`、`BM25`）→ 关键词
 - 中文数字+单位组合（`600 元/晚`、`3 天`）→ 关键词
+- 金额表达（`10,000元`、`3万元`、`50万以上`）→ normalized amount tokens
+- 审批表达（`需VP审批`、`CEO审批`、`CFO审批`、`总监签字`）→ `approval_rule`
+- 阈值表达（`超过`、`以下`、`以上`、`以内`、`不低于`）→ `amount_threshold`
 - 去重 + 限制每 chunk 最多 8 个
+
+#### Search Text
+
+`search_text` should include normalized recall terms that users are likely to ask:
+
+```text
+金额审批阈值
+费用审批门槛
+超过金额审批
+审批权限
+付款审批
+预算审批
+```
+
+Only add these terms when the chunk actually contains matching amount + approval evidence. Do not globally append finance terms to every chunk.
 
 #### Storage
 
-`parsed/{document_id}/chunk_keywords.json`:
+`parsed/{document_id}/chunk_enrichment.json`:
 ```json
 [
-  {"chunk_key": "ck_xxx", "keywords": ["差旅管理办法", "住宿标准", "600 元/晚"]},
+  {
+    "chunk_key": "ck_xxx",
+    "keywords": ["外部培训管理", "10,000元", "VP审批"],
+    "structured_tags": ["amount_threshold", "approval_rule"],
+    "search_text": "..."
+  }
   ...
 ]
 ```
 
-chunk dict 新增 `"keywords": list[str]` 字段，写入 chunks.json。
+chunk dict should also include:
+
+```python
+keywords: list[str]
+structured_tags: list[str]
+search_text: str
+```
+
+These fields are persisted in `chunks.json` so reindexing is reproducible.
+
+#### Milvus / Indexing
+
+This phase requires a planned index rebuild.
+
+Add a `search_text` VARCHAR field to the Milvus document collection and use it for sparse/BM25 matching. Dense embeddings should still represent the original chunk content, not the enriched text, so semantic ranking does not drift away from source evidence.
+
+Retrieval behavior:
+
+```text
+dense search: content embedding
+sparse/BM25 search: search_text
+rerank: original content
+prompt: original content or small-to-big expanded source content
+citations: original anchor chunk
+```
 
 #### Implementation
 
-**新文件**: `backend/app/rag/chunking/keyword_extractor.py`
-- `extract_keywords(content: str, section_title: str) -> list[str]` — 纯规则，无 LLM
-- `enrich_chunks_with_keywords(chunks: list[dict]) -> list[dict]` — 批量处理
+**新文件**:
+- `backend/app/rag/chunking/enrichment.py`
+  - `extract_keywords(content: str, section_title: str) -> list[str]`
+  - `extract_structured_tags(content: str, section_title: str) -> list[str]`
+  - `build_search_text(chunk: dict) -> str`
+  - `enrich_chunks(chunks: list[dict]) -> list[dict]`
 
 **修改**: `backend/app/rag/ingestion/graph.py`
-- 新节点 `enrich_keywords` 插入在 `chunk` 和 `embed_and_save` 之间
-- Graph edge: `chunk → enrich_keywords → embed_and_save`
+- 新节点 `enrich_chunks` 插入在 `chunk` 和 `embed_and_save` 之间
+- Graph edge: `chunk → enrich_chunks → embed_and_save`
 
 **修改**: `backend/app/rag/ingestion/config.py`
-- `keyword_enabled: bool = True`
+- `chunk_enrichment_enabled: bool = True`
+
+**修改**: Milvus schema / row mapping
+- Add `search_text`, `keywords`, `structured_tags`
+- Query output should remain schema-aware for old collections
+- Existing collections are not auto-dropped; admin must reindex/reingest
 
 #### Frontend
 
 **修改**: `frontend/src/components/documents/DocumentDetailView.vue`
-- chunk 表加 "关键词" 列，显示为 tags/chips
+- chunk 表可显示 keywords/tags as technical metadata
+- Retrieval test can show matched tags only in debug/details, not as a primary user-facing concept
 
 #### 不做
 
-- 不加 LLM 关键词生成（P1 纯规则够用）
-- 不改 Milvus schema（keywords 暂不进 Milvus）
-- 不改搜索逻辑（keywords 暂不参与检索）
+- 不用 LLM 生成关键词（P1 纯规则）
+- 不把 generated terms 注入 `content`
+- 不让 LLM 引用 `search_text`
+- 不做自动 destructive migration
+- 不用这个替代 Doc2Query；Doc2Query remains Phase 10
 
 #### 验证
 
 1. `pytest backend/tests/unit/ -v`
-2. 重新 ingest demo 文档，确认 chunks.json 包含 keywords
-3. Document Detail 页面确认关键词显示
-4. 抽查关键词质量：差旅文档应有 "住宿标准"、"600 元" 等
+2. 重新 ingest demo 文档，确认 `chunks.json` 包含 `keywords`、`structured_tags`、`search_text`
+3. 确认 Milvus collection schema 包含 `search_text`
+4. retrieval-test 运行 `recall_agg_001` 原问题，确认命中：
+   - `12_年度培训计划_2026 > 五、外部培训管理`
+   - `08_供应商管理制度 > 付款管理`
+5. 确认 citations 仍指向 source chunk，而不是 enrichment text
+6. 对比有/无 enrichment 的 Hit@5、Hit@10、Citation Hit Rate
 
 ---
 
-## Phase 10: Doc2Query — Chunk Question Generation
+## Phase 10A: Section Probe Retrieval Experiment
+
+Goal: test a coarse-to-fine retrieval path for long documents and long sections. Section probes should help when a whole section is relevant to the query, but individual chunks are too local or too weakly worded to be retrieved directly.
+
+This is an experiment after Phase 9, not a default path. Enable it only for `recall` and compare against the challenge set before making it permanent.
+
+### Design
+
+#### Probe Granularity
+
+Use section-level probes only. Do not start with document-level probes.
+
+Document summaries are usually too broad and can pull unrelated chunks into the candidate set. Section probes are closer to the final source chunks while still carrying more context than one chunk.
+
+Probe text should be structured rather than a free-form summary:
+
+```text
+section_title:
+main_topics:
+entities:
+policy_terms:
+amounts:
+dates:
+roles:
+procedures:
+aliases:
+```
+
+#### Query Flow
+
+```text
+recall flavor:
+  search(original_query) -> source chunks
+  section_probe_search(original_query) -> top sections
+  scoped_chunk_search(query, matched_sections) -> source chunks only
+  rrf_fusion
+  rerank(source chunk content)
+  context_expand
+  build_prompt
+```
+
+Probes never enter the final context directly. They only select candidate document/section scopes. Citations always point to source chunks.
+
+#### Risk Controls
+
+- Max matched probe sections: 3
+- Max scoped chunks per section: 4
+- Max probe-derived chunks before RRF: 8-12
+- Drop probe path if probe score is below threshold
+- Drop scoped chunks if their score is below threshold
+- Trace must show probe section, probe score, scoped query count, and final source chunks
+
+#### Risks
+
+- Summary/probe text can be too broad and increase noise.
+- Probe text can miss the important detail and still fail recall.
+- Additional retrieval layer increases latency.
+- Trace becomes more complex.
+
+Mitigation: keep it recall-only, low-weight, capped, and disabled by default until eval shows value.
+
+#### Implementation Files
+
+**New**:
+- `backend/app/rag/ingestion/section_probe.py`
+- `backend/app/rag/vectorstores/section_probe_milvus.py`
+- `backend/app/rag/query/section_probe_search.py`
+- `backend/tests/unit/test_section_probe.py`
+
+**Modify**:
+- `backend/app/rag/ingestion/graph.py`
+- `backend/app/rag/ingestion/config.py`
+- `backend/app/rag/query/config.py`
+- `backend/app/rag/query/planner.py`
+- `backend/app/rag/query/rrf_fusion.py`
+- `backend/app/rag/query/graph.py`
+- `backend/app/api/query_chat.py`
+- `backend/app/services/retrieval_test_service.py`
+
+#### Validation
+
+1. Run recall slice with probe off/on.
+2. Confirm improved Hit@10/Citation Hit Rate for long-section cases.
+3. Confirm p95 latency remains acceptable.
+4. Confirm probe text is not shown as citation evidence.
+5. Confirm `balanced`, `exact`, and `discovery` do not trigger probe search.
+
+---
+
+## Phase 10B: Doc2Query — Chunk Question Generation
 
 Goal: generate 3-5 answerable questions per text chunk, index in a companion Milvus collection, and use as a recall bridge during retrieval. Only active for `recall` flavor initially.
+
+Positioning after Phase 9:
+
+- Phase 9 fixes deterministic lexical gaps: tags, amount phrases, approval roles, aliases, and `search_text`.
+- Phase 10A tests whether section probes solve long-document recall before adding generated questions per chunk.
+- Phase 10B fixes semantic question-form gaps: users ask a natural question that the original chunk can answer, but neither exact keywords, rule-based tags, nor section probes cover it.
+- Do not use Doc2Query as the first fix for every missed recall case. It adds LLM cost, generated-content QA, another collection, and more ingestion complexity.
+
+Doc2Query should be enabled only after Phase 9 and the Section Probe experiment are measured against the challenge set and still leave recall-heavy cases failing.
 
 ### Design
 

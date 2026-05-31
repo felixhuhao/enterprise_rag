@@ -30,7 +30,9 @@ class QueryState(TypedDict, total=False):
     per_query_counts: dict[str, int]
     query_expansion_trace: list[dict]
     fallback_info: dict
+    rerank_candidates: list[dict]
     rerank_debug: list[dict]
+    context_diversify_debug: dict
     context_map: dict[str, dict]  # "C1" -> {document_id, file_title, ...}
 
     # 生成

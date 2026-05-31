@@ -7,15 +7,23 @@ import re
 from app.rag.query.state import QueryState
 
 
-_CITATION_RE = re.compile(r"[\[【（(]\s*C\s*(\d+)\s*[\]】）)]", re.IGNORECASE)
+_CITATION_BLOCK_RE = re.compile(r"[\[【（(]([^\]】）)]*C\s*\d+[^\]】）)]*)[\]】）)]", re.IGNORECASE)
+_CITATION_ID_RE = re.compile(r"C\s*(\d+)", re.IGNORECASE)
+
+
+def _extract_citation_numbers(answer: str) -> set[str]:
+    found: set[str] = set()
+    for block in _CITATION_BLOCK_RE.findall(answer or ""):
+        found.update(_CITATION_ID_RE.findall(block))
+    return found
 
 
 def validate_citations_node(state: QueryState) -> dict:
-    """从 LLM 回答中提取引用，校验是否来自 context_map，过滤幻觉引用。"""
+    """Extract inline citations and keep only IDs present in context_map."""
     answer = state.get("answer", "")
     context_map = state.get("context_map", {})
 
-    found = set(_CITATION_RE.findall(answer))
+    found = _extract_citation_numbers(answer)
 
     valid_citations = []
     for cid_str in sorted(found, key=int):

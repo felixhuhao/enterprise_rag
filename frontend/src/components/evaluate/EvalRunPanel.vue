@@ -2,7 +2,7 @@
   <div v-if="authStore.isAdmin" class="eval-panel">
     <div class="eval-top">
       <div class="eval-header">
-        <span class="eval-title">Golden Set 回归</span>
+        <span class="eval-title">基准测试集回归</span>
         <span class="eval-status" :class="'status-' + status">{{ statusLabel }}</span>
         <span v-if="status === 'running' && evalTotal" class="eval-progress">
           {{ evalCurrent }} / {{ evalTotal }}<template v-if="evalCurrentId"> · {{ evalCurrentId }}</template>
@@ -92,7 +92,7 @@
 
     <div class="golden-list">
       <div class="golden-list-head">
-        <span>当前 Golden Set</span>
+        <span>当前基准测试集</span>
         <small v-if="goldenSetPath">{{ goldenSetPath }}</small>
         <strong>{{ enabledCount }} / {{ goldenCases.length }} 启用</strong>
       </div>
@@ -173,7 +173,7 @@
 
     <div class="draft-list">
       <div class="golden-list-head">
-        <span>Golden Set 草稿</span>
+        <span>基准测试集草稿</span>
         <small v-if="draftPath">{{ draftPath }}</small>
         <strong>{{ drafts.length }} 条</strong>
       </div>
@@ -197,7 +197,7 @@
             >
               发布
             </a-button>
-            <a-popconfirm content="删除这条 Golden Set 草稿？" @ok="deleteDraft(draft)">
+            <a-popconfirm content="删除这条基准测试集草稿？" @ok="deleteDraft(draft)">
               <a-button size="mini" status="danger" :loading="deletingIds.has(draft.id)">删除</a-button>
             </a-popconfirm>
           </div>
@@ -375,7 +375,7 @@ const STATUS_LABELS: Record<string, string> = {
 }
 
 const BUTTON_LABELS: Record<string, string> = {
-  idle: '运行 Golden Set',
+  idle: '运行基准测试集',
   running: '评估运行中',
   succeeded: '重新运行',
   failed: '重试评估',
@@ -389,7 +389,7 @@ const EVAL_TYPE_OPTIONS = [
 
 const statusLabel = computed(() => STATUS_LABELS[status.value] ?? status.value)
 const buttonLabel = computed(() => BUTTON_LABELS[status.value] ?? '运行')
-const editorTitle = computed(() => editorMode.value === 'case' ? '编辑 Golden Set Case' : '编辑 Golden Set 草稿')
+const editorTitle = computed(() => editorMode.value === 'case' ? '编辑基准测试用例' : '编辑基准测试集草稿')
 const resultById = computed(() => {
   return Object.fromEntries(evalResults.value.map((item) => [item.id, item] as const))
 })
@@ -516,7 +516,7 @@ function buildRunOptions(): EvalRunOptions | null {
       .map((item) => item.id)
       .filter(Boolean)
     if (!failedIds.length) {
-      Message.warning('当前没有失败 case 可重跑')
+      Message.warning('当前没有失败用例可重跑')
       return null
     }
     options.case_ids = failedIds
@@ -553,7 +553,7 @@ async function loadGoldenSet() {
     goldenCases.value = res.cases
     goldenSetPath.value = res.path
   } catch (e: any) {
-    goldenError.value = e?.response?.data?.detail || 'Golden Set 加载失败'
+    goldenError.value = e?.response?.data?.detail || '基准测试集加载失败'
   } finally {
     goldenLoading.value = false
   }
@@ -567,7 +567,7 @@ async function loadDrafts() {
     drafts.value = res.drafts
     draftPath.value = res.path
   } catch (e: any) {
-    draftError.value = e?.response?.data?.detail || 'Golden Set 草稿加载失败'
+    draftError.value = e?.response?.data?.detail || '基准测试集草稿加载失败'
   } finally {
     draftLoading.value = false
   }
@@ -683,9 +683,9 @@ async function saveGoldenCase() {
     goldenCases.value = goldenCases.value.map((item) => item.id === res.case.id ? res.case : item)
     goldenSetPath.value = res.path
     draftEditorOpen.value = false
-    Message.success('Golden Set case 已保存')
+    Message.success('基准测试用例已保存')
   } catch (e: any) {
-    Message.error(e?.response?.data?.detail || 'Golden Set case 保存失败')
+    Message.error(e?.response?.data?.detail || '基准测试用例保存失败')
   } finally {
     draftSaving.value = false
   }
@@ -717,7 +717,7 @@ async function publishDraft(draft: GoldenDraft) {
     await publishGoldenDraft(draft.id)
     drafts.value = drafts.value.filter((item) => item.id !== draft.id)
     await loadGoldenSet()
-    Message.success('已发布到 Golden Set')
+    Message.success('已发布到基准测试集')
   } catch (e: any) {
     Message.error(e?.response?.data?.detail || '发布失败')
   } finally {

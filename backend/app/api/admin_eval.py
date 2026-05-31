@@ -74,7 +74,7 @@ def _active_golden_set_path() -> Path:
         return CHALLENGE_GOLDEN_SET_PATH
     if LEGACY_GOLDEN_SET_PATH.exists():
         return LEGACY_GOLDEN_SET_PATH
-    raise FileNotFoundError(f"Golden set not found: {CHALLENGE_GOLDEN_SET_PATH}")
+    raise FileNotFoundError(f"基准测试集不存在: {CHALLENGE_GOLDEN_SET_PATH}")
 
 
 def _boolish(value) -> bool:
@@ -285,7 +285,7 @@ async def set_golden_case_enabled(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="仅管理员")
     if is_eval_running():
-        raise HTTPException(status_code=409, detail="评测正在运行，不能修改 Golden Set")
+        raise HTTPException(status_code=409, detail="评测正在运行，不能修改基准测试集")
     try:
         path = _active_golden_set_path()
         cases = _load_golden_cases(path)
@@ -297,7 +297,7 @@ async def set_golden_case_enabled(
             case["status"] = "active" if req.enabled else "disabled"
             _write_golden_cases(path, cases)
             return {"ok": True, "path": str(path), "case": _summarize_golden_case(case)}
-    raise HTTPException(status_code=404, detail="Golden Set case not found")
+    raise HTTPException(status_code=404, detail="基准测试用例不存在")
 
 
 @router.patch("/admin/eval/golden-set/{case_id}")
@@ -309,7 +309,7 @@ async def update_golden_case(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="仅管理员")
     if is_eval_running():
-        raise HTTPException(status_code=409, detail="评测正在运行，不能修改 Golden Set")
+        raise HTTPException(status_code=409, detail="评测正在运行，不能修改基准测试集")
     try:
         normalized = _normalize_golden_case_update(req)
         path = _active_golden_set_path()
@@ -324,7 +324,7 @@ async def update_golden_case(
             case.update(normalized)
             _write_golden_cases(path, cases)
             return {"ok": True, "path": str(path), "case": _summarize_golden_case(case)}
-    raise HTTPException(status_code=404, detail="Golden Set case not found")
+    raise HTTPException(status_code=404, detail="基准测试用例不存在")
 
 
 @router.post("/admin/eval/run")
@@ -366,7 +366,7 @@ def _runner(token: str, req: RunRequest):
 
         golden = _filter_cases_for_run(load_golden_set(str(golden_set_path)), req)
         if not golden:
-            raise ValueError("No Golden Set cases selected")
+            raise ValueError("未选择基准测试用例")
         with _lock:
             _state["total"] = len(golden)
 
@@ -413,7 +413,7 @@ def _runner(token: str, req: RunRequest):
             _state["summary"] = summary
             _state["result_path"] = str(result_path)
             _state["summary_path"] = str(summary_path)
-            _state["error"] = f"{failed_count} 个 case 未通过，Golden Set 未通过" if failed_count else ""
+            _state["error"] = f"{failed_count} 个用例未通过，基准测试集未通过" if failed_count else ""
             _state["current"] = len(golden)
             _state["total"] = len(golden)
 
