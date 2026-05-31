@@ -145,6 +145,15 @@ CREATE TABLE IF NOT EXISTS entity_aliases (
 );
 CREATE INDEX IF NOT EXISTS idx_aliases_alias ON entity_aliases(alias);
 CREATE INDEX IF NOT EXISTS idx_aliases_canonical ON entity_aliases(canonical_entity);
+
+CREATE TABLE IF NOT EXISTS structured_tag_overrides (
+    tag_key TEXT PRIMARY KEY,
+    label TEXT,
+    description TEXT,
+    enabled INTEGER,
+    ui_visible INTEGER,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
@@ -236,6 +245,16 @@ async def init_db():
                 await db.execute(col_ddl)
             except aiosqlite.OperationalError:
                 pass
+        await db.execute(
+            """CREATE TABLE IF NOT EXISTS structured_tag_overrides (
+                tag_key TEXT PRIMARY KEY,
+                label TEXT,
+                description TEXT,
+                enabled INTEGER,
+                ui_visible INTEGER,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )"""
+        )
         # Seed demo users (idempotent，admin token 同步 .env 配置)
         from app.config import settings as app_settings
         admin_token = app_settings.API_TOKEN or "enterprise-rag-dev-token"

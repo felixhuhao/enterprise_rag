@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from pathlib import Path
+import sqlite3
+import threading
+
+from app.config import settings
 
 MAX_STRUCTURED_TAGS = 4
 
@@ -72,10 +77,23 @@ BUILTIN_STRUCTURED_TAGS: tuple[StructuredTagDefinition, ...] = (
 )
 
 _REGISTRY = {definition.tag_key: definition for definition in BUILTIN_STRUCTURED_TAGS}
+_OVERRIDE_CACHE: dict[str, dict[str, object]] | None = None
+_OVERRIDE_LOCK = threading.Lock()
 
 
 def get_structured_tag_definition(tag_key: str) -> StructuredTagDefinition | None:
+    definition = _REGISTRY.get(str(tag_key or ""))
+    if not definition:
+        return None
+    return _apply_override(definition)
+
+
+def get_builtin_structured_tag_definition(tag_key: str) -> StructuredTagDefinition | None:
     return _REGISTRY.get(str(tag_key or ""))
+
+
+def list_structured_tag_definitions() -> list[StructuredTagDefinition]:
+    return [get_structured_tag_definition(definition.tag_key) or definition for definition in BUILTIN_STRUCTURED_TAGS]
 
 
 def structured_tag_label(tag_key: str) -> str:
@@ -112,3 +130,57 @@ def normalize_structured_tags(
 def _tag_priority(tag_key: str) -> int:
     definition = get_structured_tag_definition(tag_key)
     return definition.priority if definition else 9999
+
+
+def invalidate_structured_tag_overrides() -> None:
+    global _OVERRIDE_CACHE
+    with _OVERRIDE_LOCK:
+        _OVERRIDE_CACHE = None
+
+
+def _apply_override(definition: StructuredTagDefinition) -> StructuredTagDefinition:
+    override = _structured_tag_overrides().get(definition.tag_key)
+    if not override:
+        return definition
+    values = {}
+    for field in ("label", "description"):
+        value = override.get(field)
+        if value is not None:
+            values[field] = str(value)
+    for field in ("enabled", "ui_visible"):
+        value = override.get(field)
+        if value is not None:
+            values[field] = bool(value)
+    return replace(definition, **values)
+
+
+def _structured_tag_overrides() -> dict[str, dict[str, object]]:
+    global _OVERRIDE_CACHE
+    with _OVERRIDE_LOCK:
+        if _OVERRIDE_CACHE is None:
+            _OVERRIDE_CACHE = _load_structured_tag_overrides()
+        return _OVERRIDE_CACHE
+
+
+def _load_structured_tag_overrides() -> dict[str, dict[str, object]]:
+    db_path = Path(settings.DATABASE_PATH)
+    if not db_path.exists():
+        return {}
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """SELECT tag_key, label, description, enabled, ui_visible
+                   FROM structured_tag_overrides"""
+            ).fetchall()
+    except sqlite3.Error:
+        return {}
+    return {
+        str(row["tag_key"]): {
+            "label": row["label"],
+            "description": row["description"],
+            "enabled": row["enabled"],
+            "ui_visible": row["ui_visible"],
+        }
+        for row in rows
+    }
