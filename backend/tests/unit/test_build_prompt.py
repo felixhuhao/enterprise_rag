@@ -54,6 +54,30 @@ class TestBuildPromptNode:
         assert "C2" in result["context_map"]
         assert result["context_map"]["C1"]["chunk_key"] == "ck_1"
 
+    def test_search_text_metadata_is_not_prompt_context(self):
+        state = {
+            "query": "金额审批",
+            "search_results": [
+                {
+                    "content": "原始内容只包含事实。",
+                    "search_text": "金额审批阈值 费用审批门槛",
+                    "keywords": ["VP审批"],
+                    "structured_tags": ["amount_threshold", "approval_rule"],
+                    "file_title": "制度.md",
+                    "section_title": "审批",
+                    "source_type": "text",
+                },
+            ],
+        }
+        config = {"configurable": {"query_config": QueryConfig()}}
+
+        result = build_prompt_node(state, config)
+
+        assert "原始内容只包含事实" in result["context_text"]
+        assert "金额审批阈值" not in result["context_text"]
+        assert "VP审批" not in result["context_text"]
+        assert "structured_tags" not in result["context_map"]["C1"]
+
     def test_empty_results(self):
         state = {"query": "test", "search_results": []}
         config = {"configurable": {"query_config": QueryConfig()}}

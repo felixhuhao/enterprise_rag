@@ -25,6 +25,8 @@ _SAMPLE_HIT = {
     "page": 2,
     "source_type": "text",
     "content": "差旅报销需要发票、行程单和审批单。",
+    "keywords": ["审批单"],
+    "structured_tags": ["approval_rule"],
     "score": 0.82,
 }
 
@@ -128,6 +130,8 @@ def test_run_retrieval_test_returns_strategy_and_paths(monkeypatch):
     assert payload["result_count"] == 1
     assert payload["results"][0]["retrieval_path"] == "Hybrid"
     assert payload["results"][0]["page"] == 2
+    assert payload["results"][0]["keywords"] == ["审批单"]
+    assert payload["results"][0]["structured_tags"] == ["approval_rule"]
 
 
 def test_dense_only_control_uses_dense_search(monkeypatch):

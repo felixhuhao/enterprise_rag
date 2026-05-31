@@ -13,6 +13,8 @@ def test_retrieved_chunks_include_chunk_key_without_full_content():
             "document_id": "doc-1",
             "file_title": "a.pdf",
             "content": "完整内容" * 100,
+            "keywords": ["VP审批"],
+            "structured_tags": ["amount_threshold", "approval_rule"],
             "score": 0.9,
         }
     ])
@@ -20,5 +22,8 @@ def test_retrieved_chunks_include_chunk_key_without_full_content():
     rows = json.loads(payload)
 
     assert rows[0]["chunk_key"] == "ck_abc"
+    assert rows[0]["keywords"] == ["VP审批"]
+    assert rows[0]["structured_tags"] == ["amount_threshold", "approval_rule"]
     assert rows[0]["content_preview"]
     assert "content" not in rows[0]
+    assert "search_text" not in rows[0]

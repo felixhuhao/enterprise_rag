@@ -309,6 +309,8 @@ function technicalFields(record: RetrievedChunkItem): Array<{ label: string; val
     { label: 'chunk_key', value: rawValue(record.chunk_key) },
     { label: 'document_id', value: rawValue(record.document_id) },
     { label: 'source_type', value: rawValue(record.source_type) },
+    { label: 'keywords', value: rawValue(record.keywords?.join(', ')) },
+    { label: 'structured_tags', value: rawValue(record.structured_tags?.join(', ')) },
     { label: 'stage', value: rawValue(record.stage) },
     { label: 'table_id', value: rawValue(record.table_id) },
   ].filter((field) => field.value)

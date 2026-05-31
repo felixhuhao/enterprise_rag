@@ -35,6 +35,8 @@ def _build_retrieved_chunks(search_results: list[dict]) -> str:
             "page": r.get("page"),
             "table_id": r.get("table_id", ""),
             "source_type": r.get("source_type", ""),
+            "keywords": r.get("keywords", []),
+            "structured_tags": r.get("structured_tags", []),
             "retrieval_path": _retrieval_path(r),
             "context_expanded_chunk_ids": r.get("context_expanded_chunk_ids", []),
             "context_expand_parts": r.get("context_expand_parts", []),

@@ -37,6 +37,8 @@ export interface RetrievedChunkItem {
   page?: number | null
   table_id?: string
   source_type?: string
+  keywords?: string[]
+  structured_tags?: string[]
   retrieval_path?: string
   stage?: string
   content_preview?: string

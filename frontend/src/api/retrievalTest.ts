@@ -82,6 +82,8 @@ export interface RetrievalResult {
   section_title: string
   page?: number | null
   source_type: string
+  keywords?: string[]
+  structured_tags?: string[]
   table_id?: string
   table_title?: string
   score: number

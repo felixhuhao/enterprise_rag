@@ -337,6 +337,8 @@ def _format_result(row: dict, rank: int, *, use_rerank: bool) -> dict:
         "section_title": row.get("section_title", "") or row.get("title", ""),
         "page": row.get("page"),
         "source_type": row.get("source_type", ""),
+        "keywords": row.get("keywords", []),
+        "structured_tags": row.get("structured_tags", []),
         "table_id": row.get("table_id", ""),
         "table_title": row.get("table_title", ""),
         "score": round(float(row.get("score", 0) or 0), 4),
