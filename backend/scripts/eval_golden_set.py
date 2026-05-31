@@ -1240,6 +1240,15 @@ def print_summary(results: list[dict]):
     print("=" * 60)
 
     o = summary["overall"]
+    if not o.get("count"):
+        pending = [r for r in results
+                   if r.get("eval_type") == "llm_judge" and r.get("final_score") is None]
+        print(f"\n  Overall: 0 scored questions")
+        if pending:
+            print(f"  Pending LLM judge: {len(pending)} questions (use --judge)")
+        print()
+        return
+
     print(f"\n  Overall: {o['count']} questions, "
           f"avg={o['avg_score']:.3f}, pass_rate={o['pass_rate']:.1%}, "
           f"hit@5={_fmt_rate(o.get('hit_at_5_rate'))}, "

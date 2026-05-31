@@ -1,7 +1,11 @@
 from types import SimpleNamespace
 
 from app.rag.query.config import QueryConfig
-from app.rag.query.query_expansion import _parse_expanded_queries, query_expansion_node
+from app.rag.query.query_expansion import (
+    _deterministic_expansions,
+    _parse_expanded_queries,
+    query_expansion_node,
+)
 
 
 def _config(count: int = 3) -> dict:
@@ -66,6 +70,27 @@ def test_llm_exception_returns_empty(monkeypatch):
     )
 
     assert out == {"expanded_queries": []}
+
+
+def test_amount_approval_query_gets_deterministic_expansion(monkeypatch):
+    monkeypatch.setattr(
+        "app.rag.query.query_expansion._invoke_expansion_llm",
+        lambda _messages: SimpleNamespace(content="审批金额限制\n审批权限金额标准\n各制度费用门槛"),
+    )
+
+    out = query_expansion_node(
+        {"query": "有哪些涉及金额审批的阈值？", "query_plan": {"use_query_expansion": True}},
+        _config(count=3),
+    )
+
+    assert out["expanded_queries"][0].startswith("金额审批阈值")
+    assert len(out["expanded_queries"]) == 3
+
+
+def test_deterministic_expansion_requires_amount_and_approval_terms():
+    assert _deterministic_expansions("金额审批阈值")
+    assert _deterministic_expansions("金额标准") == []
+    assert _deterministic_expansions("审批流程") == []
 
 
 def test_parse_filters_empty_numbering_duplicates_and_original():

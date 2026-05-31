@@ -84,7 +84,7 @@ def extract_structured_tags(content: str, section_title: str = "", profile: str 
         tags.append("amount_threshold")
     if has_approval:
         tags.append("approval_rule")
-    if "培训" in text:
+    if "培训" in text and any(word in text for word in ("预算", "费用", "金额", "报销", "审批")):
         tags.append("training_budget")
     if "付款" in text or "支付" in text:
         tags.append("payment_rule")

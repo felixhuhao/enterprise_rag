@@ -52,11 +52,12 @@ def query_expansion_node(state: QueryState, config: RunnableConfig) -> dict:
         response = _invoke_expansion_llm([
             HumanMessage(content=EXPANSION_PROMPT.format(query=query, count=count))
         ])
+        model_expanded = _parse_expanded_queries(str(response.content or ""), query, count)
     except Exception:
         logger.warning("Query expansion LLM call failed, returning empty", exc_info=True)
-        return {"expanded_queries": []}
+        model_expanded = []
 
-    expanded = _parse_expanded_queries(str(response.content or ""), query, count)
+    expanded = _merge_expanded_queries(_deterministic_expansions(query), model_expanded, query, count)
     return {"expanded_queries": expanded}
 
 
@@ -81,6 +82,31 @@ def _parse_expanded_queries(content: str, original_query: str, count: int) -> li
 
 def _normalize_query(query: str) -> str:
     return " ".join(query.split()).casefold()
+
+
+def _deterministic_expansions(query: str) -> list[str]:
+    text = query or ""
+    has_amount = any(word in text for word in ("金额", "费用", "预算", "阈值", "门槛", "额度", "上限", "下限"))
+    has_approval = any(word in text for word in ("审批", "批准", "权限", "签字", "审核"))
+    if has_amount and has_approval:
+        return [
+            "金额审批阈值 费用审批门槛 预算审批 报销审批 采购审批 付款审批 外部培训费用审批 供应商付款 项目预算"
+        ]
+    return []
+
+
+def _merge_expanded_queries(priority: list[str], generated: list[str], original_query: str, count: int) -> list[str]:
+    seen = {_normalize_query(original_query)}
+    out: list[str] = []
+    for query in [*priority, *generated]:
+        norm = _normalize_query(query)
+        if not norm or norm in seen:
+            continue
+        seen.add(norm)
+        out.append(query)
+        if len(out) >= count:
+            break
+    return out
 
 
 def _invoke_expansion_llm(messages: list[HumanMessage]):

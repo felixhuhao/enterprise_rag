@@ -32,6 +32,20 @@ def test_extracts_amount_approval_terms_for_training_section():
     assert "10000元" in search_text
 
 
+def test_training_without_budget_evidence_does_not_add_training_recall_terms():
+    content = "所有培训记录统一存入培训管理系统，作为员工晋升和评优的参考依据。"
+
+    tags = extract_structured_tags(content, "年度培训计划 > 培训考核机制")
+    search_text = build_search_text({
+        "content": content,
+        "section_title": "年度培训计划 > 培训考核机制",
+        "structured_tags": tags,
+    })
+
+    assert "training_budget" not in tags
+    assert "培训预算" not in search_text
+
+
 def test_does_not_add_finance_recall_terms_without_amount_approval_evidence():
     content = "密码必须每90天强制更换，P1事件30分钟内响应。"
 

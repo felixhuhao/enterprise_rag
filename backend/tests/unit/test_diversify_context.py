@@ -82,6 +82,19 @@ def test_recall_avoids_same_section_until_coverage_is_filled():
     assert [doc["chunk_key"] for doc in out["search_results"]] == ["a1", "b1", "a3"]
 
 
+def test_recall_does_not_fill_with_low_confidence_noise():
+    candidates = [
+        _doc("a", "a1", 1.0, "s1"),
+        _doc("b", "b1", 0.7, "s1"),
+        _doc("c", "c1", 0.49, "s1"),
+        _doc("d", "d1", 0.1, "s1"),
+    ]
+
+    out = diversify_context_node(_state("recall", 4, candidates), _cfg("recall"))
+
+    assert [doc["chunk_key"] for doc in out["search_results"]] == ["a1", "b1"]
+
+
 def test_updates_debug():
     candidates = [_doc("a", "a1", 1.0), _doc("b", "b1", 0.9)]
 

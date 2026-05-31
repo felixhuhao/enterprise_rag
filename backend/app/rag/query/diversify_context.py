@@ -14,6 +14,7 @@ from app.rag.query.state import QueryState
 
 
 _DIVERSIFY_FLAVORS = {"recall", "discovery"}
+_MIN_DIVERSE_SCORE = 0.5
 
 
 def diversify_context_node(state: QueryState, config: RunnableConfig) -> dict:
@@ -39,6 +40,7 @@ def diversify_context_node(state: QueryState, config: RunnableConfig) -> dict:
     target_k = max(1, target_k)
     deduped = _dedupe_chunks(candidates)
     if flavor in _DIVERSIFY_FLAVORS:
+        deduped = _filter_low_confidence(deduped)
         selected = _select_diverse(deduped, target_k)
     else:
         selected = deduped[:target_k]
@@ -90,6 +92,19 @@ def _select_diverse(results: list[dict], target_k: int) -> list[dict]:
             doc_counts[doc_key] = doc_counts.get(doc_key, 0) + 1
 
     return selected
+
+
+def _filter_low_confidence(results: list[dict]) -> list[dict]:
+    filtered = [doc for doc in results if _score(doc) >= _MIN_DIVERSE_SCORE]
+    return filtered or results
+
+
+def _score(doc: dict) -> float:
+    rerank = doc.get("rerank") or {}
+    try:
+        return float(rerank.get("final_score", doc.get("score", 0)) or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _chunk_key(doc: dict) -> str:
