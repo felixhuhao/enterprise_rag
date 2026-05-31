@@ -428,6 +428,40 @@ Goal: improve recall for enterprise policy language by enriching each source chu
 
 This is the right place to fix cases like `recall_agg_001`. Query expansion can help, but it is unstable when the source uses words like `单次费用超过` while the user asks for `金额审批阈值`.
 
+### Execution Plan
+
+1. Inspect the existing field flow.
+   - Confirm which fields are produced by chunking.
+   - Confirm which field is embedded for dense retrieval.
+   - Confirm which field is used for sparse/BM25 retrieval.
+   - Confirm which fields are returned by Milvus query/search and passed into rerank, prompt, citation, stats, and UI.
+
+2. Add rule-based enrichment.
+   - Generate `keywords`, `structured_tags`, and `search_text`.
+   - Cover amount expressions, approval roles, threshold terms, section titles, policy names, aliases, and common enterprise terms.
+   - Keep this deterministic and unit-tested; no LLM in Phase 9.
+
+3. Wire enrichment into ingestion.
+   - Insert enrichment after chunking and before vector persistence.
+   - Persist enrichment into `chunks.json` and `chunk_enrichment.json`.
+   - Keep source `content` unchanged.
+
+4. Update Milvus schema and row mapping.
+   - Add `search_text`, `keywords`, and `structured_tags`.
+   - Dense vectors remain based on source `content`.
+   - Sparse/BM25 vectors should be based on `search_text`.
+   - Keep old-collection fallback schema-aware.
+
+5. Update search compatibility.
+   - Return enrichment fields when available.
+   - Fall back to `content` when old collections do not have `search_text`.
+   - Ensure rerank, prompt, citation, and stats still use source `content`.
+
+6. Rebuild and verify the demo index.
+   - Reingest demo documents.
+   - Run `recall_agg_001` and recall slice.
+   - Compare Hit@5, Hit@10, Citation Hit Rate, and latency before/after enrichment.
+
 ### Design
 
 #### Rule-based enrichment（P1，no LLM cost）
