@@ -2,6 +2,7 @@
 
 from contextlib import asynccontextmanager
 import asyncio
+import json
 import sqlite3
 
 import aiosqlite
@@ -10,7 +11,7 @@ from fastapi import HTTPException
 
 import app.api.structured_tags as api
 import app.rag.chunking.structured_tag_registry as registry
-from app.api.structured_tags import StructuredTagUpdate
+from app.api.structured_tags import StructuredTagPreviewRequest, StructuredTagUpdate
 from app.core.auth import CurrentUser
 from app.rag.chunking.structured_tag_registry import normalize_structured_tags
 
@@ -135,3 +136,49 @@ def test_unknown_tag_returns_404(tag_db, users):
         ))
 
     assert exc.value.status_code == 404
+
+
+def test_preview_text_returns_tags_keywords_and_evidence(tag_db, users):
+    result = run(api.preview_structured_tags(
+        StructuredTagPreviewRequest(
+            text="单次报销金额超过5000元需要部门经理审批，费用发生后15个工作日内提交。",
+            section_title="费用报销制度 > 审批权限",
+        ),
+        users["admin"],
+    ))
+
+    assert result["source"] == "text"
+    assert result["summary"]["chunk_count"] == 1
+    tags = [row["tag_key"] for row in result["items"][0]["structured_tags"]]
+    assert "amount_threshold" in tags
+    assert "approval_rule" in tags
+    assert result["items"][0]["keywords"]
+    assert result["items"][0]["evidence"]
+
+
+def test_metrics_reads_parsed_chunk_artifacts(tag_db, users, monkeypatch, tmp_path):
+    parsed_root = tmp_path / "parsed"
+    doc_dir = parsed_root / "doc-1"
+    doc_dir.mkdir(parents=True)
+    (doc_dir / "chunks.json").write_text(json.dumps([
+        {
+            "source_type": "text",
+            "keywords": ["费用报销制度"],
+            "structured_tags": ["amount_threshold", "approval_rule"],
+        },
+        {
+            "source_type": "table_full",
+            "keywords": [],
+            "structured_tags": [],
+        },
+    ], ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(api.settings, "GENERAL_PARSED_DIR", str(parsed_root))
+
+    result = run(api.get_structured_tag_metrics(users["admin"]))
+
+    assert result["summary"]["document_count"] == 1
+    assert result["summary"]["chunk_count"] == 2
+    assert result["summary"]["zero_tag_chunks"] == 1
+    top_tags = {row["tag_key"]: row for row in result["top_tags"]}
+    assert top_tags["amount_threshold"]["chunks"] == 1
+    assert top_tags["amount_threshold"]["documents"] == 1

@@ -174,6 +174,95 @@
             结构化标签由后端内置规则产生；这里只能覆盖显示文案和开关，不能新增或删除标签。关闭标签会影响后续入库结果，已有索引需要重建后完全一致。
           </div>
 
+          <a-spin :loading="tagMetricsLoading" style="width: 100%">
+            <div class="tag-metric-grid">
+              <div class="tag-metric-card">
+                <span>文档数</span>
+                <strong>{{ tagMetrics?.summary.document_count ?? 0 }}</strong>
+              </div>
+              <div class="tag-metric-card">
+                <span>Chunks</span>
+                <strong>{{ tagMetrics?.summary.chunk_count ?? 0 }}</strong>
+              </div>
+              <div class="tag-metric-card">
+                <span>无标签 Chunks</span>
+                <strong>{{ tagMetrics?.summary.zero_tag_chunks ?? 0 }}</strong>
+              </div>
+              <div class="tag-metric-card">
+                <span>关键词超限</span>
+                <strong>{{ tagMetrics?.summary.too_many_keywords_chunks ?? 0 }}</strong>
+              </div>
+            </div>
+          </a-spin>
+
+          <details class="tag-preview-box">
+            <summary>
+              <span>规则预览</span>
+              <small>粘贴文本或选择文档，只运行规则，不写入存储。</small>
+            </summary>
+            <div class="tag-preview-controls">
+              <label>
+                <span>选择文档</span>
+                <a-select
+                  v-model="previewDocumentId"
+                  placeholder="可选，选择后预览该文档 chunks"
+                  allow-clear
+                  :loading="previewDocsLoading"
+                >
+                  <a-option v-for="doc in previewDocuments" :key="doc.document_id" :value="doc.document_id">
+                    {{ doc.filename }}
+                  </a-option>
+                </a-select>
+              </label>
+              <label>
+                <span>章节标题</span>
+                <a-input v-model="previewSectionTitle" placeholder="可选，粘贴文本时用于模拟 section_title" allow-clear />
+              </label>
+            </div>
+            <label class="tag-preview-text">
+              <span>预览文本</span>
+              <a-textarea
+                v-model="previewText"
+                placeholder="粘贴一段制度内容；未选择文档时必填"
+                :auto-size="{ minRows: 3, maxRows: 6 }"
+              />
+            </label>
+            <div class="tag-preview-actions">
+              <a-button type="primary" :loading="previewLoading" @click="runTagPreview">运行预览</a-button>
+              <a-button @click="clearTagPreview">清空</a-button>
+            </div>
+            <div v-if="previewResult" class="tag-preview-result">
+              <div class="tag-preview-summary">
+                <span>{{ previewResult.summary.matched_chunks }} / {{ previewResult.summary.chunk_count }} chunks 命中标签</span>
+                <span>{{ previewResult.summary.tag_count }} 个标签</span>
+              </div>
+              <div v-if="previewResult.tag_counts.length" class="tag-preview-tags">
+                <a-tag v-for="tag in previewResult.tag_counts" :key="tag.tag_key" size="small" color="green">
+                  {{ tag.label }} {{ tag.chunks }}
+                </a-tag>
+              </div>
+              <div class="preview-items">
+                <article v-for="item in previewItems" :key="item.chunk_key || item.search_text_preview" class="preview-item">
+                  <div class="preview-item-head">
+                    <strong>{{ item.section_title || item.source_type }}</strong>
+                    <small>{{ item.search_text_length }} chars</small>
+                  </div>
+                  <div class="tag-preview-tags">
+                    <a-tag v-for="tag in item.structured_tags" :key="tag.tag_key" size="small" color="green">
+                      {{ tag.label }}
+                    </a-tag>
+                    <span v-if="!item.structured_tags.length" class="muted">无标签</span>
+                  </div>
+                  <p v-if="item.evidence.length">{{ item.evidence[0].snippet }}</p>
+                  <small v-if="item.keywords.length">关键词：{{ item.keywords.join(' / ') }}</small>
+                </article>
+                <div v-if="hiddenPreviewItemCount" class="preview-more">
+                  仅展示前 {{ previewItems.length }} 条，另有 {{ hiddenPreviewItemCount }} 条未展示。
+                </div>
+              </div>
+            </div>
+          </details>
+
           <a-spin :loading="tagLoading" style="width: 100%">
             <div class="tag-table-wrap">
               <a-table :data="tagRecords" row-key="tag_key" size="small" :pagination="false">
@@ -213,8 +302,11 @@
                   </a-table-column>
                   <a-table-column title="优先级" data-index="priority" :width="82" align="center" />
                   <a-table-column title="命中数" data-index="count" :width="88" align="center">
-                    <template #cell>
-                      <span class="muted">待统计</span>
+                    <template #cell="{ record }">
+                      <div class="tag-count-cell">
+                        <strong>{{ tagMetricMap[record.tag_key]?.chunks ?? 0 }}</strong>
+                        <small>{{ tagMetricMap[record.tag_key]?.documents ?? 0 }} 文档</small>
+                      </div>
                     </template>
                   </a-table-column>
                   <a-table-column title="操作" data-index="actions" :width="150" align="right">
@@ -265,12 +357,18 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { Message } from '@arco-design/web-vue'
+import { listDocuments, type Document } from '../../api/documents'
 import { getSettings, updateSettings, updateToken } from '../../api/settings'
 import { getRuntimeInfo, type RuntimeInfo } from '../../api/system'
 import {
+  getStructuredTagMetrics,
   listStructuredTags,
+  previewStructuredTags,
   resetStructuredTag,
   updateStructuredTag,
+  type StructuredTagMetricRow,
+  type StructuredTagMetrics,
+  type StructuredTagPreviewResponse,
   type StructuredTagRecord,
 } from '../../api/structuredTags'
 import { useAuthStore } from '../../stores/auth'
@@ -308,10 +406,19 @@ const loadError = ref('')
 const loadedAt = ref('')
 const activeFlavor = ref<FlavorKey>('balanced')
 const tagLoading = ref(false)
+const tagMetricsLoading = ref(false)
 const tagSaving = ref(false)
 const tagRecords = ref<StructuredTagRecord[]>([])
+const tagMetrics = ref<StructuredTagMetrics | null>(null)
 const selectedTag = ref<StructuredTagRecord | null>(null)
 const tagEditorOpen = ref(false)
+const previewDocsLoading = ref(false)
+const previewLoading = ref(false)
+const allDocuments = ref<Document[]>([])
+const previewDocumentId = ref('')
+const previewSectionTitle = ref('')
+const previewText = ref('')
+const previewResult = ref<StructuredTagPreviewResponse | null>(null)
 
 const form = reactive<Record<string, any>>({
   token: '',
@@ -408,6 +515,12 @@ const activeControls = computed(() =>
 )
 const activeBudget = computed(() => buildBudget(activeFlavor.value))
 const activeCapabilities = computed(() => buildCapabilities(activeFlavor.value))
+const previewDocuments = computed(() => allDocuments.value.filter((doc) => doc.status === 'completed'))
+const previewItems = computed(() => previewResult.value?.items.slice(0, 5) ?? [])
+const hiddenPreviewItemCount = computed(() => Math.max(0, (previewResult.value?.items.length ?? 0) - previewItems.value.length))
+const tagMetricMap = computed<Record<string, StructuredTagMetricRow>>(() =>
+  Object.fromEntries((tagMetrics.value?.top_tags ?? []).map((row) => [row.tag_key, row])),
+)
 const tokenStatus = computed(() => {
   const token = localStorage.getItem('api_token') || ''
   return token ? '已配置' : '未配置'
@@ -434,7 +547,11 @@ async function loadSettings() {
     runtimeInfo.value = info
     applySettings(settingsData)
     if (authStore.isAdmin) {
-      await loadTagRecords()
+      await Promise.all([
+        loadTagRecords(),
+        loadTagMetrics(),
+        loadPreviewDocuments(),
+      ])
     }
     loadedAt.value = new Date().toLocaleString()
   } catch (e: any) {
@@ -455,6 +572,30 @@ async function loadTagRecords() {
     Message.error(e?.response?.data?.detail || '标签加载失败')
   } finally {
     tagLoading.value = false
+  }
+}
+
+async function loadTagMetrics() {
+  if (!authStore.isAdmin) return
+  tagMetricsLoading.value = true
+  try {
+    tagMetrics.value = await getStructuredTagMetrics()
+  } catch (e: any) {
+    Message.error(e?.response?.data?.detail || '标签统计加载失败')
+  } finally {
+    tagMetricsLoading.value = false
+  }
+}
+
+async function loadPreviewDocuments() {
+  if (!authStore.isAdmin) return
+  previewDocsLoading.value = true
+  try {
+    allDocuments.value = await listDocuments()
+  } catch {
+    allDocuments.value = []
+  } finally {
+    previewDocsLoading.value = false
   }
 }
 
@@ -579,6 +720,35 @@ async function resetTag(record: StructuredTagRecord) {
   } catch (e: any) {
     Message.error(e?.response?.data?.detail || '重置失败')
   }
+}
+
+async function runTagPreview() {
+  const documentId = previewDocumentId.value
+  const text = previewText.value.trim()
+  if (!documentId && !text) {
+    Message.warning('请选择文档或输入预览文本')
+    return
+  }
+  previewLoading.value = true
+  try {
+    previewResult.value = await previewStructuredTags({
+      document_id: documentId || undefined,
+      text: documentId ? undefined : text,
+      section_title: previewSectionTitle.value.trim() || undefined,
+      max_chunks: 20,
+    })
+  } catch (e: any) {
+    Message.error(e?.response?.data?.detail || '预览失败')
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+function clearTagPreview() {
+  previewDocumentId.value = ''
+  previewSectionTitle.value = ''
+  previewText.value = ''
+  previewResult.value = null
 }
 
 function tagScopeLabel(scope: string) {
@@ -1081,6 +1251,37 @@ onMounted(loadSettings)
   overflow-x: hidden;
 }
 
+.tag-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.tag-metric-card {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fbfdff;
+}
+
+.tag-metric-card span,
+.tag-count-cell small,
+.tag-preview-box summary small,
+.preview-item small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.tag-metric-card strong,
+.tag-count-cell strong {
+  color: var(--text-primary);
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
 .tag-main {
   display: grid;
   gap: 3px;
@@ -1114,6 +1315,130 @@ onMounted(loadSettings)
 }
 
 .muted {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.tag-count-cell {
+  display: grid;
+  gap: 1px;
+}
+
+.tag-preview-box {
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-base);
+}
+
+.tag-preview-box summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.tag-preview-box summary::-webkit-details-marker {
+  display: none;
+}
+
+.tag-preview-box summary::after {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 400;
+  content: '展开';
+}
+
+.tag-preview-box[open] summary::after {
+  content: '收起';
+}
+
+.tag-preview-controls {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(220px, 0.8fr);
+  gap: 10px;
+  padding: 0 12px 10px;
+}
+
+.tag-preview-controls label,
+.tag-preview-text {
+  display: grid;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tag-preview-text {
+  padding: 0 12px 10px;
+}
+
+.tag-preview-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.tag-preview-result {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.tag-preview-summary,
+.tag-preview-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+}
+
+.tag-preview-summary {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.preview-items {
+  display: grid;
+  gap: 8px;
+}
+
+.preview-item {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #fbfdff;
+}
+
+.preview-item-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.preview-item-head strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.preview-item p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.preview-more {
   color: var(--text-muted);
   font-size: 12px;
 }
@@ -1153,7 +1478,9 @@ onMounted(loadSettings)
 @media (max-width: 1100px) {
   .status-grid,
   .metric-strip,
-  .weight-grid {
+  .weight-grid,
+  .tag-metric-grid,
+  .tag-preview-controls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1172,7 +1499,9 @@ onMounted(loadSettings)
   .metric-strip,
   .info-list,
   .weight-grid,
-  .token-row {
+  .token-row,
+  .tag-metric-grid,
+  .tag-preview-controls {
     grid-template-columns: 1fr;
   }
 
