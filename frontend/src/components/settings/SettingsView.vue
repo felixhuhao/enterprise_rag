@@ -167,8 +167,98 @@
             </div>
           </section>
         </a-tab-pane>
+
+        <a-tab-pane key="tags" title="标签治理">
+          <div v-if="!authStore.isAdmin" class="readonly-note">当前用户没有修改权限。</div>
+          <div class="strategy-note">
+            结构化标签由后端内置规则产生；这里只能覆盖显示文案和开关，不能新增或删除标签。关闭标签会影响后续入库结果，已有索引需要重建后完全一致。
+          </div>
+
+          <a-spin :loading="tagLoading" style="width: 100%">
+            <div class="tag-table-wrap">
+              <a-table :data="tagRecords" row-key="tag_key" size="small" :pagination="false">
+                <template #columns>
+                  <a-table-column title="标签" data-index="label" :width="240">
+                    <template #cell="{ record }">
+                      <div class="tag-main">
+                        <strong>{{ record.label }}</strong>
+                        <code>{{ record.tag_key }}</code>
+                      </div>
+                    </template>
+                  </a-table-column>
+                  <a-table-column title="说明" data-index="description">
+                    <template #cell="{ record }">
+                      <span class="tag-description">{{ record.description }}</span>
+                    </template>
+                  </a-table-column>
+                  <a-table-column title="范围" data-index="profile" :width="150">
+                    <template #cell="{ record }">
+                      <div class="tag-status">
+                        <a-tag size="small">{{ tagScopeLabel(record.scope) }}</a-tag>
+                        <a-tag size="small">{{ tagProfileLabel(record.profile) }}</a-tag>
+                      </div>
+                    </template>
+                  </a-table-column>
+                  <a-table-column title="状态" data-index="status" :width="150">
+                    <template #cell="{ record }">
+                      <div class="tag-status">
+                        <a-tag size="small" :color="record.enabled ? 'green' : 'gray'">
+                          {{ record.enabled ? '启用' : '停用' }}
+                        </a-tag>
+                        <a-tag size="small" :color="record.ui_visible ? 'arcoblue' : 'gray'">
+                          {{ record.ui_visible ? '显示' : '隐藏' }}
+                        </a-tag>
+                      </div>
+                    </template>
+                  </a-table-column>
+                  <a-table-column title="优先级" data-index="priority" :width="82" align="center" />
+                  <a-table-column title="命中数" data-index="count" :width="88" align="center">
+                    <template #cell>
+                      <span class="muted">待统计</span>
+                    </template>
+                  </a-table-column>
+                  <a-table-column title="操作" data-index="actions" :width="150" align="right">
+                    <template #cell="{ record }">
+                      <div class="row-actions">
+                        <a-button size="mini" @click="openTagEditor(record)">编辑</a-button>
+                        <a-popconfirm content="恢复该标签的内置默认值？" @ok="resetTag(record)">
+                          <a-button size="mini" :disabled="!record.overridden">重置</a-button>
+                        </a-popconfirm>
+                      </div>
+                    </template>
+                  </a-table-column>
+                </template>
+              </a-table>
+            </div>
+          </a-spin>
+        </a-tab-pane>
       </a-tabs>
     </div>
+
+    <a-modal v-model:visible="tagEditorOpen" title="编辑标签" :width="620" :footer="false">
+      <div class="tag-edit-form">
+        <label>
+          <span>标签 Key</span>
+          <a-input :model-value="selectedTag?.tag_key || ''" disabled />
+        </label>
+        <label>
+          <span>显示名称</span>
+          <a-input v-model="tagForm.label" allow-clear />
+        </label>
+        <label>
+          <span>说明</span>
+          <a-textarea v-model="tagForm.description" :auto-size="{ minRows: 3, maxRows: 5 }" />
+        </label>
+        <div class="tag-toggle-row">
+          <a-checkbox v-model="tagForm.enabled">启用标签</a-checkbox>
+          <a-checkbox v-model="tagForm.uiVisible">前端显示</a-checkbox>
+        </div>
+        <div class="modal-actions">
+          <a-button @click="tagEditorOpen = false">取消</a-button>
+          <a-button type="primary" :loading="tagSaving" @click="saveTagEditor">保存</a-button>
+        </div>
+      </div>
+    </a-modal>
   </div>
 </template>
 
@@ -177,6 +267,12 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { getSettings, updateSettings, updateToken } from '../../api/settings'
 import { getRuntimeInfo, type RuntimeInfo } from '../../api/system'
+import {
+  listStructuredTags,
+  resetStructuredTag,
+  updateStructuredTag,
+  type StructuredTagRecord,
+} from '../../api/structuredTags'
 import { useAuthStore } from '../../stores/auth'
 
 type FlavorKey = 'balanced' | 'exact' | 'recall' | 'discovery'
@@ -211,6 +307,11 @@ const runtimeInfo = ref<RuntimeInfo | null>(null)
 const loadError = ref('')
 const loadedAt = ref('')
 const activeFlavor = ref<FlavorKey>('balanced')
+const tagLoading = ref(false)
+const tagSaving = ref(false)
+const tagRecords = ref<StructuredTagRecord[]>([])
+const selectedTag = ref<StructuredTagRecord | null>(null)
+const tagEditorOpen = ref(false)
 
 const form = reactive<Record<string, any>>({
   token: '',
@@ -236,6 +337,13 @@ const form = reactive<Record<string, any>>({
   useRerank: true,
   useGroundedness: false,
   useMultiHop: false,
+})
+
+const tagForm = reactive({
+  label: '',
+  description: '',
+  enabled: true,
+  uiVisible: true,
 })
 
 const strategyProfiles: Array<{ key: FlavorKey; label: string; description: string; reason: string }> = [
@@ -325,12 +433,28 @@ async function loadSettings() {
     rawSettings.value = settingsData
     runtimeInfo.value = info
     applySettings(settingsData)
+    if (authStore.isAdmin) {
+      await loadTagRecords()
+    }
     loadedAt.value = new Date().toLocaleString()
   } catch (e: any) {
     loadError.value = e?.response?.data?.detail || e?.message || '设置加载失败'
     Message.error(loadError.value)
   } finally {
     loading.value = false
+  }
+}
+
+async function loadTagRecords() {
+  if (!authStore.isAdmin) return
+  tagLoading.value = true
+  try {
+    const data = await listStructuredTags()
+    tagRecords.value = data.records
+  } catch (e: any) {
+    Message.error(e?.response?.data?.detail || '标签加载失败')
+  } finally {
+    tagLoading.value = false
   }
 }
 
@@ -405,6 +529,64 @@ async function saveToken() {
   } finally {
     tokenSaving.value = false
   }
+}
+
+function openTagEditor(record: StructuredTagRecord) {
+  selectedTag.value = record
+  tagForm.label = record.label
+  tagForm.description = record.description
+  tagForm.enabled = record.enabled
+  tagForm.uiVisible = record.ui_visible
+  tagEditorOpen.value = true
+}
+
+async function saveTagEditor() {
+  if (!selectedTag.value) return
+  const label = tagForm.label.trim()
+  if (!label) {
+    Message.warning('显示名称不能为空')
+    return
+  }
+  tagSaving.value = true
+  try {
+    const result = await updateStructuredTag(selectedTag.value.tag_key, {
+      label,
+      description: tagForm.description.trim(),
+      enabled: tagForm.enabled,
+      ui_visible: tagForm.uiVisible,
+    })
+    tagEditorOpen.value = false
+    Message.success('标签设置已保存')
+    if (result.reindex_required) {
+      Message.warning('启用状态变化会影响入库结果；已有索引需重建后完全一致')
+    }
+    await loadTagRecords()
+  } catch (e: any) {
+    Message.error(e?.response?.data?.detail || '保存失败')
+  } finally {
+    tagSaving.value = false
+  }
+}
+
+async function resetTag(record: StructuredTagRecord) {
+  try {
+    const result = await resetStructuredTag(record.tag_key)
+    Message.success('已恢复内置默认值')
+    if (result.reindex_required) {
+      Message.warning('启用状态变化会影响入库结果；已有索引需重建后完全一致')
+    }
+    await loadTagRecords()
+  } catch (e: any) {
+    Message.error(e?.response?.data?.detail || '重置失败')
+  }
+}
+
+function tagScopeLabel(scope: string) {
+  return scope === 'chunk' ? 'Chunk' : scope
+}
+
+function tagProfileLabel(profile: string) {
+  return profile === 'enterprise_policy' ? '企业制度' : profile
 }
 
 function buildBudget(flavor: FlavorKey): Array<{ label: string; value: string; note: string }> {
@@ -892,6 +1074,80 @@ onMounted(loadSettings)
   display: flex;
   gap: 10px;
   margin-top: 16px;
+}
+
+.tag-table-wrap {
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.tag-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.tag-main strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.tag-main code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.tag-description {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.tag-status,
+.row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.muted {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.tag-edit-form {
+  display: grid;
+  gap: 14px;
+}
+
+.tag-edit-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tag-toggle-row {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+}
+
+.tag-toggle-row :deep(.arco-checkbox-label) {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 6px;
 }
 
 @media (max-width: 1100px) {
