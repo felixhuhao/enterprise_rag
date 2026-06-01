@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from fastapi import HTTPException
+
 from app.core.database import get_db
 
 
@@ -12,6 +14,11 @@ class CurrentUser:
     user_id: str
     username: str
     role: str  # 'user' | 'admin'
+
+
+def require_admin(user: CurrentUser) -> None:
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员")
 
 
 async def lookup_user(token: str) -> CurrentUser | None:

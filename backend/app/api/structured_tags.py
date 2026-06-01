@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.config import settings
-from app.core.auth import CurrentUser
+from app.core.auth import CurrentUser, require_admin
 from app.core.database import get_db
 from app.deps import verify_token
 from app.rag.chunking.enrichment import MAX_KEYWORDS, build_search_text, extract_keywords, extract_structured_tags
@@ -52,11 +52,6 @@ _TAG_EVIDENCE_TERMS = {
     "procurement_rule": ("采购", "供应商"),
     "budget_rule": ("预算", "金额"),
 }
-
-
-def _require_admin(user: CurrentUser):
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="仅管理员")
 
 
 def _clean_optional_text(value: str | None, field: str) -> str | None:
@@ -132,7 +127,7 @@ async def _override_row(tag_key: str) -> dict | None:
 
 @router.get("/admin/structured-tags")
 async def list_structured_tags(current_user: CurrentUser = Depends(verify_token)):
-    _require_admin(current_user)
+    require_admin(current_user)
     overrides = await _override_rows()
     records = [_tag_record(definition, overrides.get(definition.tag_key)) for definition in BUILTIN_STRUCTURED_TAGS]
     return {"records": records, "total": len(records)}
@@ -140,7 +135,7 @@ async def list_structured_tags(current_user: CurrentUser = Depends(verify_token)
 
 @router.get("/admin/structured-tags/metrics")
 async def get_structured_tag_metrics(current_user: CurrentUser = Depends(verify_token)):
-    _require_admin(current_user)
+    require_admin(current_user)
     return await asyncio.to_thread(_build_tag_metrics)
 
 
@@ -149,7 +144,7 @@ async def preview_structured_tags(
     body: StructuredTagPreviewRequest,
     current_user: CurrentUser = Depends(verify_token),
 ):
-    _require_admin(current_user)
+    require_admin(current_user)
     chunks = _preview_chunks(body)
     if not chunks:
         raise HTTPException(status_code=400, detail="text or document_id is required")
@@ -176,7 +171,7 @@ async def update_structured_tag(
     body: StructuredTagUpdate,
     current_user: CurrentUser = Depends(verify_token),
 ):
-    _require_admin(current_user)
+    require_admin(current_user)
     definition = _definition_or_404(tag_key)
     if body.label is None and body.description is None and body.enabled is None and body.ui_visible is None:
         raise HTTPException(status_code=400, detail="No editable fields provided")
@@ -232,7 +227,7 @@ async def reset_structured_tag(
     tag_key: str,
     current_user: CurrentUser = Depends(verify_token),
 ):
-    _require_admin(current_user)
+    require_admin(current_user)
     definition = _definition_or_404(tag_key)
     before = _tag_record(definition, await _override_row(tag_key))
     async with get_db() as db:

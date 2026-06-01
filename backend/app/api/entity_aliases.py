@@ -6,7 +6,7 @@ import aiosqlite
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.core.auth import CurrentUser
+from app.core.auth import CurrentUser, require_admin
 from app.core.database import get_db
 from app.deps import verify_token
 from app.rag.query.entity_cache import get_known_entities, invalidate
@@ -24,11 +24,6 @@ class EntityAliasBatchItem(BaseModel):
     alias: str = Field(..., min_length=1, max_length=120)
     canonical_entity: str = Field(..., min_length=1, max_length=200)
     source: str = "admin"
-
-
-def _require_admin(user: CurrentUser):
-    if user.role != "admin":
-        raise HTTPException(status_code=403, detail="仅管理员")
 
 
 def _clean_source(source: str) -> str:
@@ -53,7 +48,7 @@ async def list_entity_aliases(
     page_size: int = 100,
     current_user: CurrentUser = Depends(verify_token),
 ):
-    _require_admin(current_user)
+    require_admin(current_user)
     page = max(page, 1)
     page_size = min(max(page_size, 1), 500)
     offset = (page - 1) * page_size
@@ -76,7 +71,7 @@ async def lookup_entity_alias(
     alias: str,
     current_user: CurrentUser = Depends(verify_token),
 ):
-    _require_admin(current_user)
+    require_admin(current_user)
     async with get_db() as db:
         async with db.execute(
             """SELECT id, alias, canonical_entity, source, created_at
@@ -94,7 +89,7 @@ async def create_entity_alias(
     body: EntityAliasCreate,
     current_user: CurrentUser = Depends(verify_token),
 ):
-    _require_admin(current_user)
+    require_admin(current_user)
     alias = _clean_required(body.alias, "alias")
     canonical = _clean_required(body.canonical_entity, "canonical_entity")
     _validate_canonical(canonical)
@@ -123,7 +118,7 @@ async def batch_create_entity_aliases(
     body: list[EntityAliasBatchItem],
     current_user: CurrentUser = Depends(verify_token),
 ):
-    _require_admin(current_user)
+    require_admin(current_user)
     known = get_known_entities()
     created = 0
     skipped = 0
@@ -162,7 +157,7 @@ async def delete_entity_alias(
     alias_id: int,
     current_user: CurrentUser = Depends(verify_token),
 ):
-    _require_admin(current_user)
+    require_admin(current_user)
     async with get_db() as db:
         cursor = await db.execute("DELETE FROM entity_aliases WHERE id = ?", (alias_id,))
         await db.commit()
