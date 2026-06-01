@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from app.core.auth import CurrentUser
 from app.core.database import get_db
 from app.deps import verify_token
+from app.rag.query.metadata_utils import parse_json_list
 
 router = APIRouter()
 
@@ -391,8 +392,8 @@ def _build_golden_draft(record: dict) -> dict:
         "feedback_rating": record.get("rating", ""),
         "feedback_comment": record.get("comment", ""),
         "bad_answer": record.get("answer", ""),
-        "bad_citations": _json_or_empty_list(record.get("citations", "[]")),
-        "retrieved_chunks": _json_or_empty_list(record.get("retrieved_chunks", "[]")),
+        "bad_citations": parse_json_list(record.get("citations", "[]")),
+        "retrieved_chunks": parse_json_list(record.get("retrieved_chunks", "[]")),
         "source_config": {
             "retrieval_flavor": retrieval_flavor,
             "strict_evidence": strict_evidence,
@@ -402,14 +403,6 @@ def _build_golden_draft(record: dict) -> dict:
         "created_at": created_at,
         "notes": "发布到正式基准测试集前，请补充 expected_answer 和 expected_points。",
     }
-
-
-def _json_or_empty_list(value: str) -> list:
-    try:
-        parsed = json.loads(value or "[]")
-        return parsed if isinstance(parsed, list) else []
-    except json.JSONDecodeError:
-        return []
 
 
 def _normalize_flavor(value: str) -> str:

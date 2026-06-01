@@ -14,6 +14,7 @@ from app.rag.query.planner import get_query_plan
 from app.rag.query.query_expansion import query_expansion_node
 from app.rag.query.rrf_fusion import rrf_fusion_node
 from app.rag.query.state import QueryState
+from app.utils.time import tick_ms
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ def run_direct_search(
     fusion_state = {**state, **updates}
     t = time.monotonic()
     fused = rrf_fusion_node(fusion_state, config)
-    return {**updates, **fused, "_rrf_fusion_ms": round((time.monotonic() - t) * 1000)}
+    return {**updates, **fused, "_rrf_fusion_ms": tick_ms(t)}
 
 
 def _run_search_and_hyde(

@@ -20,32 +20,11 @@ from app.rag.query.planner import plan_allows_entity_fallback, plan_budget
 from app.rag.query.scoring_utils import need_fallback
 from app.rag.query.state import QueryState
 from app.rag.vectorstores.general_milvus import COLLECTION_NAME, available_output_fields, client
-from app.rag.vectorstores.milvus_hits import parse_hits
+from app.rag.vectorstores.milvus_hits import SEARCH_OUTPUT_FIELDS_WITH_IMAGE_PATHS, parse_hits
 
 logger = logging.getLogger(__name__)
 
 SEARCH_TIMEOUT = 30  # seconds
-
-
-OUTPUT_FIELDS = [
-    "chunk_key",
-    "content",
-    "keywords",
-    "structured_tags",
-    "title",
-    "section_title",
-    "source_type",
-    "table_id",
-    "table_tokens",
-    "raw_table_path",
-    "document_id",
-    "page",
-    "file_title",
-    "entity_name",
-    "part",
-    "table_title",
-    "image_paths",
-]
 
 
 def search_node(state: QueryState, config: RunnableConfig) -> dict:
@@ -239,7 +218,7 @@ def _hybrid_search_limited(query_dense, query_text, entity_filter, limit: int, c
         reqs=[dense_req, sparse_req],
         ranker=WeightedRanker(cfg.dense_weight, cfg.sparse_weight),
         limit=limit,
-        output_fields=available_output_fields(OUTPUT_FIELDS),
+        output_fields=available_output_fields(SEARCH_OUTPUT_FIELDS_WITH_IMAGE_PATHS),
         timeout=SEARCH_TIMEOUT,
     )
     return parse_hits(results[0], include_image_paths=True)
@@ -254,7 +233,7 @@ def _dense_only_search_limited(query_dense, entity_filter, limit: int):
         search_params={"metric_type": "COSINE"},
         limit=limit,
         filter=entity_filter,
-        output_fields=available_output_fields(OUTPUT_FIELDS),
+        output_fields=available_output_fields(SEARCH_OUTPUT_FIELDS_WITH_IMAGE_PATHS),
         timeout=SEARCH_TIMEOUT,
     )
     return parse_hits(results[0], include_image_paths=True)
@@ -281,7 +260,7 @@ def _hybrid_search(query_dense, query_text, entity_filter, cfg: QueryConfig, lim
         reqs=[dense_req, sparse_req],
         ranker=WeightedRanker(cfg.dense_weight, cfg.sparse_weight),
         limit=limit,
-        output_fields=available_output_fields(OUTPUT_FIELDS),
+        output_fields=available_output_fields(SEARCH_OUTPUT_FIELDS_WITH_IMAGE_PATHS),
         timeout=SEARCH_TIMEOUT,
     )
     return parse_hits(results[0], include_image_paths=True)
@@ -296,7 +275,7 @@ def _dense_only_search(query_dense, entity_filter, cfg: QueryConfig, limit: int 
         search_params={"metric_type": "COSINE"},
         limit=limit,
         filter=entity_filter,
-        output_fields=available_output_fields(OUTPUT_FIELDS),
+        output_fields=available_output_fields(SEARCH_OUTPUT_FIELDS_WITH_IMAGE_PATHS),
         timeout=SEARCH_TIMEOUT,
     )
     return parse_hits(results[0], include_image_paths=True)

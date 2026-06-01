@@ -419,14 +419,7 @@ def _load_parsed_chunks(document_id: str) -> list[dict]:
 
 
 def _normalize_chunk(row: dict, document_id: str, sequence_index: int) -> dict:
-    image_paths = row.get("image_paths", [])
-    if isinstance(image_paths, str):
-        try:
-            image_paths = json.loads(image_paths or "[]")
-        except json.JSONDecodeError:
-            image_paths = []
-    if not isinstance(image_paths, list):
-        image_paths = []
+    image_paths = parse_json_list(row.get("image_paths"))
     keywords = parse_json_list(row.get("keywords"))
     structured_tags = parse_json_list(row.get("structured_tags"))
 

@@ -398,7 +398,7 @@ async def _stream_generator(
         gen_trace = {}
         if first_token_ts is not None:
             gen_trace["first_token_ms"] = round((first_token_ts - gen_t0) * 1000)
-        gen_trace["generate_ms"] = round((time.monotonic() - gen_t0) * 1000)
+        gen_trace["generate_ms"] = tick_ms(gen_t0)
         retrieval_wall = state.get("trace", {}).get("retrieval_wall_ms", 0)
         gen_trace["total_ms"] = retrieval_wall + gen_trace["generate_ms"]
         yield sse_event({"type": "trace", "trace": gen_trace})

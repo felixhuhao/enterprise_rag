@@ -22,28 +22,9 @@ from app.rag.query.planner import get_query_plan, plan_allows_entity_fallback, p
 from app.rag.query.search import SEARCH_TIMEOUT
 from app.rag.query.state import QueryState
 from app.rag.vectorstores.general_milvus import COLLECTION_NAME, available_output_fields, client
-from app.rag.vectorstores.milvus_hits import parse_hits
+from app.rag.vectorstores.milvus_hits import SEARCH_OUTPUT_FIELDS, parse_hits
 
 logger = logging.getLogger(__name__)
-
-OUTPUT_FIELDS = [
-    "chunk_key",
-    "content",
-    "keywords",
-    "structured_tags",
-    "title",
-    "section_title",
-    "source_type",
-    "table_id",
-    "table_tokens",
-    "raw_table_path",
-    "document_id",
-    "page",
-    "file_title",
-    "entity_name",
-    "part",
-    "table_title",
-]
 
 _hyde_llm = ChatOpenAI(
     model=settings.CHAT_MODEL,
@@ -109,7 +90,7 @@ def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
             search_params={"metric_type": "COSINE"},
             limit=hyde_limit,
             filter=entity_filter,
-            output_fields=available_output_fields(OUTPUT_FIELDS),
+            output_fields=available_output_fields(SEARCH_OUTPUT_FIELDS),
             timeout=SEARCH_TIMEOUT,
         )
         hits = parse_hits(results[0])
@@ -132,7 +113,7 @@ def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
                     search_params={"metric_type": "COSINE"},
                     limit=hyde_limit,
                     filter=acl_filter,
-                    output_fields=available_output_fields(OUTPUT_FIELDS),
+                    output_fields=available_output_fields(SEARCH_OUTPUT_FIELDS),
                     timeout=SEARCH_TIMEOUT,
                 )
                 hits = parse_hits(results[0])

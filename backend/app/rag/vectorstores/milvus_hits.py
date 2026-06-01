@@ -5,6 +5,27 @@ from __future__ import annotations
 from app.rag.chunking.chunk_keys import base_chunk_key
 from app.rag.query.metadata_utils import parse_json_list
 
+SEARCH_OUTPUT_FIELDS = [
+    "chunk_key",
+    "content",
+    "keywords",
+    "structured_tags",
+    "title",
+    "section_title",
+    "source_type",
+    "table_id",
+    "table_tokens",
+    "raw_table_path",
+    "document_id",
+    "page",
+    "file_title",
+    "entity_name",
+    "part",
+    "table_title",
+]
+
+SEARCH_OUTPUT_FIELDS_WITH_IMAGE_PATHS = [*SEARCH_OUTPUT_FIELDS, "image_paths"]
+
 
 def fallback_chunk_key(row: dict) -> str:
     return base_chunk_key({

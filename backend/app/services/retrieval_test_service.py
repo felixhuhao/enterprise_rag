@@ -269,25 +269,6 @@ def _run_multi_entity_dense_search(state: dict, cfg: QueryConfig, acl_filter: st
     }
 
 
-def _build_path_map(
-    dedup_key, primary: list[dict], primary_mode: str,
-    hyde: list[dict], hyde_mode: str,
-) -> dict[str, set[str]]:
-    path_map: dict[str, set[str]] = {}
-    for row in primary:
-        path_map.setdefault(dedup_key(row), set()).add(_mode_label(primary_mode))
-    for row in hyde:
-        path_map.setdefault(dedup_key(row), set()).add(_mode_label(hyde_mode))
-    return path_map
-
-
-def _apply_paths(dedup_key, rows: list[dict], path_map: dict[str, set[str]]):
-    for row in rows:
-        paths = sorted(path_map.get(dedup_key(row), set()))
-        row["retrieval_paths"] = paths
-        row["retrieval_path"] = " + ".join(paths) if paths else "未知"
-
-
 def _apply_default_path(rows: list[dict], label: str):
     for row in rows:
         if row.get("retrieval_paths"):
