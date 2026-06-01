@@ -119,6 +119,19 @@ class TestHTMLTable:
         for c in table_chunks:
             assert c["raw_table_path"], "raw_table_path should be set"
 
+    def test_unclosed_html_table_does_not_consume_rest_of_document(self, tmp_parsed_dir):
+        md = "## 表\n\n<table>\n<tr><td>1</td></tr>\n\n## 后续章节\n\n后续内容必须保留"
+        chunks, table_count = split_markdown_document(
+            md,
+            document_id="test",
+            filename="test.md",
+            source_path="/tmp/test.md",
+            parsed_dir=tmp_parsed_dir,
+        )
+
+        assert table_count == 1
+        assert any("后续内容必须保留" in chunk["content"] for chunk in chunks)
+
 
 class TestIngestionConfig:
     def test_table_full_token_limit_affects_split(self, tmp_parsed_dir):

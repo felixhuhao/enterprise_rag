@@ -54,7 +54,6 @@
             size="small"
             @change="onUserSwitch"
           >
-            <a-option value="enterprise-rag-dev-token">Admin（全部文档）</a-option>
             <a-option value="alice-demo-token">Alice（星辰科技）</a-option>
             <a-option value="bob-demo-token">Bob（远景能源）</a-option>
             <a-option v-if="isCustomToken" :value="currentUserToken">自定义 Token</a-option>
@@ -138,7 +137,6 @@ const pageMeta = computed(() => {
 const pageTitle = computed(() => pageMeta.value.title)
 const pageSubtitle = computed(() => pageMeta.value.subtitle)
 const DEMO_TOKENS: Record<string, string> = {
-  'Admin（全部文档）': 'enterprise-rag-dev-token',
   'Alice（星辰科技）': 'alice-demo-token',
   'Bob（远景能源）': 'bob-demo-token',
 }

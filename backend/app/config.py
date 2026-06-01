@@ -16,7 +16,8 @@ class Settings(BaseSettings):
     """
 
     # ---- 应用基本配置 ----
-    API_TOKEN: str = "enterprise-rag-dev-token"
+    API_TOKEN: str = ""
+    RATE_LIMIT_PER_MINUTE: int = 60
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:4173"]
     GENERAL_UPLOAD_DIR: str = "./data/general_uploads"
     GENERAL_PARSED_DIR: str = "./data/general_parsed"

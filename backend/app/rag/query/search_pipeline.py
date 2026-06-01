@@ -216,7 +216,6 @@ def _run_direct_with_fallback(
         state["entity_filter"] = ""
         _run_direct_retrieval(state, run_config, trace, nodes, hooks, search_fn=search_fn, hyde_fn=hyde_fn)
 
-        t_fb2 = time.monotonic()
         _run_table_expand_and_rerank(state, run_config, trace, nodes, hooks, record_trace=False)
         trace["post_rerank_fallback_ms"] = tick_ms(t_fb)
 

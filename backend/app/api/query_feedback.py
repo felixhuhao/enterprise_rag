@@ -1,13 +1,19 @@
 """Answer feedback — POST /query/feedback, GET /query/feedback (admin)."""
 
 import json
-import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.api.golden_set_utils import (
+    DATA_DIR,
+    active_golden_set_path,
+    append_jsonl_with_backup,
+    boolish,
+    load_jsonl,
+)
 from app.core.auth import CurrentUser
 from app.core.database import get_db
 from app.deps import verify_token
@@ -15,14 +21,8 @@ from app.rag.query.metadata_utils import parse_json_list
 
 router = APIRouter()
 
-_backend = Path(__file__).resolve().parents[2]
-_data_dir = _backend / "data"
-if not _data_dir.is_dir():
-    _data_dir = _backend.parent / "data"
-GOLDEN_DRAFT_DIR = _data_dir / "golden_set_drafts"
+GOLDEN_DRAFT_DIR = DATA_DIR / "golden_set_drafts"
 GOLDEN_DRAFT_PATH = GOLDEN_DRAFT_DIR / "feedback_draft.jsonl"
-CHALLENGE_GOLDEN_SET_PATH = _data_dir / "challenge_golden_set_v1.jsonl"
-LEGACY_GOLDEN_SET_PATH = _data_dir / "enterprise_docs_v1.jsonl"
 
 
 class FeedbackRequest(BaseModel):
@@ -250,20 +250,7 @@ def _find_existing_draft(feedback_id: int) -> dict | None:
 
 
 def _load_golden_drafts() -> list[dict]:
-    if not GOLDEN_DRAFT_PATH.is_file():
-        return []
-    drafts = []
-    with open(GOLDEN_DRAFT_PATH, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                item = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            drafts.append(item)
-    return drafts
+    return load_jsonl(GOLDEN_DRAFT_PATH, skip_invalid=True)
 
 
 def _save_golden_drafts(drafts: list[dict]) -> None:
@@ -323,41 +310,15 @@ def _draft_to_golden_case(draft: dict) -> dict:
 
 
 def _active_golden_set_path() -> Path:
-    if CHALLENGE_GOLDEN_SET_PATH.exists():
-        return CHALLENGE_GOLDEN_SET_PATH
-    if LEGACY_GOLDEN_SET_PATH.exists():
-        return LEGACY_GOLDEN_SET_PATH
-    CHALLENGE_GOLDEN_SET_PATH.parent.mkdir(parents=True, exist_ok=True)
-    return CHALLENGE_GOLDEN_SET_PATH
+    return active_golden_set_path(create=True)
 
 
 def _load_jsonl(path: Path) -> list[dict]:
-    if not path.is_file():
-        return []
-    items: list[dict] = []
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            items.append(json.loads(line))
-    return items
+    return load_jsonl(path)
 
 
 def _append_jsonl_with_backup(path: Path, item: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
-        backup = path.with_name(f"{path.name}.bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-        shutil.copy2(path, backup)
-    needs_newline = path.exists() and path.stat().st_size > 0
-    if needs_newline:
-        with open(path, "rb") as existing:
-            existing.seek(-1, 2)
-            needs_newline = existing.read(1) != b"\n"
-    with open(path, "a", encoding="utf-8") as f:
-        if needs_newline:
-            f.write("\n")
-        f.write(json.dumps(item, ensure_ascii=False) + "\n")
+    append_jsonl_with_backup(path, item)
 
 
 def _draft_feedback_ids() -> set[int]:
@@ -410,6 +371,4 @@ def _normalize_flavor(value: str) -> str:
 
 
 def _boolish(value) -> bool:
-    if isinstance(value, str):
-        return value.lower() in {"1", "true", "yes", "on"}
-    return bool(value)
+    return boolish(value)

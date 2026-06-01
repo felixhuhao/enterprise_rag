@@ -98,3 +98,29 @@ def test_query_chunk_by_key_skips_old_schema(monkeypatch):
 
     assert gm.query_chunk_by_key("doc-1", "ck_missing") is None
     assert called is False
+
+
+def test_document_id_filters_are_escaped(monkeypatch):
+    filters: list[str] = []
+
+    def fake_delete(**kwargs):
+        filters.append(kwargs["filter"])
+        return {"delete_count": 1}
+
+    def fake_query(**kwargs):
+        filters.append(kwargs["filter"])
+        return []
+
+    monkeypatch.setattr(gm.client, "has_collection", lambda collection_name: True)
+    monkeypatch.setattr(gm.client, "delete", fake_delete)
+    monkeypatch.setattr(gm.client, "query", fake_query)
+    monkeypatch.setattr(gm.client, "flush", lambda collection_name: None)
+    monkeypatch.setattr(gm, "available_output_fields", lambda fields: fields)
+
+    gm.delete_by_document_id('doc"1\\x')
+    gm.query_chunks_by_document_id('doc"1\\x')
+
+    assert filters == [
+        'document_id == "doc\\"1\\\\x"',
+        'document_id == "doc\\"1\\\\x"',
+    ]

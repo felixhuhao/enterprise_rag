@@ -42,7 +42,7 @@ def classify_error(exc: Exception) -> AppErrorCode:
         return AppErrorCode.MINERU_API_ERROR
 
     # Embedding
-    if "embedding" in msg or "dashscope" in msg and "embed" in msg:
+    if any(k in msg for k in ("embedding", "embed", "embeddings")) or "embedding" in exc_type:
         return AppErrorCode.EMBEDDING_ERROR
 
     # Milvus

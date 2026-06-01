@@ -18,6 +18,7 @@ from app.rag.ingestion.config import IngestionConfig
 logger = logging.getLogger(__name__)
 
 _enc = tiktoken.get_encoding("o200k_base")
+MAX_HTML_TABLE_LINES = 200
 
 
 @dataclass
@@ -436,12 +437,22 @@ def _is_html_table_start(line: str) -> bool:
 
 def _collect_html_table(lines: list[str], idx: int) -> tuple[list[str], int]:
     collected = []
-    while idx < len(lines):
+    start = idx
+    closed = False
+    while idx < len(lines) and len(collected) < MAX_HTML_TABLE_LINES:
         collected.append(lines[idx])
         if "</table>" in lines[idx].lower():
             idx += 1
+            closed = True
             break
         idx += 1
+    if not closed:
+        logger.warning(
+            "Unclosed HTML table while chunking markdown: start_line=%s collected_lines=%s",
+            start + 1,
+            len(collected),
+        )
+        return [lines[start]], start + 1
     return collected, idx
 
 

@@ -6,7 +6,7 @@ import logging
 import time
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -96,14 +96,42 @@ def _build_config(req: QueryChatRequest):
 async def query_chat(req: QueryChatRequest, current_user: CurrentUser = Depends(verify_token)):
     """非流式查询，返回 answer + citations。"""
     from app.rag.query.graph import run_query_graph
+    from app.errors import classify_error
+    from app.rag.query.fallback import state_fallback_info
+    from app.services.query_stats_service import query_stats_service
 
+    t0 = time.monotonic()
     session_id = req.session_id or str(uuid.uuid4())
     is_eval = bool(req.is_eval and current_user.role == "admin")
     query_config = _build_config(req)
     allowed_ids = await get_allowed_document_ids(current_user)
 
-    result = await asyncio.to_thread(run_query_graph, req.query, query_config,
-                                     {"allowed_document_ids": allowed_ids})
+    try:
+        result = await asyncio.to_thread(run_query_graph, req.query, query_config,
+                                         {"allowed_document_ids": allowed_ids})
+    except Exception as exc:
+        logger.exception("非流式查询失败: %s", exc)
+        code = classify_error(exc).value
+        if not is_eval:
+            try:
+                await query_stats_service.save(
+                    session_id,
+                    req.query,
+                    "",
+                    "",
+                    0,
+                    0,
+                    0,
+                    total_ms=tick_ms(t0),
+                    status="query_failed",
+                    error_code=code,
+                    user_id=current_user.user_id,
+                    retrieval_flavor=query_config.retrieval_flavor,
+                    strict_evidence=query_config.strict_evidence,
+                )
+            except Exception:
+                logger.warning("保存非流式失败统计失败", exc_info=True)
+        raise HTTPException(status_code=500, detail={"code": code, "message": str(exc)[:500]}) from exc
 
     # 保存聊天历史
     if not is_eval:
@@ -112,6 +140,30 @@ async def query_chat(req: QueryChatRequest, current_user: CurrentUser = Depends(
             await save_message(session_id, "assistant", result.get("answer", ""), result.get("citations"), user_id=current_user.user_id)
         except Exception:
             logger.warning("保存聊天历史失败", exc_info=True)
+        try:
+            fallback_info = result.get("fallback_info")
+            if not isinstance(fallback_info, dict):
+                fallback_info = state_fallback_info({})
+            await query_stats_service.save(
+                session_id,
+                req.query,
+                result.get("search_mode", ""),
+                result.get("search_mode_hyde", ""),
+                int(result.get("results_count", 0) or 0),
+                0,
+                0,
+                total_ms=tick_ms(t0),
+                status="success",
+                retrieved_chunks="[]",
+                groundedness_score=(result.get("groundedness") or {}).get("groundedness_score"),
+                user_id=current_user.user_id,
+                retrieval_flavor=result.get("retrieval_flavor", query_config.retrieval_flavor),
+                strict_evidence=bool(result.get("strict_evidence", query_config.strict_evidence)),
+                citations=result.get("citations", []),
+                fallback_used=bool(fallback_info.get("used")),
+            )
+        except Exception:
+            logger.warning("保存非流式检索统计失败", exc_info=True)
 
     result["session_id"] = session_id
     return result

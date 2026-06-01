@@ -165,6 +165,17 @@ class TestUpdateDocumentStatus:
         assert row["last_failed_stage"] == "parsing"
         assert row["error_code"] == "MINERU_API_ERROR"
 
+    def test_claim_document_for_processing_is_atomic(self, db):
+        first = asyncio.run(svc.claim_document_for_processing("doc-4"))
+        second = asyncio.run(svc.claim_document_for_processing("doc-4"))
+        failed_doc = asyncio.run(svc.claim_document_for_processing("doc-1"))
+
+        row = db.execute("SELECT status FROM general_documents WHERE document_id = 'doc-4'").fetchone()
+        assert first is True
+        assert second is False
+        assert failed_doc is False
+        assert row["status"] == "processing"
+
 
 # ---------------------------------------------------------------------------
 # Tests: append_error_event

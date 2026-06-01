@@ -93,7 +93,7 @@ def resolve_token(arg_token: str | None) -> str:
             for line in env_path.read_text(encoding="utf-8").splitlines():
                 if line.startswith("API_TOKEN="):
                     return line.split("=", 1)[1].strip()
-    return "enterprise-rag-dev-token"
+    raise SystemExit("--token or API_TOKEN in .env is required")
 
 
 def get_headers(token: str) -> dict:

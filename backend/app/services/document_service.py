@@ -165,6 +165,19 @@ async def update_document_status(document_id: str, status: str, **kwargs):
         await db.commit()
 
 
+async def claim_document_for_processing(document_id: str) -> bool:
+    """Atomically move an uploaded document to processing."""
+    now = datetime.now().isoformat()
+    async with get_db() as db:
+        cursor = await db.execute(
+            "UPDATE general_documents SET status = 'processing', updated_at = ? "
+            "WHERE document_id = ? AND status = 'uploaded'",
+            (now, document_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
 async def update_entity_name(document_id: str, entity_name: str) -> bool:
     """更新 entity_name，仅 uploaded 状态允许。返回是否成功。"""
     async with get_db() as db:

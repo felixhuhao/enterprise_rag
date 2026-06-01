@@ -7,7 +7,7 @@ Pydantic 数据模型定义模块
 - 统一前后端数据交互格式
 """
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ---- 设置相关 ----
@@ -19,4 +19,4 @@ class SettingsUpdate(BaseModel):
 
 class TokenUpdate(BaseModel):
     """API Token 更新请求"""
-    token: str
+    token: str = Field(..., min_length=1, max_length=512)

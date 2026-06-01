@@ -7,6 +7,7 @@
  *
  * 解决方案：用 fetch + ReadableStream 手动解析 SSE 协议
  */
+import { Message } from '@arco-design/web-vue'
 
 /** SSE 事件结构（与后端 SSE 输出格式对应） */
 export interface SSEEvent {
@@ -48,6 +49,10 @@ export function connectSSE<TEvent extends SSEEvent = SSEEvent>(
   })
     .then(async (response) => {
       if (!response.ok) {
+        if (response.status === 401) {
+          localStorage.removeItem('api_token')
+          Message.error('API Token 无效或已过期，请在侧边栏重新设置')
+        }
         throw new Error(`HTTP ${response.status}`)
       }
 

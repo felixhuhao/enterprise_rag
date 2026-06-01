@@ -1,7 +1,6 @@
 """Golden set evaluation — POST /admin/eval/run, GET /admin/eval/status."""
 
 import json
-import shutil
 import sys
 import threading
 import time
@@ -11,18 +10,19 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from app.api.golden_set_utils import (
+    DATA_DIR,
+    active_golden_set_path,
+    boolish,
+    load_jsonl,
+    write_jsonl_with_backup,
+)
 from app.core.auth import CurrentUser
 from app.deps import verify_token
 
 router = APIRouter()
 
-_backend = Path(__file__).resolve().parents[2]
-_data_dir = _backend / "data"
-if not _data_dir.is_dir():
-    _data_dir = _backend.parent / "data"  # local dev fallback
-CHALLENGE_GOLDEN_SET_PATH = _data_dir / "challenge_golden_set_v1.jsonl"
-LEGACY_GOLDEN_SET_PATH = _data_dir / "enterprise_docs_v1.jsonl"
-RESULT_DIR = _data_dir / "eval_results"
+RESULT_DIR = DATA_DIR / "eval_results"
 
 _lock = threading.Lock()
 _state: dict = {
@@ -70,19 +70,11 @@ def is_eval_running() -> bool:
 
 
 def _active_golden_set_path() -> Path:
-    if CHALLENGE_GOLDEN_SET_PATH.exists():
-        return CHALLENGE_GOLDEN_SET_PATH
-    if LEGACY_GOLDEN_SET_PATH.exists():
-        return LEGACY_GOLDEN_SET_PATH
-    raise FileNotFoundError(f"基准测试集不存在: {CHALLENGE_GOLDEN_SET_PATH}")
+    return active_golden_set_path()
 
 
 def _boolish(value) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
-    return bool(value)
+    return boolish(value)
 
 
 def _case_flavor(case: dict) -> str:
@@ -142,23 +134,11 @@ def _summarize_golden_case(case: dict) -> dict:
 
 
 def _load_golden_cases(path: Path) -> list[dict]:
-    cases: list[dict] = []
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                cases.append(json.loads(line))
-    return cases
+    return load_jsonl(path)
 
 
 def _write_golden_cases(path: Path, cases: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
-        backup = path.with_name(f"{path.name}.bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-        shutil.copy2(path, backup)
-    with open(path, "w", encoding="utf-8") as f:
-        for case in cases:
-            f.write(json.dumps(case, ensure_ascii=False) + "\n")
+    write_jsonl_with_backup(path, cases)
 
 
 def _normalize_golden_case_update(req: GoldenCaseUpdate) -> dict:

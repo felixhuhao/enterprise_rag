@@ -37,5 +37,7 @@ def run_query_graph(query: str, query_config: QueryConfig | None = None, extra_c
         "strict_evidence": state.get("query_plan", {}).get("strict_evidence", False),
         "query_plan": state.get("query_plan", {}),
         "fallback_info": state.get("fallback_info", {}),
+        "search_mode": state.get("search_mode", ""),
+        "search_mode_hyde": state.get("search_mode_hyde", ""),
         "groundedness": state.get("groundedness", {}),
     }

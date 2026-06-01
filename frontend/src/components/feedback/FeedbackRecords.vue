@@ -1,4 +1,4 @@
-<!-- Feedback records table — admin-only sub-component of FeedbackView. -->
+<!-- Feedback records table — admin-only sub-component of EvaluateView. -->
 <template>
   <div v-if="authStore.isAdmin" class="feedback-card">
     <div class="fb-header">

@@ -184,9 +184,10 @@ def delete_by_document_id(document_id: str):
     """Delete existing chunks for one document_id."""
     if not client.has_collection(collection_name=COLLECTION_NAME):
         return
+    doc = escape_milvus_string(document_id)
     res = client.delete(
         collection_name=COLLECTION_NAME,
-        filter=f'document_id == "{document_id}"',
+        filter=f'document_id == "{doc}"',
     )
     client.flush(collection_name=COLLECTION_NAME)
     return res
@@ -197,10 +198,10 @@ def query_chunks_by_document_id(document_id: str, limit: int = 10000) -> list[di
     if not client.has_collection(collection_name=COLLECTION_NAME):
         return []
 
-    # document_id is expected to be a hex UUID; Milvus SDK has no parameterized queries
+    doc = escape_milvus_string(document_id)
     rows = client.query(
         collection_name=COLLECTION_NAME,
-        filter=f'document_id == "{document_id}"',
+        filter=f'document_id == "{doc}"',
         output_fields=available_output_fields(CHUNK_OUTPUT_FIELDS),
         limit=limit,
         timeout=QUERY_TIMEOUT,

@@ -5,12 +5,16 @@
 所有表在 init_db() 中创建，应用启动时调用。
 """
 
+import logging
 import os
+import secrets
 from contextlib import asynccontextmanager
 
 import aiosqlite
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 DB_PATH = settings.DATABASE_PATH
 
@@ -257,7 +261,11 @@ async def init_db():
         )
         # Seed demo users (idempotent，admin token 同步 .env 配置)
         from app.config import settings as app_settings
-        admin_token = app_settings.API_TOKEN or "enterprise-rag-dev-token"
+        admin_token = app_settings.API_TOKEN.strip()
+        if not admin_token:
+            admin_token = secrets.token_urlsafe(32)
+            app_settings.API_TOKEN = admin_token
+            logger.warning("API_TOKEN is not configured; generated an ephemeral admin token for this process")
         for user_id, username, token, role in (
             ("u_alice", "Alice", "alice-demo-token", "user"),
             ("u_bob",   "Bob",   "bob-demo-token",   "user"),

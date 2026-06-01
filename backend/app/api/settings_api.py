@@ -58,6 +58,8 @@ async def update_token(
     new_token = request.token.strip()
     if not new_token:
         raise HTTPException(status_code=400, detail="Token 不能为空")
+    if any(ch in new_token for ch in ("\r", "\n", "\x00")):
+        raise HTTPException(status_code=400, detail="Token 包含非法字符")
 
     # 更新进程内配置（立即生效）
     settings.API_TOKEN = new_token
@@ -79,6 +81,8 @@ async def update_token(
 
 def _update_env_file(env_path: Path, key: str, value: str):
     """更新 .env 文件中的指定 key"""
+    if any(ch in value for ch in ("\r", "\n", "\x00")):
+        raise ValueError("env value contains an invalid character")
     lines = []
     found = False
     if env_path.exists():

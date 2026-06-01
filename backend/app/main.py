@@ -8,12 +8,16 @@ FastAPI 应用入口模块
 """
 
 from contextlib import asynccontextmanager
+import time
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.api.router import api_router
+
+_rate_limit_windows: dict[str, tuple[int, int]] = {}
 
 
 @asynccontextmanager
@@ -52,6 +56,31 @@ app.add_middleware(
     allow_methods=["*"],  # 允许所有 HTTP 方法
     allow_headers=["*"],  # 允许所有请求头
 )
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    limit = int(settings.RATE_LIMIT_PER_MINUTE or 0)
+    if limit <= 0 or not request.url.path.startswith("/api/"):
+        return await call_next(request)
+
+    token = request.headers.get("authorization", "")
+    client_host = request.client.host if request.client else "unknown"
+    key = token or client_host
+    window = int(time.monotonic() // 60)
+    current_window, count = _rate_limit_windows.get(key, (window, 0))
+    if current_window != window:
+        current_window, count = window, 0
+    count += 1
+    _rate_limit_windows[key] = (current_window, count)
+
+    if count > limit:
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "请求过于频繁，请稍后再试"},
+            headers={"Retry-After": "60"},
+        )
+    return await call_next(request)
 
 # 健康检查（不需要鉴权）
 @app.get("/health")
