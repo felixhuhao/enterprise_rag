@@ -1,8 +1,5 @@
-.env
-data/
-logs/
-.pytest_cache/
-.pytest_tmp_*
 __pycache__/
+.pytest_cache/
 *.pyc
-*.pyo
+.env
+tests/
