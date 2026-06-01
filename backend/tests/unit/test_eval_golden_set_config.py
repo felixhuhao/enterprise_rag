@@ -1,5 +1,5 @@
-from scripts import eval_golden_set
-from scripts.eval_golden_set import (
+from scripts.eval_golden import client, judge, runner
+from scripts.eval_golden import (
     _case_query_config,
     _parse_judge_response,
     build_summary,
@@ -266,7 +266,7 @@ def test_query_rag_marks_request_as_eval(monkeypatch):
         captured["json"] = json
         return FakeResponse()
 
-    monkeypatch.setattr(eval_golden_set.requests, "post", fake_post)
+    monkeypatch.setattr(client.requests, "post", fake_post)
 
     query_rag("http://test/api", "q", "token", config={"retrieval_flavor": "balanced"})
 
@@ -452,7 +452,7 @@ def test_run_eval_keeps_going_after_case_exception(monkeypatch):
             "error": None,
         }
 
-    monkeypatch.setattr(eval_golden_set, "query_rag", fake_query_rag)
+    monkeypatch.setattr(client, "query_rag", fake_query_rag)
 
     results = run_eval(
         [
@@ -477,7 +477,7 @@ def test_run_eval_marks_case_timeout(monkeypatch):
         time.sleep(0.05)
         return {"id": "slow", "final_score": 1.0}
 
-    monkeypatch.setattr(eval_golden_set, "run_eval_case", slow_case)
+    monkeypatch.setattr(runner, "run_eval_case", slow_case)
 
     results = run_eval(
         [{"id": "slow", "question": "slow", "eval_type": "rule"}],
@@ -516,8 +516,8 @@ def test_retrieval_only_case_uses_retrieval_service_without_generation(monkeypat
             "strategy": {"search_mode": "hybrid"},
         }
 
-    monkeypatch.setattr(eval_golden_set, "query_rag", fail_query_rag)
-    monkeypatch.setattr(eval_golden_set, "query_retrieval_only", fake_retrieval)
+    monkeypatch.setattr(client, "query_rag", fail_query_rag)
+    monkeypatch.setattr(runner, "query_retrieval_only", fake_retrieval)
 
     row = run_retrieval_only_case(
         {
@@ -558,8 +558,8 @@ def test_answer_lite_scores_llm_cases_without_judge(monkeypatch):
     def fail_judge(**_kwargs):
         raise AssertionError("answer_lite must not call LLM judge")
 
-    monkeypatch.setattr(eval_golden_set, "query_rag", fake_query_rag)
-    monkeypatch.setattr(eval_golden_set, "_call_llm_judge", fail_judge)
+    monkeypatch.setattr(client, "query_rag", fake_query_rag)
+    monkeypatch.setattr(judge, "_call_llm_judge", fail_judge)
 
     results = run_eval(
         [{
@@ -598,7 +598,7 @@ def test_answer_lite_unscored_cases_are_visible_in_summary(monkeypatch):
             "error": None,
         }
 
-    monkeypatch.setattr(eval_golden_set, "query_rag", fake_query_rag)
+    monkeypatch.setattr(client, "query_rag", fake_query_rag)
 
     results = run_eval(
         [{
@@ -622,12 +622,12 @@ def test_answer_lite_unscored_cases_are_visible_in_summary(monkeypatch):
 
 
 def test_case_error_row_uses_false_hit_only_when_hit_metric_applies():
-    row = eval_golden_set._case_error_row({
+    row = runner._case_error_row({
         "id": "miss",
         "question": "q",
         "expected_documents": ["doc.md"],
     }, RuntimeError("boom"))
-    no_hit_row = eval_golden_set._case_error_row({
+    no_hit_row = runner._case_error_row({
         "id": "no-hit",
         "question": "q",
         "should_answer": False,
@@ -643,7 +643,7 @@ def test_case_error_row_uses_false_hit_only_when_hit_metric_applies():
 
 
 def test_case_error_row_marks_timeout_category():
-    row = eval_golden_set._case_error_row(
+    row = runner._case_error_row(
         {"id": "timeout", "question": "q"},
         TimeoutError("case timed out after 1s"),
         mode="answer_lite",
@@ -672,8 +672,8 @@ def test_llm_judge_scores_before_case_finished(monkeypatch):
     def fake_judge(**_kwargs):
         return {"score": 0.8, "verdict": "pass", "reason": "ok"}
 
-    monkeypatch.setattr(eval_golden_set, "query_rag", fake_query_rag)
-    monkeypatch.setattr(eval_golden_set, "_call_llm_judge", fake_judge)
+    monkeypatch.setattr(client, "query_rag", fake_query_rag)
+    monkeypatch.setattr(judge, "_call_llm_judge", fake_judge)
 
     results = run_eval(
         [{
@@ -712,8 +712,8 @@ def test_quick_mode_can_run_judge_when_requested(monkeypatch):
     def fake_judge(**_kwargs):
         return {"score": 0.8, "verdict": "pass", "reason": "ok"}
 
-    monkeypatch.setattr(eval_golden_set, "query_rag", fake_query_rag)
-    monkeypatch.setattr(eval_golden_set, "_call_llm_judge", fake_judge)
+    monkeypatch.setattr(client, "query_rag", fake_query_rag)
+    monkeypatch.setattr(judge, "_call_llm_judge", fake_judge)
 
     results = run_eval(
         [{
@@ -751,8 +751,8 @@ def test_llm_judge_error_falls_back_to_citation_score(monkeypatch):
     def fake_judge(**_kwargs):
         return {"error": "empty judge response"}
 
-    monkeypatch.setattr(eval_golden_set, "query_rag", fake_query_rag)
-    monkeypatch.setattr(eval_golden_set, "_call_llm_judge", fake_judge)
+    monkeypatch.setattr(client, "query_rag", fake_query_rag)
+    monkeypatch.setattr(judge, "_call_llm_judge", fake_judge)
 
     results = run_eval(
         [{

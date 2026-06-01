@@ -372,7 +372,9 @@ def _runner(token: str, req: RunRequest):
     try:
         # add backend/ to path so scripts can import app.* modules
         sys.path.insert(0, str(_backend))
-        from scripts.eval_golden_set import _get_eval_type, load_golden_set, run_eval, build_summary
+        from scripts.eval_golden.cases import load_golden_set
+        from scripts.eval_golden.runner import _get_eval_type, run_eval
+        from scripts.eval_golden.summary import build_summary
 
         golden_set_path = _active_golden_set_path()
         mode = _normalize_eval_mode(req.mode)
