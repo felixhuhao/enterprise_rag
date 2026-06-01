@@ -3,11 +3,13 @@ from scripts.eval_golden_set import (
     _case_query_config,
     _parse_judge_response,
     build_summary,
+    compute_chunk_hit_at_k,
     filter_quick_cases,
     load_golden_set,
     normalize_eval_mode,
     query_rag,
     run_eval,
+    run_retrieval_only_case,
     score_citation,
     score_rule,
 )
@@ -98,6 +100,16 @@ def test_query_rag_marks_request_as_eval(monkeypatch):
     query_rag("http://test/api", "q", "token", config={"retrieval_flavor": "balanced"})
 
     assert captured["json"]["is_eval"] is True
+
+
+def test_compute_chunk_hit_at_k_matches_expected_chunk_key():
+    assert compute_chunk_hit_at_k([
+        {"chunk_key": "ck_a"},
+        {"chunk_key": "ck_b"},
+    ], ["ck_b"], k=2)
+    assert not compute_chunk_hit_at_k([
+        {"chunk_key": "ck_a"},
+    ], ["ck_b"], k=1)
 
 
 def test_load_golden_set_skips_disabled_cases(tmp_path):
@@ -306,6 +318,76 @@ def test_run_eval_marks_case_timeout(monkeypatch):
     assert results[0]["id"] == "slow"
     assert results[0]["final_score"] == 0.0
     assert "timed out" in results[0]["error"]
+    assert results[0]["hit_at_5"] is None
+    assert results[0]["doc_hit_at_5"] is None
+    assert results[0]["chunk_hit_at_5"] is None
+    assert results[0]["fallback_info"] == {}
+    assert results[0]["retrieval_latency_ms"] is None
+
+
+def test_retrieval_only_case_uses_retrieval_service_without_generation(monkeypatch):
+    def fail_query_rag(*_args, **_kwargs):
+        raise AssertionError("query_rag should not be called in retrieval_only")
+
+    def fake_retrieval(question, config):
+        assert question == "q"
+        assert config["retrieval_flavor"] == "exact"
+        return {
+            "results": [
+                {"chunk_key": "ck_expected", "file_title": "doc.md", "score": 0.9},
+            ],
+            "trace": {"retrieval_wall_ms": 12},
+            "retrieval_flavor": "exact",
+            "strict_evidence": False,
+            "entity_mode": "none",
+            "fallback_info": {},
+            "strategy": {"search_mode": "hybrid"},
+        }
+
+    monkeypatch.setattr(eval_golden_set, "query_rag", fail_query_rag)
+    monkeypatch.setattr(eval_golden_set, "query_retrieval_only", fake_retrieval)
+
+    row = run_retrieval_only_case(
+        {
+            "id": "r",
+            "question": "q",
+            "preferred_flavor": "exact",
+            "expected_documents": ["doc.md"],
+            "expected_chunk_keys": ["ck_expected"],
+        },
+        0,
+        1,
+    )
+
+    assert row["eval_mode"] == "retrieval_only"
+    assert row["actual_answer"] == ""
+    assert row["actual_citations"] == []
+    assert row["hit_at_5"] is True
+    assert row["chunk_hit_at_5"] is True
+    assert row["final_score"] == 1.0
+    assert row["retrieval_latency_ms"] == 12
+    assert row["trace"]["total_ms"] == 12
+
+
+def test_case_error_row_uses_false_hit_only_when_hit_metric_applies():
+    row = eval_golden_set._case_error_row({
+        "id": "miss",
+        "question": "q",
+        "expected_documents": ["doc.md"],
+    }, RuntimeError("boom"))
+    no_hit_row = eval_golden_set._case_error_row({
+        "id": "no-hit",
+        "question": "q",
+        "should_answer": False,
+        "expected_documents": ["doc.md"],
+    }, RuntimeError("boom"))
+
+    assert row["hit_metric_applicable"] is True
+    assert row["hit_at_5"] is False
+    assert row["doc_hit_at_5"] is False
+    assert no_hit_row["hit_metric_applicable"] is False
+    assert no_hit_row["hit_at_5"] is None
+    assert no_hit_row["doc_hit_at_5"] is None
 
 
 def test_llm_judge_scores_before_case_finished(monkeypatch):

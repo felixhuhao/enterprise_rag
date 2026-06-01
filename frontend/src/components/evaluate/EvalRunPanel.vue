@@ -14,7 +14,7 @@
           <a-select v-model="runMode" size="small" class="run-mode-select">
             <a-option value="full">完整</a-option>
             <a-option value="quick">快速</a-option>
-            <a-option value="retrieval_only" disabled>仅检索</a-option>
+            <a-option value="retrieval_only">仅检索</a-option>
           </a-select>
           <a-select v-model="runScope" size="small" class="run-scope-select">
             <a-option value="all">全部启用</a-option>

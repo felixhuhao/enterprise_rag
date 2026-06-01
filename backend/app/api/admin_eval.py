@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.api.golden_set_utils import (
     DATA_DIR,
+    _backend,
     active_golden_set_path,
     boolish,
     load_jsonl,
@@ -24,7 +25,6 @@ router = APIRouter()
 
 RESULT_DIR = DATA_DIR / "eval_results"
 EVAL_MODES = {"full", "quick", "retrieval_only"}
-RETRIEVAL_ONLY_NOT_IMPLEMENTED = "retrieval_only mode will be implemented in Phase 11 Iteration 2"
 
 _lock = threading.Lock()
 _state: dict = {
@@ -342,9 +342,6 @@ async def run_eval(req: RunRequest, current_user: CurrentUser = Depends(verify_t
         mode = _normalize_eval_mode(req.mode)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if mode == "retrieval_only":
-        raise HTTPException(status_code=501, detail=RETRIEVAL_ONLY_NOT_IMPLEMENTED)
-
     with _lock:
         if _state["status"] == "running":
             raise HTTPException(status_code=409, detail="评估正在运行中")
@@ -385,7 +382,7 @@ def _runner(token: str, req: RunRequest):
             _state["total"] = len(golden)
 
         judge_config = None
-        if req.judge and any(_get_eval_type(case) == "llm_judge" for case in golden):
+        if mode != "retrieval_only" and req.judge and any(_get_eval_type(case) == "llm_judge" for case in golden):
             from app.config import settings
             if not settings.DEEPSEEK_API_KEY:
                 raise RuntimeError("DEEPSEEK_API_KEY not configured, cannot run LLM judge")

@@ -1082,6 +1082,107 @@ def _run_eval_case_with_timeout(
         return row
 
 
+def query_retrieval_only(question: str, config: dict) -> dict:
+    """Run retrieval-test service locally without answer generation."""
+    from app.services.retrieval_test_service import run_retrieval_test
+
+    # Iteration 2 keeps retrieval-only aligned with the retrieval-test defaults.
+    # Per-case retrieval parameter overrides belong in a later evaluation pass.
+    return run_retrieval_test(
+        question,
+        top_k=10,
+        use_hybrid=True,
+        use_hyde=True,
+        use_rerank=True,
+        retrieval_flavor=config["retrieval_flavor"],
+        strict_evidence=config["strict_evidence"],
+    )
+
+
+def run_retrieval_only_case(
+    item: dict,
+    index: int,
+    total: int,
+    progress_callback=None,
+) -> dict:
+    qid = item.get("id") or f"case_{index + 1}"
+    question = item.get("question", "")
+    eval_type = _get_eval_type(item)
+    query_config = _case_query_config(item)
+
+    try:
+        print(f"[{index + 1}/{total}] {qid} (retrieval_only) {question[:60]}...")
+        if progress_callback:
+            progress_callback({
+                "type": "case_started",
+                "index": index + 1,
+                "total": total,
+                "id": qid,
+                "question": question,
+            })
+
+        retrieval = query_retrieval_only(question, query_config)
+        results = retrieval.get("results", [])
+        trace = retrieval.get("trace", {})
+        retrieval_latency_ms = trace.get("retrieval_wall_ms")
+        if retrieval_latency_ms is not None and trace.get("total_ms") is None:
+            trace = {**trace, "total_ms": retrieval_latency_ms}
+        row = {
+            "id": qid,
+            "eval_mode": "retrieval_only",
+            "question": question,
+            "eval_type": eval_type,
+            "expected_answer": item.get("expected_answer", ""),
+            "actual_answer": "",
+            "actual_citations": [],
+            "trace": trace,
+            "retrieval_step": retrieval,
+            "rerank_results": results,
+            "search_mode": retrieval.get("strategy", {}).get("search_mode", ""),
+            "error": "",
+            "preferred_flavor": query_config["retrieval_flavor"],
+            "strict_evidence": query_config["strict_evidence"],
+            "requested_config": query_config,
+            "actual_retrieval_flavor": retrieval.get("retrieval_flavor") or None,
+            "actual_strict_evidence": retrieval.get("strict_evidence"),
+            "tags": item.get("tags", []),
+            "slices": _case_slices(item),
+            "quick": _boolish(item.get("quick", False)),
+            "should_answer": item.get("should_answer", True),
+            "expected_behavior": _expected_behavior(item),
+            "expected_docs": _expected_documents(item),
+            "expected_chunk_keys": _expected_chunk_keys(item),
+            "entity_mode": retrieval.get("entity_mode", "none"),
+            "fallback_info": retrieval.get("fallback_info", {}),
+            "retrieval_latency_ms": retrieval_latency_ms,
+        }
+        _apply_hit_metrics(row, results, item)
+        row["final_score"] = (
+            1.0 if row.get("hit_at_10") else 0.0
+        ) if row.get("hit_metric_applicable") else None
+        row["verdict"] = _verdict(row["final_score"]) if row.get("final_score") is not None else "not_applicable"
+
+        if progress_callback:
+            progress_callback({
+                "type": "case_finished",
+                "index": index + 1,
+                "total": total,
+                "row": row,
+            })
+        return row
+    except Exception as exc:
+        row = _case_error_row(item, exc, eval_type=eval_type, query_config=query_config, mode="retrieval_only")
+        print(f"  CASE ERROR: {row['error']}")
+        if progress_callback:
+            progress_callback({
+                "type": "case_finished",
+                "index": index + 1,
+                "total": total,
+                "row": row,
+            })
+        return row
+
+
 def run_eval_case(
     item: dict,
     index: int,
@@ -1139,12 +1240,7 @@ def run_eval_case(
             "expected_chunk_keys": _expected_chunk_keys(item),
         }
 
-        # Hit@K from rerank results
-        expected_docs = _expected_documents(item)
-        hit_applicable = is_hit_metric_applicable(item)
-        row["hit_metric_applicable"] = hit_applicable
-        row["hit_at_5"] = compute_hit_at_k(rag["rerank_results"], expected_docs, k=5) if hit_applicable else None
-        row["hit_at_10"] = compute_hit_at_k(rag["rerank_results"], expected_docs, k=10) if hit_applicable else None
+        _apply_hit_metrics(row, rag["rerank_results"], item)
 
         if rag["error"]:
             row["final_score"] = 0.0
@@ -1176,7 +1272,7 @@ def run_eval_case(
         elif eval_type == "llm_judge":
             cite = score_citation(
                 rag["citations"],
-                expected_docs,
+                _expected_documents(item),
                 item.get("min_expected_citations", 1),
                 item=item,
             )
@@ -1229,6 +1325,7 @@ def _case_error_row(
     mode: str = "full",
 ) -> dict:
     query_config = query_config or _case_query_config(item)
+    hit_applicable = is_hit_metric_applicable(item)
     return {
         "id": item.get("id") or "",
         "eval_mode": normalize_eval_mode(mode),
@@ -1254,9 +1351,16 @@ def _case_error_row(
         "expected_behavior": _expected_behavior(item),
         "expected_docs": _expected_documents(item),
         "expected_chunk_keys": _expected_chunk_keys(item),
-        "hit_metric_applicable": is_hit_metric_applicable(item),
-        "hit_at_5": False,
-        "hit_at_10": False,
+        "entity_mode": "none",
+        "fallback_info": {},
+        "retrieval_latency_ms": None,
+        "hit_metric_applicable": hit_applicable,
+        "doc_hit_at_5": False if _expected_documents(item) and hit_applicable else None,
+        "doc_hit_at_10": False if _expected_documents(item) and hit_applicable else None,
+        "chunk_hit_at_5": False if _expected_chunk_keys(item) and hit_applicable else None,
+        "chunk_hit_at_10": False if _expected_chunk_keys(item) and hit_applicable else None,
+        "hit_at_5": False if hit_applicable else None,
+        "hit_at_10": False if hit_applicable else None,
         "final_score": 0.0,
         "verdict": "error",
     }
@@ -1410,7 +1514,9 @@ def print_summary(results: list[dict]):
     o = summary["overall"]
     if not o.get("count"):
         pending = [r for r in results
-                   if r.get("eval_type") == "llm_judge" and r.get("final_score") is None]
+                   if r.get("eval_mode") != "retrieval_only"
+                   and r.get("eval_type") == "llm_judge"
+                   and r.get("final_score") is None]
         print(f"\n  Overall: 0 scored questions")
         if pending:
             print(f"  Pending LLM judge: {len(pending)} questions (use --judge)")
@@ -1460,7 +1566,9 @@ def print_summary(results: list[dict]):
             print(f"    {lc['id']} score={lc['score']:.2f} — {lc['reason']}")
 
     pending = [r for r in results
-               if r.get("eval_type") == "llm_judge" and r.get("final_score") is None]
+               if r.get("eval_mode") != "retrieval_only"
+               and r.get("eval_type") == "llm_judge"
+               and r.get("final_score") is None]
     if pending:
         print(f"\n  Pending LLM judge: {len(pending)} questions (use --judge)")
 
@@ -1513,29 +1621,29 @@ def main():
                         help="按 tag/flavor/strict 过滤: --slice exact --slice recall --slice strict")
     args = parser.parse_args()
     mode = normalize_eval_mode(args.mode)
-    if mode == "retrieval_only":
-        print(f"Error: {RETRIEVAL_ONLY_NOT_IMPLEMENTED}")
-        sys.exit(2)
+    needs_token = mode != "retrieval_only"
 
     # --- Token ---
     token = args.token
-    if not token:
-        try:
-            from app.config import settings
-            token = settings.API_TOKEN or ""
-        except Exception:
-            pass
-    if not token:
-        env_path = Path(__file__).resolve().parent.parent / ".env"
-        if env_path.exists():
-            for line in env_path.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if line.startswith("API_TOKEN="):
-                    token = line.split("=", 1)[1].strip().strip('"').strip("'")
-                    break
-    if not token:
-        print("Error: 需要 --token 或在 .env 中配置 API_TOKEN")
-        sys.exit(1)
+    if needs_token:
+        if not token:
+            try:
+                from app.config import settings
+                token = settings.API_TOKEN or ""
+            except Exception:
+                pass
+        if not token:
+            env_path = Path(__file__).resolve().parent.parent / ".env"
+            if env_path.exists():
+                for line in env_path.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if line.startswith("API_TOKEN="):
+                        token = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        break
+        if not token:
+            print("Error: 需要 --token 或在 .env 中配置 API_TOKEN")
+            sys.exit(1)
+    token = token or ""
 
     # --- Load ---
     golden_set = load_golden_set(args.golden_set, include_disabled=mode == "quick")
@@ -1561,7 +1669,7 @@ def main():
 
     # --- LLM Judge config (optional, applied per case) ---
     judge_config = None
-    if args.judge:
+    if args.judge and mode != "retrieval_only":
         judge_model = args.judge_model
         api_key = ""
         base_url = ""
