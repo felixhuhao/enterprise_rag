@@ -24,7 +24,7 @@ from app.deps import verify_token
 router = APIRouter()
 
 RESULT_DIR = DATA_DIR / "eval_results"
-EVAL_MODES = {"full", "quick", "retrieval_only"}
+EVAL_MODES = {"full", "quick", "retrieval_only", "answer_lite"}
 
 _lock = threading.Lock()
 _state: dict = {
@@ -220,6 +220,8 @@ def _eval_result_preview(row: dict, index: int | None = None, total: int | None 
         "label": label,
         "score": score,
         "error": error or "",
+        "failure_category": row.get("failure_category", ""),
+        "failure_categories": row.get("failure_categories", []),
     }
 
 
@@ -382,7 +384,7 @@ def _runner(token: str, req: RunRequest):
             _state["total"] = len(golden)
 
         judge_config = None
-        if mode != "retrieval_only" and req.judge and any(_get_eval_type(case) == "llm_judge" for case in golden):
+        if mode in {"full", "quick"} and req.judge and any(_get_eval_type(case) == "llm_judge" for case in golden):
             from app.config import settings
             if not settings.DEEPSEEK_API_KEY:
                 raise RuntimeError("DEEPSEEK_API_KEY not configured, cannot run LLM judge")

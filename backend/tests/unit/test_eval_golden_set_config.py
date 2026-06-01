@@ -119,6 +119,7 @@ def test_summary_exposes_compact_run_metrics_and_paths():
 
     assert summary["flavor"] == "exact"
     assert summary["scored_count"] == 3
+    assert summary["unscored"] == 0
     assert summary["passed"] == 1
     assert summary["warning"] == 1
     assert summary["failed"] == 1
@@ -131,6 +132,93 @@ def test_summary_exposes_compact_run_metrics_and_paths():
     assert summary["latency_p95_ms"] == 300
     assert summary["output_path"] == "/tmp/results.jsonl"
     assert summary["summary_path"] == "/tmp/summary.json"
+
+
+def test_summary_counts_failure_categories():
+    summary = build_summary([
+        {
+            "id": "timeout",
+            "final_score": 0.0,
+            "eval_type": "rule",
+            "preferred_flavor": "balanced",
+            "error": "case timed out after 1s",
+        },
+        {
+            "id": "retrieval",
+            "final_score": 0.0,
+            "eval_type": "rule",
+            "preferred_flavor": "balanced",
+            "hit_metric_applicable": True,
+            "hit_at_10": False,
+        },
+        {
+            "id": "citation",
+            "final_score": 0.7,
+            "eval_type": "rule",
+            "preferred_flavor": "balanced",
+            "answer_score": 1.0,
+            "citation_score": 0.0,
+        },
+        {
+            "id": "answer",
+            "final_score": 0.4,
+            "eval_type": "rule",
+            "preferred_flavor": "balanced",
+            "answer_score": 0.2,
+            "citation_score": 1.0,
+        },
+        {
+            "id": "no-answer",
+            "final_score": 0.0,
+            "eval_type": "no_answer",
+            "preferred_flavor": "balanced",
+        },
+    ])
+
+    assert summary["failure_categories"] == {
+        "answer_incomplete": 1,
+        "citation_miss": 1,
+        "no_answer_wrong": 1,
+        "retrieval_miss": 1,
+        "timeout": 1,
+    }
+
+
+def test_failure_categories_count_multiple_causes_independently():
+    summary = build_summary([
+        {
+            "id": "multi",
+            "final_score": 0.0,
+            "eval_type": "rule",
+            "preferred_flavor": "balanced",
+            "hit_metric_applicable": True,
+            "hit_at_10": False,
+            "answer_score": 0.2,
+            "citation_score": 0.0,
+        }
+    ])
+
+    assert summary["failure_categories"] == {
+        "retrieval_miss": 1,
+        "citation_miss": 1,
+        "answer_incomplete": 1,
+    }
+
+
+def test_failure_category_prefers_citation_when_answer_component_passes():
+    summary = build_summary([
+        {
+            "id": "citation-only",
+            "final_score": 0.6,
+            "eval_type": "llm_judge",
+            "preferred_flavor": "balanced",
+            "answer_score": 0.8,
+            "citation_score": 0.0,
+            "expected_point_miss": ["minor phrasing"],
+        }
+    ])
+
+    assert summary["failure_categories"] == {"citation_miss": 1}
 
 
 def test_retrieval_only_summary_marks_answer_metrics_not_applicable():
@@ -155,6 +243,7 @@ def test_retrieval_only_summary_marks_answer_metrics_not_applicable():
     assert summary["answer_pass_rate"] is None
     assert summary["citation_hit_rate"] is None
     assert summary["latency_p50_ms"] == 12
+    assert summary["unscored"] == 0
 
 
 def test_query_rag_marks_request_as_eval(monkeypatch):
@@ -233,6 +322,7 @@ def test_filter_quick_cases_uses_quick_flag():
 
 def test_normalize_eval_mode_rejects_unknown_mode():
     assert normalize_eval_mode("") == "full"
+    assert normalize_eval_mode("answer_lite") == "answer_lite"
 
     import pytest
 
@@ -451,6 +541,86 @@ def test_retrieval_only_case_uses_retrieval_service_without_generation(monkeypat
     assert row["trace"]["total_ms"] == 12
 
 
+def test_answer_lite_scores_llm_cases_without_judge(monkeypatch):
+    def fake_query_rag(*_args, **_kwargs):
+        return {
+            "answer": "covered answer",
+            "citations": [{"id": "C1", "file_title": "doc.md"}],
+            "trace": {"total_ms": 20},
+            "retrieval_step": {},
+            "rerank_results": [{"file_title": "doc.md"}],
+            "search_mode": "",
+            "retrieval_flavor": "balanced",
+            "strict_evidence": False,
+            "error": None,
+        }
+
+    def fail_judge(**_kwargs):
+        raise AssertionError("answer_lite must not call LLM judge")
+
+    monkeypatch.setattr(eval_golden_set, "query_rag", fake_query_rag)
+    monkeypatch.setattr(eval_golden_set, "_call_llm_judge", fail_judge)
+
+    results = run_eval(
+        [{
+            "id": "lite",
+            "question": "lite",
+            "eval_type": "llm_judge",
+            "expected_points": ["covered"],
+            "expected_documents": ["doc.md"],
+        }],
+        "http://test/api",
+        "token",
+        delay=0,
+        judge_config={"chat_model": "model", "api_key": "key", "base_url": "url"},
+        mode="answer_lite",
+    )
+
+    assert results[0]["eval_mode"] == "answer_lite"
+    assert results[0]["scoring_version"] == "answer_lite_v1"
+    assert results[0]["final_score"] == 1.0
+    assert results[0]["failure_category"] == "none"
+    assert results[0]["failure_categories"] == []
+    assert "judge" not in results[0]
+
+
+def test_answer_lite_unscored_cases_are_visible_in_summary(monkeypatch):
+    def fake_query_rag(*_args, **_kwargs):
+        return {
+            "answer": "qualitative answer",
+            "citations": [],
+            "trace": {},
+            "retrieval_step": {},
+            "rerank_results": [],
+            "search_mode": "",
+            "retrieval_flavor": "balanced",
+            "strict_evidence": False,
+            "error": None,
+        }
+
+    monkeypatch.setattr(eval_golden_set, "query_rag", fake_query_rag)
+
+    results = run_eval(
+        [{
+            "id": "unscored",
+            "question": "unscored",
+            "eval_type": "llm_judge",
+        }],
+        "http://test/api",
+        "token",
+        delay=0,
+        mode="answer_lite",
+    )
+    summary = build_summary(results, mode="answer_lite")
+
+    assert results[0]["final_score"] is None
+    assert results[0]["unscored_reason"] == "answer_lite_no_deterministic_signals"
+    assert results[0]["failure_category"] == "unknown"
+    assert summary["scored_count"] == 0
+    assert summary["unscored"] == 1
+    assert summary["failure_categories"] == {"unknown": 1}
+
+
 def test_case_error_row_uses_false_hit_only_when_hit_metric_applies():
     row = eval_golden_set._case_error_row({
         "id": "miss",
@@ -470,6 +640,17 @@ def test_case_error_row_uses_false_hit_only_when_hit_metric_applies():
     assert no_hit_row["hit_metric_applicable"] is False
     assert no_hit_row["hit_at_5"] is None
     assert no_hit_row["doc_hit_at_5"] is None
+
+
+def test_case_error_row_marks_timeout_category():
+    row = eval_golden_set._case_error_row(
+        {"id": "timeout", "question": "q"},
+        TimeoutError("case timed out after 1s"),
+        mode="answer_lite",
+    )
+
+    assert row["failure_category"] == "timeout"
+    assert row["failure_categories"] == ["timeout"]
 
 
 def test_llm_judge_scores_before_case_finished(monkeypatch):
@@ -512,6 +693,45 @@ def test_llm_judge_scores_before_case_finished(monkeypatch):
     assert results[0]["judge_score"] == 0.8
     assert results[0]["final_score"] == 0.85
     assert finished[0]["row"]["final_score"] == 0.85
+
+
+def test_quick_mode_can_run_judge_when_requested(monkeypatch):
+    def fake_query_rag(*_args, **_kwargs):
+        return {
+            "answer": "covered answer",
+            "citations": [],
+            "trace": {},
+            "retrieval_step": {},
+            "rerank_results": [],
+            "search_mode": "",
+            "retrieval_flavor": "balanced",
+            "strict_evidence": False,
+            "error": None,
+        }
+
+    def fake_judge(**_kwargs):
+        return {"score": 0.8, "verdict": "pass", "reason": "ok"}
+
+    monkeypatch.setattr(eval_golden_set, "query_rag", fake_query_rag)
+    monkeypatch.setattr(eval_golden_set, "_call_llm_judge", fake_judge)
+
+    results = run_eval(
+        [{
+            "id": "quick-judge",
+            "question": "quick-judge",
+            "eval_type": "llm_judge",
+            "expected_points": ["covered"],
+        }],
+        "http://test/api",
+        "token",
+        delay=0,
+        judge_config={"chat_model": "model", "api_key": "key", "base_url": "url"},
+        mode="quick",
+    )
+
+    assert results[0]["eval_mode"] == "quick"
+    assert results[0]["judge_score"] == 0.8
+    assert results[0]["final_score"] == 0.85
 
 
 def test_llm_judge_error_falls_back_to_citation_score(monkeypatch):

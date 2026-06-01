@@ -33,7 +33,17 @@ from threading import Event, Thread
 
 import requests
 
-EVAL_MODES = {"full", "quick", "retrieval_only"}
+EVAL_MODES = {"full", "quick", "retrieval_only", "answer_lite"}
+FAILURE_CATEGORIES = (
+    "retrieval_miss",
+    "citation_miss",
+    "answer_incomplete",
+    "no_answer_wrong",
+    "timeout",
+    "unknown",
+)
+ANSWER_COMPONENT_WEIGHT = 0.75
+CITATION_COMPONENT_WEIGHT = 0.25
 
 # ---------------------------------------------------------------------------
 # SSE consumer
@@ -137,6 +147,14 @@ def _verdict(score: float) -> str:
     elif score >= 0.6:
         return "warn"
     return "fail"
+
+
+def _compose_final_score(answer_component: float, citation_score: float) -> float:
+    return round(
+        ANSWER_COMPONENT_WEIGHT * answer_component
+        + CITATION_COMPONENT_WEIGHT * citation_score,
+        4,
+    )
 
 
 REFUSAL_SIGNALS = [
@@ -618,7 +636,7 @@ def score_rule(answer: str, citations: list, item: dict) -> dict:
 
     # Citation + final
     cite = score_citation(citations, expected_docs, min_citations, item=item)
-    final = 0.75 * answer_score + 0.25 * cite["citation_score"]
+    final = _compose_final_score(answer_score, cite["citation_score"])
 
     return {
         "answer_score": round(answer_score, 4),
@@ -635,6 +653,45 @@ def score_rule(answer: str, citations: list, item: dict) -> dict:
         "citation_matched": cite["matched_docs"],
         **_citation_output_fields(cite),
         "scoring_version": "v2",
+    }
+
+
+def score_answer_lite(answer: str, citations: list, item: dict) -> dict:
+    """Score LLM-judge cases without calling a judge.
+
+    This is intentionally conservative: only deterministic expected-point
+    substring hits and citation targets contribute to the score.
+    """
+    expected_points = [p for p in item.get("expected_points", []) if isinstance(p, str) and p.strip()]
+    expected_docs = _expected_documents(item)
+    cite = score_citation(citations, expected_docs, item.get("min_expected_citations", 1), item=item)
+
+    point_hits = [point for point in expected_points if _keyword_in_answer(point, answer)]
+    point_miss = [point for point in expected_points if point not in point_hits]
+    answer_score = round(len(point_hits) / len(expected_points), 4) if expected_points else None
+
+    if answer_score is not None and expected_docs:
+        final_score = _compose_final_score(answer_score, cite["citation_score"])
+    elif answer_score is not None:
+        final_score = answer_score
+    elif expected_docs:
+        final_score = cite["citation_score"]
+    else:
+        final_score = None
+    unscored_reason = "answer_lite_no_deterministic_signals" if final_score is None else ""
+
+    return {
+        "answer_score": answer_score,
+        "citation_score": cite["citation_score"] if expected_docs else None,
+        "citation_doc_hits": cite["doc_hits"],
+        "citation_matched": cite["matched_docs"],
+        **_citation_output_fields(cite),
+        "expected_point_hits": point_hits,
+        "expected_point_miss": point_miss,
+        "final_score": final_score,
+        "verdict": _verdict(final_score) if final_score is not None else "not_applicable",
+        "unscored_reason": unscored_reason,
+        "scoring_version": "answer_lite_v1",
     }
 
 
@@ -951,7 +1008,7 @@ def _apply_llm_judge(row: dict, chat_model: str, api_key: str, base_url: str) ->
     judge_score = judge.get("score", 0)
     citation_score = row.get("citation_score", 0)
     row["judge_score"] = judge_score
-    row["final_score"] = round(0.75 * judge_score + 0.25 * citation_score, 4)
+    row["final_score"] = _compose_final_score(judge_score, citation_score)
     row["verdict"] = judge.get("verdict", _verdict(row["final_score"]))
 
 
@@ -1162,6 +1219,7 @@ def run_retrieval_only_case(
             1.0 if row.get("hit_at_10") else 0.0
         ) if row.get("hit_metric_applicable") else None
         row["verdict"] = _verdict(row["final_score"]) if row.get("final_score") is not None else "not_applicable"
+        _apply_failure_category(row)
 
         if progress_callback:
             progress_callback({
@@ -1246,6 +1304,7 @@ def run_eval_case(
         if rag["error"]:
             row["final_score"] = 0.0
             row["verdict"] = "error"
+            _apply_failure_category(row)
             print(f"  ERROR: {rag['error']}")
             if progress_callback:
                 progress_callback({
@@ -1286,7 +1345,13 @@ def run_eval_case(
             if rag["citations"]:
                 files = [c.get("file_title", "?") for c in rag["citations"]]
                 print(f"  [citations] {files}")
-            if judge_config:
+            if mode == "answer_lite":
+                row.update(score_answer_lite(rag["answer"], rag["citations"], item))
+                if row.get("final_score") is None:
+                    print(f"  WARNING: {qid} answer_lite has no deterministic scoring signals")
+                else:
+                    print(f"  answer_lite={row['final_score']:.2f}")
+            elif judge_config:
                 _apply_llm_judge(
                     row,
                     chat_model=judge_config["chat_model"],
@@ -1296,6 +1361,7 @@ def run_eval_case(
             else:
                 row["final_score"] = None  # pending judge
 
+        _apply_failure_category(row)
         if progress_callback:
             progress_callback({
                 "type": "case_finished",
@@ -1327,7 +1393,7 @@ def _case_error_row(
 ) -> dict:
     query_config = query_config or _case_query_config(item)
     hit_applicable = is_hit_metric_applicable(item)
-    return {
+    row = {
         "id": item.get("id") or "",
         "eval_mode": normalize_eval_mode(mode),
         "question": item.get("question", ""),
@@ -1365,6 +1431,69 @@ def _case_error_row(
         "final_score": 0.0,
         "verdict": "error",
     }
+    _apply_failure_category(row)
+    return row
+
+
+def _apply_failure_category(row: dict) -> None:
+    categories = _derive_failure_categories(row)
+    row["failure_categories"] = categories
+    row["failure_category"] = categories[0] if categories else "none"
+
+
+def _row_failure_categories(row: dict) -> list[str]:
+    categories = row.get("failure_categories")
+    if isinstance(categories, list):
+        return [str(category) for category in categories if category and category != "none"]
+    category = row.get("failure_category")
+    if category and category != "none":
+        return [str(category)]
+    return _derive_failure_categories(row)
+
+
+def _derive_failure_categories(row: dict) -> list[str]:
+    error = str(row.get("error") or "")
+    if error:
+        return ["timeout"] if "timed out" in error.lower() else ["unknown"]
+
+    score = row.get("final_score")
+    if score is not None and score >= 0.8:
+        return []
+
+    categories = []
+
+    if row.get("eval_type") == "no_answer":
+        categories.append("no_answer_wrong")
+
+    if row.get("hit_metric_applicable") and row.get("hit_at_10") is False:
+        categories.append("retrieval_miss")
+
+    answer_score = row.get("answer_score")
+    miss_fields = (
+        row.get("numeric_misses")
+        or row.get("must_miss")
+        or row.get("keyword_miss")
+        or row.get("expected_point_miss")
+    )
+    if (
+        isinstance(answer_score, (int, float)) and answer_score < 0.8
+    ) or (answer_score is None and miss_fields):
+        categories.append("answer_incomplete")
+
+    citation_score = row.get("citation_score")
+    if isinstance(citation_score, (int, float)) and citation_score < 1.0:
+        categories.append("citation_miss")
+
+    if not categories:
+        categories.append("unknown")
+    return _ordered_failure_categories(categories)
+
+
+def _ordered_failure_categories(categories: list[str]) -> list[str]:
+    seen = {str(category) for category in categories if category and category != "none"}
+    ordered = [category for category in FAILURE_CATEGORIES if category in seen]
+    ordered.extend(sorted(seen - set(ordered)))
+    return ordered
 
 
 # ---------------------------------------------------------------------------
@@ -1397,10 +1526,12 @@ def build_summary(
             "flavor": _summary_flavor(results),
             "case_count": len(results),
             "scored_count": 0,
+            "unscored": len(results),
             "passed": 0,
             "warning": 0,
             "failed": _summary_failed_count(results),
             "timeout_count": _summary_timeout_count(results),
+            "failure_categories": _failure_category_counts(results),
             "hit_at_5": None,
             "hit_at_10": None,
             "citation_hit_rate": None,
@@ -1512,16 +1643,21 @@ def build_summary(
         elif r.get("judge_error"):
             reason = str(r["judge_error"])[:80]
         low_cases.append({"id": r["id"], "score": r["final_score"], "reason": reason})
+        categories = _row_failure_categories(r)
+        low_cases[-1]["failure_category"] = categories[0] if categories else "none"
+        low_cases[-1]["failure_categories"] = categories
 
     return {
         "mode": eval_mode,
         "flavor": _summary_flavor(results),
         "case_count": len(results),
         "scored_count": len(scored),
+        "unscored": len(results) - len(scored),
         "passed": sum(1 for s in scores if s >= 0.8),
         "warning": sum(1 for s in scores if 0.5 <= s < 0.8),
         "failed": _summary_failed_count(results),
         "timeout_count": _summary_timeout_count(results),
+        "failure_categories": _failure_category_counts(results),
         "hit_at_5": overall["hit_at_5_rate"],
         "hit_at_10": overall["hit_at_10_rate"],
         "citation_hit_rate": _citation_hit_rate(scored, eval_mode),
@@ -1572,6 +1708,17 @@ def _summary_failed_count(results: list[dict]) -> int:
 
 def _summary_timeout_count(results: list[dict]) -> int:
     return sum(1 for row in results if "timed out" in str(row.get("error") or "").lower())
+
+
+def _failure_category_counts(results: list[dict]) -> dict:
+    counts = Counter()
+    for row in results:
+        for category in _row_failure_categories(row):
+            counts[category] += 1
+    ordered = {category: counts[category] for category in FAILURE_CATEGORIES if counts[category]}
+    for category in sorted(set(counts) - set(ordered)):
+        ordered[category] = counts[category]
+    return ordered
 
 
 def _summary_latencies(results: list[dict]) -> list[int]:
@@ -1630,10 +1777,7 @@ def print_summary(results: list[dict]):
 
     o = summary["overall"]
     if not o.get("count"):
-        pending = [r for r in results
-                   if r.get("eval_mode") != "retrieval_only"
-                   and r.get("eval_type") == "llm_judge"
-                   and r.get("final_score") is None]
+        pending = [r for r in results if _is_pending_judge_row(r)]
         print(f"\n  Overall: 0 scored questions")
         if pending:
             print(f"  Pending LLM judge: {len(pending)} questions (use --judge)")
@@ -1670,6 +1814,11 @@ def print_summary(results: list[dict]):
             print(f"    {tag}: count={td['count']}, avg={td['avg_score']:.3f}, "
                   f"pass={td['pass_rate']:.1%}")
 
+    if summary.get("failure_categories"):
+        print(f"\n  --- failure categories ---")
+        for category, count in summary["failure_categories"].items():
+            print(f"    {category}: {count}")
+
     # Strict evidence slice
     if summary.get("per_strict"):
         sd = summary["per_strict"]
@@ -1682,10 +1831,7 @@ def print_summary(results: list[dict]):
         for lc in summary["low_score_cases"]:
             print(f"    {lc['id']} score={lc['score']:.2f} — {lc['reason']}")
 
-    pending = [r for r in results
-               if r.get("eval_mode") != "retrieval_only"
-               and r.get("eval_type") == "llm_judge"
-               and r.get("final_score") is None]
+    pending = [r for r in results if _is_pending_judge_row(r)]
     if pending:
         print(f"\n  Pending LLM judge: {len(pending)} questions (use --judge)")
 
@@ -1694,6 +1840,14 @@ def print_summary(results: list[dict]):
 
 def _fmt_rate(value: float | None) -> str:
     return "n/a" if value is None else f"{value:.1%}"
+
+
+def _is_pending_judge_row(row: dict) -> bool:
+    return (
+        row.get("eval_mode") in {"full", "quick"}
+        and row.get("eval_type") == "llm_judge"
+        and row.get("final_score") is None
+    )
 
 
 def _actual_or_requested_flavor(row: dict) -> str:
@@ -1733,7 +1887,7 @@ def main():
     parser.add_argument("--judge-model", default=None, help="Judge 模型")
     parser.add_argument("--case-timeout", type=int, default=180, help="单题超时秒数")
     parser.add_argument("--mode", default="full", choices=sorted(EVAL_MODES),
-                        help="评测模式: full | quick | retrieval_only")
+                        help="评测模式: full | quick | retrieval_only | answer_lite")
     parser.add_argument("--slice", action="append", default=[],
                         help="按 tag/flavor/strict 过滤: --slice exact --slice recall --slice strict")
     args = parser.parse_args()
@@ -1786,7 +1940,7 @@ def main():
 
     # --- LLM Judge config (optional, applied per case) ---
     judge_config = None
-    if args.judge and mode != "retrieval_only":
+    if args.judge and mode in {"full", "quick"}:
         judge_model = args.judge_model
         api_key = ""
         base_url = ""

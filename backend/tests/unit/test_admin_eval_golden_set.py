@@ -70,6 +70,7 @@ def test_filter_cases_for_run_supports_quick_mode():
 
 def test_normalize_eval_mode_rejects_unknown_mode():
     assert _normalize_eval_mode("") == "full"
+    assert _normalize_eval_mode("answer_lite") == "answer_lite"
     with pytest.raises(ValueError, match="评测模式无效"):
         _normalize_eval_mode("wide")
 
@@ -80,6 +81,14 @@ def test_eval_result_preview_statuses():
     assert _eval_result_preview({"id": "c", "final_score": 0.2})["status"] == "failed"
     assert _eval_result_preview({"id": "d", "final_score": None})["label"] == "待评测"
     assert _eval_result_preview({"id": "e", "error": "boom"})["status"] == "failed"
+    preview = _eval_result_preview({
+        "id": "f",
+        "final_score": 0.0,
+        "failure_category": "retrieval_miss",
+        "failure_categories": ["retrieval_miss", "answer_incomplete"],
+    })
+    assert preview["failure_category"] == "retrieval_miss"
+    assert preview["failure_categories"] == ["retrieval_miss", "answer_incomplete"]
 
 
 def test_normalize_golden_case_update_preserves_basic_fields():

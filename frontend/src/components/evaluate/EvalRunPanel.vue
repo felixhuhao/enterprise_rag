@@ -15,6 +15,7 @@
             <a-option value="full">完整</a-option>
             <a-option value="quick">快速</a-option>
             <a-option value="retrieval_only">仅检索</a-option>
+            <a-option value="answer_lite">轻答案</a-option>
           </a-select>
           <a-select v-model="runScope" size="small" class="run-scope-select">
             <a-option value="all">全部启用</a-option>
@@ -51,6 +52,10 @@
               class="run-timeout-input"
             />
           </label>
+          <label v-if="runMode === 'quick'" class="run-judge">
+            <input v-model="quickJudge" type="checkbox" />
+            <span>Judge</span>
+          </label>
         </template>
         <a-button
           :type="status === 'running' ? 'secondary' : 'primary'"
@@ -73,6 +78,7 @@
         <span class="sum-item">策略 {{ summaryFlavorLabel(summary.flavor) }}</span>
         <span class="sum-item">题目 {{ summary.case_count ?? summary.overall.count }}</span>
         <span class="sum-item">已评分 {{ summary.scored_count ?? summary.overall.count }}</span>
+        <span class="sum-item">未评分 {{ summary.unscored ?? 0 }}</span>
         <span class="sum-item">通过 {{ summary.passed ?? '-' }}</span>
         <span class="sum-item">警告 {{ summary.warning ?? '-' }}</span>
         <span class="sum-item">失败 {{ summary.failed ?? '-' }}</span>
@@ -89,6 +95,12 @@
       <div v-if="currentResultPath || currentSummaryPath" class="eval-output-paths">
         <span v-if="currentResultPath">结果 {{ currentResultPath }}</span>
         <span v-if="currentSummaryPath">摘要 {{ currentSummaryPath }}</span>
+      </div>
+
+      <div v-if="failureCategoryRows.length" class="failure-breakdown">
+        <span v-for="row in failureCategoryRows" :key="row.key">
+          {{ row.label }} {{ row.count }}
+        </span>
       </div>
 
       <div v-if="flavorRows.length" class="flavor-breakdown">
@@ -157,6 +169,12 @@
                 </span>
                 <small v-if="caseResult(item.id).score !== null && caseResult(item.id).score !== undefined">
                   {{ formatScore(caseResult(item.id).score) }}
+                </small>
+                <small
+                  v-if="caseResult(item.id).status === 'failed' && caseResult(item.id).failure_category"
+                  class="result-failure-tag"
+                >
+                  {{ failureCategoryLabel(caseResult(item.id).failure_category || '') }}
                 </small>
               </td>
               <td class="question-cell">{{ item.question }}</td>
@@ -366,10 +384,13 @@ const evalCurrentId = ref('')
 const evalResults = ref<EvalCaseResult[]>([])
 const resultPath = ref('')
 const summaryPath = ref('')
-const runMode = ref<'full' | 'quick' | 'retrieval_only'>('full')
+type EvalRunMode = 'full' | 'quick' | 'retrieval_only' | 'answer_lite'
+
+const runMode = ref<EvalRunMode>('full')
 const runScope = ref<'all' | 'failed' | 'flavor' | 'first_n'>('all')
 const runFlavor = ref('balanced')
 const runLimit = ref(5)
+const quickJudge = ref(false)
 const caseTimeoutSec = ref(180)
 let timer: ReturnType<typeof setTimeout> | null = null
 let pollFailCount = 0
@@ -425,6 +446,13 @@ const flavorRows = computed(() => {
   return FLAVOR_KEYS
     .filter((key) => data[key])
     .map((key) => ({ key, label: flavorLabel(key), metric: data[key] }))
+})
+const failureCategoryRows = computed(() => {
+  const data = summary.value?.failure_categories
+  if (!data) return []
+  return Object.entries(data)
+    .filter(([, count]) => count > 0)
+    .map(([key, count]) => ({ key, label: failureCategoryLabel(key), count }))
 })
 const enabledCount = computed(() => goldenCases.value.filter(caseEnabled).length)
 const evalProgressPercent = computed(() => {
@@ -497,7 +525,18 @@ function evalTypeLabel(value: string): string {
 function evalModeLabel(value: string): string {
   if (value === 'quick') return '快速'
   if (value === 'retrieval_only') return '仅检索'
+  if (value === 'answer_lite') return '轻答案'
   return '完整'
+}
+
+function failureCategoryLabel(value: string): string {
+  if (value === 'retrieval_miss') return '检索未命中'
+  if (value === 'citation_miss') return '引用未命中'
+  if (value === 'answer_incomplete') return '答案不完整'
+  if (value === 'no_answer_wrong') return '拒答错误'
+  if (value === 'timeout') return '超时'
+  if (value === 'unknown') return '未知'
+  return value || '-'
 }
 
 function summaryFlavorLabel(value: string | undefined): string {
@@ -518,7 +557,7 @@ async function refresh(): Promise<boolean> {
     evalCurrent.value = s.current ?? 0
     evalCurrentId.value = s.current_id ?? ''
     evalResults.value = s.results_preview ?? []
-    if (s.mode === 'full' || s.mode === 'quick' || s.mode === 'retrieval_only') {
+    if (s.mode === 'full' || s.mode === 'quick' || s.mode === 'retrieval_only' || s.mode === 'answer_lite') {
       runMode.value = s.mode
     }
     pollFailCount = 0
@@ -560,7 +599,7 @@ async function onRun() {
 function buildRunOptions(): EvalRunOptions | null {
   const options: EvalRunOptions = {
     mode: runMode.value,
-    judge: runMode.value === 'full',
+    judge: runMode.value === 'full' || (runMode.value === 'quick' && quickJudge.value),
     case_timeout_sec: caseTimeoutSec.value,
   }
   if (runScope.value === 'failed') {
@@ -901,6 +940,19 @@ onUnmounted(clearPoll)
   width: 84px;
 }
 
+.run-judge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.run-judge input {
+  margin: 0;
+}
+
 .status-idle { color: var(--text-muted); background: var(--bg-hover); }
 .status-running { color: #1e40af; background: #dbeafe; }
 .status-succeeded { color: #166534; background: #dcfce7; }
@@ -931,6 +983,24 @@ onUnmounted(clearPoll)
   font-family: var(--font-mono);
   font-size: 11px;
   overflow-wrap: anywhere;
+}
+
+.failure-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.failure-breakdown span {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px 7px;
+  background: #fbfdff;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .flavor-breakdown {
@@ -1203,6 +1273,11 @@ onUnmounted(clearPoll)
   color: var(--text-muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+}
+
+.col-result .result-failure-tag {
+  color: #991b1b;
+  font-weight: 600;
 }
 
 .result-queued {

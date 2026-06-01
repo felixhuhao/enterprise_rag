@@ -14,10 +14,12 @@ export interface EvalSummary {
   flavor?: string
   case_count?: number
   scored_count?: number
+  unscored?: number
   passed?: number
   warning?: number
   failed?: number
   timeout_count?: number
+  failure_categories?: Record<string, number>
   hit_at_5?: number | null
   hit_at_10?: number | null
   citation_hit_rate?: number | null
@@ -76,6 +78,8 @@ export interface EvalCaseResult {
   label: string
   score?: number | null
   error?: string
+  failure_category?: string
+  failure_categories?: string[]
 }
 
 export interface GoldenSetCase {
