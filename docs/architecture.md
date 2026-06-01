@@ -5,7 +5,7 @@
 ```
                           ┌─────────────────────────────────────────┐
                           │           Vue 3 Frontend                │
-                          │  Query Chat · Documents · Evaluate      │
+                          │ Query Chat · Documents · Quality Center │
                           └────────────────┬────────────────────────┘
                                            │ HTTP / SSE
                                            ▼
@@ -20,7 +20,7 @@
 │  ┌────▼─────┐  ┌─────▼─────┐  ┌───▼──────┐                        │
 │  │Ingestion │  │  Query    │  │  Query   │                        │
 │  │ Workflow │  │ Pipeline  │  │  Stats   │                        │
-│  │(LangGraph)│ │(LangGraph)│  │ Service  │                        │
+│  │(LangGraph)│ │ Planner   │  │ Service  │                        │
 │  └────┬─────┘  └─────┬─────┘  └──────────┘                        │
 │       │              │                                              │
 │  ┌────▼──────────────▼──────────────────────┐                      │
@@ -31,8 +31,8 @@
 └───────┼──────────────┼──────────────────────────────────────────────┘
         │              │
    ┌────▼────┐   ┌─────▼─────┐   ┌───────────┐
-   │ SQLite  │   │  Milvus   │   │ DashScope  │
-   │ (state) │   │ (vectors) │   │ + MinerU   │
+   │ SQLite  │   │  Milvus   │   │ LLM APIs  │
+   │ (state) │   │ (vectors) │   │ + MinerU  │
    └─────────┘   └───────────┘   └─────────────┘
 ```
 
@@ -70,6 +70,11 @@ Documents flow through a LangGraph state machine. Each node updates document sta
                   └──────┬───────┘
                          ▼
                   ┌──────────────┐
+                  │   Enrich     │  keywords, structured tags, search_text
+                  │ Search Meta  │
+                  └──────┬───────┘
+                         ▼
+                  ┌──────────────┐
                   │    Embed     │  local dense embedding → 1024-dim vectors
                   └──────┬───────┘
                          ▼
@@ -87,10 +92,18 @@ Documents flow through a LangGraph state machine. Each node updates document sta
 | Small tables | `table_summary` + `table_full` as a single chunk |
 | Large tables | `table_summary` + row groups, each with `raw_table_path` for traceability |
 | Image descriptions | Injected into adjacent text chunks before splitting |
+| Search metadata | Deterministic keywords, structured tags, and sparse `search_text` |
 
 ## Query Pipeline
 
-Each user query runs through a LangGraph pipeline that handles entity routing, retrieval, and generation.
+Each user query first resolves a `QueryPlan`, then runs the appropriate retrieval path. The public controls are:
+
+```text
+retrieval_flavor = balanced | exact | recall | discovery
+strict_evidence = true | false
+```
+
+Users see the Chinese labels: 标准问答, 精确查找, 全面查找, 关联查找.
 
 ```
                     User Query
@@ -101,18 +114,20 @@ Each user query runs through a LangGraph pipeline that handles entity routing, r
                └────────┬────────┘
                         ▼
                ┌─────────────────┐
+               │   Query Plan    │  flavor, strictness, fallback policy, budget
+               └────────┬────────┘
+                        ▼
+               ┌─────────────────┐
                │  Query Rewrite  │  optimize for retrieval
                └────────┬────────┘
                         │
-          ┌─────────────┼─────────────┐
-          ▼                           ▼
-  ┌───────────────┐          ┌───────────────┐
-  │ Dense+Sparse  │          │   HyDE Search │
-  │    Search     │          │ (hypothetical │
-  │ (Milvus hybrid│          │   document)   │
-  │  + BM25 field)│          └───────┬───────┘
-  └───────┬───────┘                  │
-          └─────────────┼─────────────┘
+          ┌─────────────┼────────────────────┬─────────────────┐
+          ▼             ▼                    ▼                 ▼
+  ┌───────────────┐ ┌───────────────┐ ┌───────────────┐ ┌───────────────┐
+  │ Dense+Sparse  │ │   HyDE Search │ │ Query Expand  │ │ Multi-Hop     │
+  │ Search        │ │ balanced only │ │ recall only   │ │ discovery only│
+  └───────┬───────┘ └───────┬───────┘ └───────┬───────┘ └───────┬───────┘
+          └─────────────────┼─────────────────┼─────────────────┘
                         ▼
                ┌─────────────────┐
                │   RRF Fusion    │  merge ranked lists
@@ -127,6 +142,15 @@ Each user query runs through a LangGraph pipeline that handles entity routing, r
                └────────┬────────┘
                         ▼
                ┌─────────────────┐
+               │ Diversify       │  reduce duplicate evidence for recall/discovery/synthesis
+               │ Context         │
+               └────────┬────────┘
+                        ▼
+               ┌─────────────────┐
+               │ Context Expand  │  same-section neighbor chunks
+               └────────┬────────┘
+                        ▼
+               ┌─────────────────┐
                │ Build Prompt    │  assemble context + citations
                └────────┬────────┘
                         ▼
@@ -138,22 +162,40 @@ Each user query runs through a LangGraph pipeline that handles entity routing, r
                │    Validate     │  verify citations against sources
                │   Citations     │
                └────────┬────────┘
+                        ▼
+               ┌─────────────────┐
+               │ Groundedness    │  optional support diagnostics
+               └────────┬────────┘
                         │
                         ▼
               Response + Citations
               + Trace + Query Stats
 ```
 
-### Search Modes
+### Retrieval Flavors
 
-The pipeline adapts based on entity detection and search results:
+The planner normalizes user intent into one of four retrieval flavors:
 
-| Mode | When |
+| Flavor | UI Label | Retrieval Behavior |
 |---|---|
-| `entity_filtered` | Entity detected, enough filtered results |
-| `entity_filtered_hyde_fallback` | Entity detected, filtered results insufficient, HyDE used |
-| `no_entity` | No entity detected, broad search |
-| `no_entity_hyde_fallback` | No entity, initial results insufficient |
+| `balanced` | 标准问答 | Hybrid search, optional HyDE, RRF, rerank, context expansion |
+| `exact` | 精确查找 | Smaller budget, no HyDE/query expansion, no entity fallback |
+| `recall` | 全面查找 | Query expansion, parallel searches, RRF, rerank |
+| `discovery` | 关联查找 | Bounded multi-hop retrieval with discovered entities or people |
+
+`strict_evidence` is an evidence policy layered on top of retrieval. It blocks risky fallback and instructs the answer prompt to refuse unsupported facts.
+
+### Entity And Alias Routing
+
+Entity routing uses canonical entity names plus admin-managed aliases. Alias matches normalize to the canonical entity. Ambiguous aliases are recorded in trace and do not force a single-entity filter.
+
+Fallback from entity-filtered search to broader search is policy-driven:
+
+| Case | Behavior |
+|---|---|
+| Balanced / recall weak entity evidence | May widen scope and records `fallback_info.used` |
+| Exact / strict evidence | Blocks entity fallback and records `fallback_info.blocked` |
+| Multi-entity | Searches per entity instead of one global fallback |
 
 ## Observability
 
@@ -166,6 +208,11 @@ Every query records structured stats for monitoring and evaluation.
 | `search_mode` | Which retrieval mode was used |
 | `rewritten_query` | Optimized query text |
 | `entity_filter` | Entity match result |
+| `retrieval_flavor` | Resolved strategy |
+| `strict_evidence` | Evidence policy |
+| `expanded_queries` | Recall query expansion variants |
+| `fallback_info` | Whether entity scope widened or was blocked |
+| `context_expand_ms` | Small-to-big context expansion timing |
 | `search_results` | Raw retrieval hit count and scores |
 | `rerank_scores` | Top and average rerank scores |
 | `selected_citations` | Final citation list with source metadata |
@@ -173,7 +220,7 @@ Every query records structured stats for monitoring and evaluation.
 
 ### Aggregate Stats
 
-The Evaluate page shows:
+The Quality Center shows:
 
 | Metric | Source |
 |---|---|
@@ -181,7 +228,9 @@ The Evaluate page shows:
 | Failure rate | `(search_failed + llm_failed + client_aborted) / total` |
 | Avg rerank score | Mean rerank score across successful queries |
 | Avg result count | Mean retrieved documents per query |
-| Fallback count/ratio | How often entity filter fell back to broad search |
+| P95 latency | 95th percentile total query latency |
+| Fallback count/ratio | How often entity filter widened to broader search |
+| Per-flavor breakdown | Count, success rate, results, rerank score, and p95 latency by flavor |
 
 ### Error Classification
 
@@ -229,4 +278,8 @@ User ──query──► Query Pipeline ──SSE──► Answer + Citations +
 
 4. **Idempotent ingestion** — Each document has a unique ID. Re-processing (retry) deletes old chunks before inserting new ones. Seed script is safe to re-run.
 
-5. **Entity-aware retrieval with graceful fallback** — Entity filter narrows results when possible, falls back to broad search when filtered results are insufficient.
+5. **Entity-aware retrieval with explicit fallback** — Entity filters narrow results when possible. Fallback is policy-driven and visible in prompt, trace, and UI.
+
+6. **Stable chunk keys** — Source chunks have durable `chunk_key` values for citations, stats, feedback, and document-detail navigation. Milvus auto ids remain technical fields.
+
+7. **Evaluation as product workflow** — Feedback can become draft baseline cases. Admins can edit, enable, disable, and run the baseline set from the Quality Center.

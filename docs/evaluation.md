@@ -1,162 +1,195 @@
 # Evaluation & Observability
 
-## Golden Set Evaluation
+The project uses an enterprise baseline test set to catch regressions in retrieval, citation quality, no-answer behavior, and multi-step synthesis.
 
-The evaluation system measures answer quality, citation accuracy, and refusal correctness against a known test set.
+## Baseline Test Set
 
-### Running
+Primary file:
+
+```text
+data/challenge_golden_set_v1.jsonl
+```
+
+The set is built around the default Markdown enterprise corpus in `data/enterprise_docs`.
+Cases are grouped by retrieval intent:
+
+| Slice | UI Strategy | Internal Flavor | What It Tests |
+|---|---|---|---|
+| `balanced` | 标准问答 | `balanced` | Normal Q&A, cross-document synthesis, consistency checks |
+| `exact` | 精确查找 | `exact` | Precise clauses, numeric thresholds, policy source lookup |
+| `recall` | 全面查找 | `recall` | Vague questions, synonyms, query expansion recall |
+| `discovery` | 关联查找 | `discovery` | Constrained multi-hop questions over people/entities |
+| `strict` | 仅基于资料回答 | `strict_evidence=true` | Refusal or conservative answer when a fact is missing |
+
+## Running From CLI
+
+Start backend first, then run:
 
 ```bash
 cd backend
 python scripts/eval_golden_set.py \
-  --golden-set ../data/stock_reports_v2.jsonl \
+  --golden-set ../data/challenge_golden_set_v1.jsonl \
   --api-base http://127.0.0.1:8010/api \
   --judge \
-  --output ../data/stock_reports_v2_results.jsonl
+  --output ../data/challenge_golden_set_v1_results.jsonl
 ```
 
-### Test Types
+Run a subset:
 
-| Type | Count | What It Tests |
-|---|---|---|
-| `rule` | 10 | Numeric extraction accuracy, required/optional keyword presence, citation recall |
-| `llm_judge` | 5 | Complex reasoning quality against expected points, citation recall |
-| `no_answer` | 2 | Correct refusal when answer is not in corpus |
+```bash
+cd backend
+python scripts/eval_golden_set.py \
+  --golden-set ../data/challenge_golden_set_v1.jsonl \
+  --api-base http://127.0.0.1:8010/api \
+  --judge \
+  --slice recall
+```
 
-### Scoring Axes
+Useful slices:
 
-Each test case produces scores on multiple axes:
+```text
+--slice balanced
+--slice exact
+--slice recall
+--slice discovery
+--slice strict
+```
 
-| Axis | Description |
+## Running From UI
+
+Quality Center -> 基准测试集:
+
+- view enabled and disabled cases
+- run all enabled cases, or filter by flavor
+- set per-case timeout for long-running cases
+- see per-case progress while evaluation is running
+- edit case config and expected points
+- enable, disable, or delete draft cases
+- publish feedback drafts into the baseline set
+
+The UI labels this workflow as **基准测试集**.
+
+## Test Types
+
+| Type | What It Scores |
 |---|---|
-| `answer_score` | Numeric tolerance + keyword match (rule) or LLM judge rating (llm_judge) |
-| `citation_score` | Fraction of expected documents found in citations |
-| `faithfulness` | Whether answer is grounded in cited sources (LLM judge only) |
+| `rule` | Numeric expectations, required keywords, optional keywords, and citation recall |
+| `llm_judge` | Complex expected points using an LLM judge, plus citation recall |
+| `no_answer` | Correct refusal or conservative answer when the corpus lacks the target fact |
 
-### Input Format (JSONL)
+Rule cases are preferred for exact numeric policy checks. LLM judge cases are used for synthesis and discovery questions where wording can vary.
+
+## Case Format
 
 ```json
 {
-  "id": "q1",
-  "question": "中芯国际2025年Q1营收是多少？",
-  "eval_type": "rule",
-  "numeric_expectations": [{"field": "revenue", "value": 227.2, "tolerance": 5}],
-  "must_have": ["227"],
-  "nice_to_have": ["亿元"],
-  "expected_documents": ["华泰证券"],
-  "min_expected_citations": 1
+  "id": "balanced_synth_002",
+  "question": "星辰科技的安全事件报告和运维故障响应有什么关联和区别？",
+  "eval_type": "llm_judge",
+  "preferred_flavor": "balanced",
+  "strict_evidence": false,
+  "expected_points": [
+    "安全事件要求4小时内报告",
+    "安全事件P1响应时间30分钟",
+    "运维故障P1响应时间5分钟、恢复时间30分钟"
+  ],
+  "expected_documents": ["03_信息安全策略", "06_运维故障处理手册"],
+  "min_expected_citations": 2,
+  "status": "active"
 }
 ```
 
+Important fields:
+
 | Field | Purpose |
 |---|---|
-| `numeric_expectations` | Numeric value + tolerance for rule cases |
-| `must_have` / `nice_to_have` | Required and optional answer keywords |
-| `expected_documents` | Expected citation source substrings |
-| `min_expected_citations` | Minimum number of source matches |
-| `expected_points` | Checklist for LLM judge cases |
-| `no_answer_type` | Refusal scenario type |
+| `preferred_flavor` | Which retrieval strategy should be used for the case |
+| `strict_evidence` | Whether the answer must refuse unsupported facts |
+| `status` | `active` cases run by default; `disabled` cases stay in the set for reference |
+| `numeric_expectations` | Numeric value + unit + tolerance for rule cases |
+| `must_have` / `nice_to_have` | Required and optional answer terms for rule cases |
+| `expected_points` | Checklist used by LLM judge cases |
+| `expected_documents` | Source document substrings expected in citations |
+| `expected_sections` | Optional source section hints |
+| `min_expected_citations` | Minimum expected citation matches |
+| `should_answer` | Whether the system should answer or refuse |
 
-### Output
+## Scoring
 
-| File | Content |
+Each case records:
+
+| Axis | Description |
 |---|---|
-| `*_results.jsonl` | Per-question: answer, citations, scores, trace, rerank debug |
-| `*_summary.json` | Overall score, pass rate, per-type breakdown, low-score cases |
+| `answer_score` | Rule score or LLM judge score |
+| `citation_score` | Fraction of expected source documents found in citations |
+| `final_score` | Combined score used for verdict |
+| `hit_at_5` / `hit_at_10` | Whether expected docs appeared in rerank results |
+| `verdict` | `pass`, `warn`, `fail`, or `error` |
 
-### Verdict Thresholds
+Verdict thresholds:
 
 | Verdict | Meaning |
 |---|---|
-| `pass` | Score ≥ 0.7 |
-| `warn` | Score 0.4–0.7, answer usable but needs review |
-| `fail` | Score < 0.4 |
+| `pass` | Score >= 0.8 |
+| `warn` | Score >= 0.6 and < 0.8 |
+| `fail` | Score < 0.6 |
 
-### Current Baseline
+## Output
 
-```text
-Questions: 17 (rule=10, llm_judge=5, no_answer=2)
-Overall:   avg=0.963, pass_rate=100%
-Rule:      avg=0.968, pass_rate=100%
-LLM judge: avg=0.939, pass_rate=100%
-No-answer: avg=1.000, pass_rate=100%
-```
+| File | Content |
+|---|---|
+| `*_results.jsonl` | Per-case answer, citations, trace, rerank results, scores |
+| `*_summary.json` | Aggregate score, pass rate, per-flavor and per-type breakdown |
 
-Rerun after changes to chunking, retrieval, rerank, or prompt construction. Flag regressions where overall score drops below baseline or no-answer cases fail.
+## Current Demo Baseline
 
----
+The current enabled baseline has been manually validated after the latest retrieval fixes. All enabled cases pass in the demo environment.
+
+Rerun the baseline after changes to:
+
+- chunking rules
+- search text or structured tag enrichment
+- Milvus schema or embedding model
+- retrieval budget, query expansion, multi-hop, rerank, context expansion, or prompt construction
+- citation validation or evaluation scoring
 
 ## Query Trace
 
-Each SSE streaming response includes structured trace events:
+Each streaming response includes structured trace events:
 
 | Event | Content |
 |---|---|
-| `message_start` | Session info, query text |
-| `retrieval_step` | Search mode, rewritten query, entity filter, hit count |
-| `rerank_results` | Top N chunks with rerank scores |
-| `citation_result` | Selected citations with source metadata and image paths |
-| `trace` | Full latency breakdown per stage |
-| `message_end` | Final status, total latency |
-
-### Latency Breakdown
-
-The `trace` event reports timing for each pipeline stage:
-
-| Stage | What It Measures |
-|---|---|
-| `entity_confirm` | Entity detection + confirmation |
-| `rewrite` | Query rewriting |
-| `search` | Vector + BM25 search |
-| `hyde` | Hypothetical document search (when used) |
-| `fusion` | RRF fusion |
-| `rerank` | LLM cross-encoder reranking |
-| `generate` | LLM answer generation |
-| `validate_citations` | Citation source validation |
-
----
+| `message_start` | Session info and query text |
+| `retrieval_step` | Flavor, strict mode, entity match, search mode, expanded queries, per-query hit counts |
+| `rerank` | Top reranked chunks and scores |
+| `citations` | Final citation metadata |
+| `trace` | Latency breakdown per stage |
+| `message_end` | Final status and total latency |
 
 ## Query Statistics
 
-The Evaluate page aggregates per-query stats for monitoring retrieval quality over time.
+The Quality Center stores online query stats and supports grouping by retrieval flavor and strict evidence mode.
 
-### Aggregate Metrics
+Core metrics:
 
 | Metric | Description |
 |---|---|
-| Total queries | Count across all statuses |
-| Failure rate | `(search_failed + llm_failed + client_aborted) / total` |
-| Avg rerank score | Mean rerank score across successful queries |
-| Avg result count | Mean retrieved documents per query |
-| Fallback count | Queries where entity filter fell back to broad search |
-| Fallback ratio | Fallback count / successful queries |
+| Total queries | Count across statuses |
+| Success rate | Successful queries / total queries |
+| Avg results | Average final result count |
+| Rerank | Average rerank score |
+| P95 latency | 95th percentile query latency |
+| Expanded scope | Ratio of queries where entity fallback widened the search scope |
 
-### Query Statuses
+These online stats are operational metrics. They are not Hit@K or answer-quality metrics unless paired with the baseline test set.
 
-| Status | Meaning |
-|---|---|
-| `success` | Complete answer with citations |
-| `search_failed` | Retrieval pipeline error |
-| `llm_failed` | LLM generation error |
-| `client_aborted` | User disconnected mid-stream |
+## Rebuild Impact
 
-### Records Table
+Evaluation-only changes do not require reindexing. Rebuild Milvus only when the indexed artifacts change:
 
-Each query record includes: timestamp, query text, search mode, result count, rerank avg/top scores, total latency, and status.
-
----
-
-## Error Classification
-
-All errors are classified into structured codes for debugging and alerting:
-
-| Code | Source | User Hint |
-|---|---|---|
-| `MINERU_API_ERROR` | MinerU API failure | "文档解析服务异常，请稍后重试" |
-| `EMBEDDING_ERROR` | Embedding model failure | "向量化服务异常，请稍后重试" |
-| `MILVUS_ERROR` | Milvus connection/query failure | "向量数据库异常，请检查 Milvus 连接" |
-| `LLM_ERROR` | DashScope LLM failure | "大模型服务异常，请稍后重试" |
-| `NO_CONTEXT_FOUND` | Retrieval returned nothing | "未找到相关内容，请尝试换个表述或上传更多文档" |
-| `UNKNOWN_ERROR` | Unhandled exception | "未知错误，请查看详情或联系管理员" |
-
-Error classification happens in `backend/app/errors.py` — it inspects exception type and message to select the appropriate code. Each code has a Chinese user-facing hint displayed in the frontend.
+- embedding model or dimension
+- chunking output
+- table chunking
+- `search_text`
+- structured tag extraction rules used during ingestion
+- parsed document artifacts

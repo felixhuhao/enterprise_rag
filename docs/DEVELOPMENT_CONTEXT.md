@@ -12,16 +12,16 @@ The key product direction is text-first multimodal: images and charts are conver
 
 ## Latest Commit
 
-Last completed commit before the rename: 4b76f80 docs:enterprise-rag-platform-positioning.
+Latest completed commit before the documentation wrap-up: e56b707 Complete Phase 10 tag tuning and golden fixes.
 Working tree was clean after that commit.
 
-That commit included README rewrite, FastAPI metadata update, frontend title update, and query/HyDE prompt generalization from financial docs to enterprise docs.
+That commit included Phase 10 tag governance/tuning, baseline case fixes, and the final retrieval fixes needed for the enabled baseline cases to pass.
 
 ## Current Architecture
 
-Backend: FastAPI, LangGraph, SQLite app state, Milvus general_documents, local dense embedding model, MinerU Online, DashScope/Qwen-compatible LLM and image description.
+Backend: FastAPI, LangGraph, SQLite app state, Milvus general_documents, local dense embedding model, MinerU Online, DeepSeek-compatible chat model, and image-to-text ingestion.
 Frontend: Vue 3, TypeScript, Pinia, Arco Design Vue.
-Main pages: Query Chat, Documents, Evaluate / Query Stats, Settings.
+Main pages: Query Chat, Documents, Entity Aliases, Permission Audit, Quality Center, Retrieval Test, Settings.
 
 Important backend areas:
 - backend/app/api/documents.py
@@ -61,27 +61,21 @@ P1 image work completed: image_paths citation passthrough, safe asset endpoint, 
 
 ## Query Pipeline And Observability
 
-Pipeline order: entity_confirm, rewrite_query, search and hyde_search in parallel, rrf_fusion, table_expand, rerank, build_prompt, generate, validate_citations.
-Runtime settings use presets instead of exposing every low-level toggle. User wanted fewer random combinations and simpler UI.
+Pipeline order: entity_confirm, plan_query, rewrite_query, direct search / HyDE / query expansion / multi-hop depending on retrieval flavor, rrf_fusion, table_expand, rerank, diversify_context, context_expand, build_prompt, generate, groundedness, validate_citations.
+Retrieval flavors are balanced, exact, recall, and discovery. Strict evidence is independent from retrieval flavor and controls answer behavior, not recall strategy.
 Entity filter exists but must be defensive with fallback when filtered results are too few or too weak.
-Observability implemented: SSE trace events, rerank debug, citations, query stats persistence, and Evaluate page focused on query run statistics.
-Old answer evaluation page and legacy knowledge, graph, OCR, and evaluate code were cleaned up earlier.
+Observability implemented: SSE trace events, query expansion trace, rerank debug, citations, groundedness, query stats persistence, per-flavor stats, retrieval-test traces, and Quality Center records.
 Prompts were generalized from financial-only wording to enterprise document wording in build_prompt.py and hyde_search.py.
 
-## Golden Set And Demo Data
+## Baseline Test Set And Demo Data
 
 Main demo corpus is the Markdown enterprise document set under data/enterprise_docs.
-Main Markdown golden set is data/enterprise_docs_v1.jsonl.
-Legacy PDF demo corpus is 6 stock research report PDFs under data/stock reports.
-Legacy PDF golden set is data/stock_reports_v2.jsonl with 17 questions: rule=10, llm_judge=5, no_answer=2.
+Main baseline test set is data/challenge_golden_set_v1.jsonl.
+Enabled baseline cases were manually validated through the UI and pass after the latest retrieval/tag fixes.
 
-Latest baseline: overall avg 0.960, pass_rate 100 percent. Rule avg 0.968. LLM judge avg 0.928. No-answer avg 1.000.
+Eval command: cd backend; python scripts/eval_golden_set.py --golden-set ../data/challenge_golden_set_v1.jsonl --api-base http://127.0.0.1:8010/api --judge --output ../data/challenge_golden_set_v1_results.jsonl.
 
-Eval command: cd backend; python scripts/eval_golden_set.py --golden-set ../data/stock_reports_v2.jsonl --api-base http://127.0.0.1:8010/api --judge --output ../data/stock_reports_v2_results.jsonl.
-
-Image golden set was tested separately with 5 image/chart questions. Average around 0.898, 4 of 5 pass, numeric extraction accurate. One warning was citation mismatch despite correct answer.
-
-Evaluation design: rule scoring uses numeric tolerance, must_have, nice_to_have, and citation score. LLM judge is used only for a small number of complex reasoning questions. No-answer tests correct refusal. Citation/source is a common scoring axis.
+Evaluation design: rule scoring uses numeric tolerance, must_have, nice_to_have, and citation score. LLM judge is used only for complex reasoning questions. No-answer tests correct refusal. Citation/source is a common scoring axis. Feedback can be promoted to draft baseline cases, edited, published, enabled/disabled, and run from the Quality Center.
 
 ## Gitignore And Local Data
 
