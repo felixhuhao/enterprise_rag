@@ -55,6 +55,22 @@ def test_balanced_keeps_existing_rerank_window():
     assert [doc["chunk_key"] for doc in out["search_results"]] == ["a1"]
 
 
+def test_balanced_synthesis_prioritizes_document_coverage_without_score_filter():
+    candidates = [
+        _doc("a", "a1", 0.9, "s1"),
+        _doc("a", "a2", 0.88, "s2"),
+        _doc("b", "b1", 0.42, "s1"),
+        _doc("c", "c1", 0.41, "s1"),
+    ]
+    state = _state("balanced", 3, candidates)
+    state["query_plan"]["budget"]["reason"] = "balanced_synthesis"
+    state["search_results"] = candidates[:1]
+
+    out = diversify_context_node(state, _cfg("balanced"))
+
+    assert [doc["document_id"] for doc in out["search_results"]] == ["a", "b", "c"]
+
+
 def test_recall_prioritizes_document_coverage_before_duplicates():
     candidates = [
         _doc("a", "a1", 1.0, "s1"),

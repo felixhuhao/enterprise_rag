@@ -69,6 +69,21 @@ FALLBACK_BLOCKED_INSTRUCTION = (
     "如果当前上下文证据不足，请直接说明无法从资料确认。"
 )
 
+SYNTHESIS_INSTRUCTION = (
+    "综合/比较提示：如果问题要求比较、关联、区别或一致性判断，"
+    "请按“关联/相同点、区别、关键数值或时限”组织答案，并分别引用对应证据。"
+)
+
+STRICT_EVIDENCE_INSTRUCTION = (
+    "严格证据模式：只能回答上下文直接支持的信息。"
+    "如果资料只支持相关事实但缺少目标字段，请先列出已被资料直接支持的相关事实，"
+    "再明确说明缺少的信息；不要根据比例、时间单位或常识推断缺失数值。"
+)
+
+SYNTHESIS_QUERY_MARKERS = (
+    "比较", "关联", "区别", "异同", "一致", "不同", "分别", "各自", "对比",
+)
+
 
 def build_prompt_node(state: QueryState, config: RunnableConfig) -> dict:
     """组装编号上下文 [C1]/[C2]... + 构建 prompt。表格按三层策略标注。"""
@@ -119,10 +134,16 @@ def build_prompt_node(state: QueryState, config: RunnableConfig) -> dict:
         prompt += f"\n\n{FALLBACK_USED_INSTRUCTION}"
     elif fallback_info.get("blocked"):
         prompt += f"\n\n{FALLBACK_BLOCKED_INSTRUCTION}"
+    if _needs_synthesis_instruction(query):
+        prompt += f"\n\n{SYNTHESIS_INSTRUCTION}"
     if prompt_policy.get("strict_evidence"):
-        prompt += "\n\n严格证据模式：只能回答上下文直接支持的信息；证据不足时直接说明无法从资料确认。"
+        prompt += f"\n\n{STRICT_EVIDENCE_INSTRUCTION}"
 
     return {"context_text": prompt, "context_map": context_map, "status": "prompted"}
+
+
+def _needs_synthesis_instruction(query: str) -> bool:
+    return any(marker in query for marker in SYNTHESIS_QUERY_MARKERS)
 
 
 def _truncate_context_parts(

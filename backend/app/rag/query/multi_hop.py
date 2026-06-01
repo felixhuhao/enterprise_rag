@@ -7,6 +7,7 @@ Seed relational queries ("某公司的竞争对手") → P2.
 from __future__ import annotations
 
 import logging
+import re
 import time
 
 from app.rag.query.config import QueryConfig
@@ -21,12 +22,16 @@ DISCOVERY_KEYWORDS = [
     "各自", "分别",
 ]
 
+RESPONSIBILITY_HOP_KEYWORDS = [
+    "谁负责", "由谁负责", "负责人", "这个人", "此人", "还负责", "负责什么",
+]
+
 
 def _decide_multi_hop(entity_mode: str, query: str) -> bool:
     """Rule-based planner: P1 only supports broad/none entity discovery."""
     if entity_mode not in ("broad", "none"):
         return False
-    return any(kw in query for kw in DISCOVERY_KEYWORDS)
+    return any(kw in query for kw in DISCOVERY_KEYWORDS + RESPONSIBILITY_HOP_KEYWORDS)
 
 
 def _discover_entities(
@@ -63,6 +68,29 @@ def _merge_results(
         if len(merged) >= limit:
             break
     return merged
+
+
+def _is_responsibility_hop(query: str) -> bool:
+    return any(kw in query for kw in RESPONSIBILITY_HOP_KEYWORDS)
+
+
+def _extract_responsible_people(results: list[dict], max_n: int = 3) -> list[str]:
+    """Extract person names from hop1 snippets for responsibility follow-up queries."""
+    people: list[str] = []
+    for row in results:
+        text = f"{row.get('section_title', '')}\n{row.get('content', '')}"
+        for pattern in (
+            r"(?:由|，|。|\s|^)([\u4e00-\u9fff]{2,3})负责",
+            r"\|\s*\d+\s*\|\s*[^|\n]*\|\s*([\u4e00-\u9fff]{2,3})\s*\|",
+        ):
+            for match in re.finditer(pattern, text):
+                person = match.group(1).strip()
+                if person in people or person in {"负责人"} or person.endswith(("部门", "小组")):
+                    continue
+                people.append(person)
+                if len(people) >= max_n:
+                    return people
+    return people
 
 
 def run_multi_hop_search(
@@ -107,7 +135,9 @@ def run_multi_hop_search(
     )
     per_entity_counts: dict[str, int] = {}
     hop2_results: list[dict] = []
+    person_results: list[dict] = []
     hop2_status = "no_entities_found"
+    person_status = "not_applicable"
 
     if discovered:
         hop2_state = {
@@ -135,7 +165,22 @@ def run_multi_hop_search(
     else:
         fallback_info = empty_fallback_info()
 
-    merged = _merge_results(hop1_results, hop2_results, limit=30)
+    people = _extract_responsible_people(hop1_results) if _is_responsibility_hop(query) else []
+    if people:
+        person_status = "ok"
+        for person in people:
+            try:
+                person_query = f"{person} 负责 待办事项 工作 截止日期"
+                result = _single_search(person_query, None, cfg, acl_filter=acl_filter)
+                person_results.extend(result.get("search_results", []))
+                fallback_info = merge_fallback_info(fallback_info, result.get("fallback_info"))
+            except Exception:
+                logger.warning("Responsibility hop search failed for person=%s", person, exc_info=True)
+                person_status = "partial_failed"
+    elif _is_responsibility_hop(query):
+        person_status = "no_people_found"
+
+    merged = _merge_results(hop1_results, hop2_results + person_results, limit=30)
 
     hop_trace.append({
         "hop": 2,
@@ -144,6 +189,14 @@ def run_multi_hop_search(
         "result_count": len(hop2_results),
         "status": hop2_status,
     })
+    if _is_responsibility_hop(query):
+        hop_trace.append({
+            "hop": 3,
+            "type": "responsibility_followup",
+            "people": people,
+            "result_count": len(person_results),
+            "status": person_status,
+        })
 
     trace["multi_hop_ms"] = _tick_ms(t)
 

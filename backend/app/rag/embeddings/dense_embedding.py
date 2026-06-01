@@ -8,6 +8,7 @@ model can be replaced without changing ingestion or query code.
 from __future__ import annotations
 
 import logging
+import threading
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,7 @@ from typing import Any
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+_MODEL_ENCODE_LOCK = threading.Lock()
 
 
 @lru_cache(maxsize=1)
@@ -47,15 +49,16 @@ class LocalDenseEmbedding:
         if not texts:
             return []
 
-        model = _get_model()
-        result = model.encode(
-            texts,
-            batch_size=chunk_size or settings.EMBEDDING_BATCH_SIZE,
-            max_length=settings.EMBEDDING_MAX_LENGTH,
-            return_dense=True,
-            return_sparse=False,
-            return_colbert_vecs=False,
-        )
+        with _MODEL_ENCODE_LOCK:
+            model = _get_model()
+            result = model.encode(
+                texts,
+                batch_size=chunk_size or settings.EMBEDDING_BATCH_SIZE,
+                max_length=settings.EMBEDDING_MAX_LENGTH,
+                return_dense=True,
+                return_sparse=False,
+                return_colbert_vecs=False,
+            )
         dense_vecs = result["dense_vecs"]
         return [vec.tolist() for vec in dense_vecs]
 

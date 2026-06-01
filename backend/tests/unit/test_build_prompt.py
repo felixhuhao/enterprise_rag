@@ -130,6 +130,34 @@ class TestBuildPromptNode:
         assert "当前模式禁止从实体范围扩大到全局资料" in result["context_text"]
         assert "证据不足" in result["context_text"]
 
+    def test_strict_evidence_preserves_known_facts_before_missing_field(self):
+        state = {
+            "query": "日调用量是多少？",
+            "search_results": [
+                {"content": "普通用户限流100次/分。", "file_title": "api.md", "section_title": "限流", "source_type": "text"}
+            ],
+        }
+        config = {"configurable": {"query_config": QueryConfig(strict_evidence=True)}}
+
+        result = build_prompt_node(state, config)
+
+        assert "先列出已被资料直接支持的相关事实" in result["context_text"]
+        assert "不要根据比例、时间单位或常识推断缺失数值" in result["context_text"]
+
+    def test_synthesis_query_adds_comparison_instruction(self):
+        state = {
+            "query": "A 和 B 有什么关联和区别？",
+            "search_results": [
+                {"content": "A事实", "file_title": "a.md", "section_title": "s", "source_type": "text"}
+            ],
+        }
+        config = {"configurable": {"query_config": QueryConfig()}}
+
+        result = build_prompt_node(state, config)
+
+        assert "综合/比较提示" in result["context_text"]
+        assert "关联/相同点、区别、关键数值或时限" in result["context_text"]
+
     def test_max_context_chars_truncates_on_chunk_boundary(self):
         state = {
             "query": "预算截断",

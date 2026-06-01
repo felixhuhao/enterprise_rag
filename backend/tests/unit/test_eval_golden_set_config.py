@@ -137,6 +137,45 @@ def test_score_rule_matches_chinese_number_variants():
     assert result["final_score"] >= 0.8
 
 
+def test_score_rule_matches_wan_yuan_amount_variants():
+    item = {
+        "numeric_expectations": [{"value": 3, "unit": "万元", "tolerance": 0}],
+        "must_have": ["CEO", "3万"],
+        "nice_to_have": ["外部培训"],
+        "expected_documents": ["12_年度培训计划"],
+        "expected_sections": ["外部培训管理"],
+        "min_expected_citations": 1,
+    }
+
+    result = score_rule(
+        answer="外部培训单次费用超过30,000元，需要CEO审批。",
+        citations=[{
+            "file_title": "12_年度培训计划_2026.md",
+            "section_title": "星辰科技年度培训计划 > 五、外部培训管理",
+        }],
+        item=item,
+    )
+
+    assert result["numeric_score"] == 1.0
+    assert result["numeric_misses"] == []
+
+
+def test_score_rule_matches_yuan_expected_with_wan_answer():
+    result = score_rule(
+        answer="项目预算超过200万需要CEO审批。",
+        citations=[{"file_title": "09_项目管理制度.md"}],
+        item={
+            "numeric_expectations": [{"value": 2000000, "unit": "元", "tolerance": 0}],
+            "must_have": ["CEO"],
+            "nice_to_have": [],
+            "expected_documents": ["09_项目管理制度"],
+            "min_expected_citations": 1,
+        },
+    )
+
+    assert result["numeric_score"] == 1.0
+
+
 def test_parse_judge_response_extracts_json_from_prose_and_fence():
     parsed = _parse_judge_response(
         "结果如下：\n```json\n"

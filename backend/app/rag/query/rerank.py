@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -16,6 +17,8 @@ from app.rag.query.scoring_utils import cliff_detect
 from app.rag.query.state import QueryState
 
 logger = logging.getLogger(__name__)
+_TABLE_RERANK_PREVIEW_MIN = 800
+_TABLE_SOURCE_TYPES = {"table_summary", "table_full", "table_row_group"}
 
 _rerank_llm = ChatOpenAI(
     model=settings.CHAT_MODEL,
@@ -103,7 +106,7 @@ def _batch_rerank(query: str, results: list[dict], cfg) -> list[float]:
     for start in range(0, len(results), cfg.rerank_batch_size):
         batch = results[start:start + cfg.rerank_batch_size]
         docs_text = "\n\n".join(
-            f"[{i+1}] {r.get('content', '')[:cfg.content_preview_length]}"
+            f"[{i+1}] {_rerank_preview(query, r, cfg)}"
             for i, r in enumerate(batch)
         )
         user_msg = f"用户问题：{query}\n\n检索结果：\n{docs_text}"
@@ -123,3 +126,38 @@ def _batch_rerank(query: str, results: list[dict], cfg) -> list[float]:
             all_scores.extend([cfg.rerank_fallback_score] * len(batch))
 
     return all_scores
+
+
+def _rerank_preview(query: str, result: dict, cfg) -> str:
+    """Build the text shown to the reranker.
+
+    Table chunks often put the decisive row after the first few rows. Use a
+    longer preview for tables, then center on query terms when possible.
+    """
+    content = str(result.get("content") or "")
+    limit = int(getattr(cfg, "content_preview_length", 300) or 300)
+    if result.get("source_type") in _TABLE_SOURCE_TYPES:
+        limit = max(limit, _TABLE_RERANK_PREVIEW_MIN)
+    if len(content) <= limit:
+        return content
+
+    terms = _rerank_query_terms(query)
+    for term in terms:
+        idx = content.find(term)
+        if idx >= 0:
+            start = max(0, idx - limit // 3)
+            end = min(len(content), start + limit)
+            start = max(0, end - limit)
+            return content[start:end]
+    return content[:limit]
+
+
+def _rerank_query_terms(query: str) -> list[str]:
+    tokens = re.findall(r"[A-Za-z0-9_.-]{2,}|[\u4e00-\u9fff]{2,12}", query or "")
+    seen: set[str] = set()
+    terms: list[str] = []
+    for token in sorted(tokens, key=len, reverse=True):
+        if token not in seen:
+            seen.add(token)
+            terms.append(token)
+    return terms

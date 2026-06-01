@@ -51,6 +51,12 @@ BUILTIN_STRUCTURED_TAGS: tuple[StructuredTagDefinition, ...] = (
         priority=40,
     ),
     StructuredTagDefinition(
+        tag_key="security_incident_rule",
+        label="安全事件",
+        description="包含安全事件、数据泄露、设备丢失等信息安全事件处理要求。",
+        priority=45,
+    ),
+    StructuredTagDefinition(
         tag_key="payment_rule",
         label="付款规则",
         description="包含付款或支付要求。",

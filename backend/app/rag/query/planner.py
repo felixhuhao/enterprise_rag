@@ -18,6 +18,9 @@ VALID_FLAVORS = {"balanced", "exact", "recall", "discovery"}
 MAX_SEARCH_LIMIT = 40
 MAX_RERANK_CANDIDATES = 30
 MAX_CONTEXT_CHARS = 16000
+SYNTHESIS_QUERY_MARKERS = (
+    "比较", "关联", "区别", "异同", "一致", "不同", "分别", "各自", "对比",
+)
 
 
 @dataclass(frozen=True)
@@ -132,6 +135,17 @@ def build_query_plan(query: str, entity_mode: str, cfg: QueryConfig) -> QueryPla
                 per_entity_min_k=5,
                 reason="balanced_broad",
             )
+        elif _needs_synthesis_budget(query):
+            budget = RetrievalBudget(
+                search_limit=min(max(cfg.search_limit * 2, 20), 24),
+                hyde_limit=cfg.hyde_limit,
+                rrf_top_k=min(max(cfg.rrf_max_results * 2, 32), 32),
+                rerank_candidate_k=min(max(cfg.rerank_max_top_k * 2, 20), 24),
+                final_context_k=cfg.rerank_max_top_k,
+                max_context_chars=10000,
+                per_entity_min_k=5,
+                reason="balanced_synthesis",
+            )
         else:
             budget = RetrievalBudget(
                 search_limit=cfg.search_limit,
@@ -216,3 +230,7 @@ def _prompt_template(flavor: RetrievalFlavor, entity_mode: str) -> str:
     if flavor == "discovery" or entity_mode == "broad":
         return "broad"
     return "default"
+
+
+def _needs_synthesis_budget(query: str) -> bool:
+    return any(marker in query for marker in SYNTHESIS_QUERY_MARKERS)

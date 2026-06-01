@@ -46,6 +46,7 @@ _TAG_EVIDENCE_TERMS = {
     "approval_rule": ("审批", "批准", "签字", "审核", "复核"),
     "training_budget": ("培训", "预算", "费用", "报销", "审批"),
     "deadline_rule": ("提交", "报告", "响应", "处理", "申请", "工作日", "自然日", "小时"),
+    "security_incident_rule": ("安全事件", "信息安全", "数据泄露", "设备丢失", "响应", "报告"),
     "payment_rule": ("付款", "支付"),
     "reimbursement_rule": ("报销", "费用"),
     "procurement_rule": ("采购", "供应商"),

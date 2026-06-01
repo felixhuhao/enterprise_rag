@@ -1,4 +1,5 @@
 from app.rag.chunking.enrichment import (
+    _amount_aliases,
     _normalized_amounts,
     build_search_text,
     enrich_chunks,
@@ -60,6 +61,22 @@ def test_does_not_add_finance_recall_terms_without_amount_approval_evidence():
     assert "approval_rule" not in tags
     assert "金额审批阈值" not in search_text
     assert "费用审批门槛" not in search_text
+
+
+def test_security_incident_recall_terms_cover_device_loss_queries():
+    content = "发现安全事件后，须在4小时内报告信息安全团队。P1紧急事件30分钟内响应。"
+
+    tags = extract_structured_tags(content, "信息安全策略 > 安全事件报告")
+    search_text = build_search_text({
+        "content": content,
+        "section_title": "信息安全策略 > 安全事件报告",
+        "structured_tags": tags,
+    })
+
+    assert "security_incident_rule" in tags
+    assert "安全事件报告" in search_text
+    assert "电脑丢失" in search_text
+    assert "设备丢失" in search_text
 
 
 def test_amount_threshold_without_approval_keeps_approval_recall_terms_out():
@@ -183,3 +200,7 @@ def test_normalized_amounts_preserve_boundaries_and_ranges():
         "5000-20000元以下",
         "3万-5万元",
     ]
+
+
+def test_amount_aliases_add_wan_form_for_integer_yuan_amounts():
+    assert _amount_aliases("超过30,000元需CEO审批，超过10,000元需VP审批。") == ["3万元", "1万元"]

@@ -170,7 +170,10 @@ UNIT_ALIASES = {
     "个工作日": ["个工作日", "工作日"],
     "小时": ["小时"],
     "分钟": ["分钟", "分"],
+    "万元": ["万元", "万"],
+    "元": ["元"],
 }
+NUMBER_PATTERN = r"-?\d[\d,]*(?:\.\d+)?"
 
 
 def _has_refusal_signal(answer: str) -> bool:
@@ -204,6 +207,58 @@ def _unit_aliases(unit: str) -> list[str]:
     return UNIT_ALIASES.get(unit, [unit] if unit else [])
 
 
+def _parse_numeric_token(token: str) -> float | None:
+    try:
+        return float(token.replace(",", ""))
+    except ValueError:
+        return None
+
+
+def _numeric_close(found: float, expected: float, tolerance: float) -> bool:
+    if expected == 0:
+        return found == 0
+    return abs(found - expected) / abs(expected) <= tolerance
+
+
+def _find_number_before_unit(answer: str, unit: str) -> list[float]:
+    values: list[float] = []
+    for unit_m in re.finditer(re.escape(unit), answer):
+        start = max(0, unit_m.start() - 25)
+        context = answer[start:unit_m.start()]
+        for token in re.findall(NUMBER_PATTERN, context):
+            value = _parse_numeric_token(token)
+            if value is not None:
+                values.append(value)
+    return values
+
+
+def _find_scaled_amount_match(answer: str, expected_val: float, expected_unit: str,
+                              tolerance: float) -> bool:
+    """Match Yuan/Wan-Yuan variants such as 3万元 == 30,000元."""
+    if expected_unit in {"万元", "万"}:
+        for unit in ("万元", "万"):
+            for found in _find_number_before_unit(answer, unit):
+                if _numeric_close(found, expected_val, tolerance):
+                    return True
+        expected_yuan = expected_val * 10000
+        for found in _find_number_before_unit(answer, "元"):
+            if _numeric_close(found, expected_yuan, tolerance):
+                return True
+        return False
+
+    if expected_unit == "元":
+        for found in _find_number_before_unit(answer, "元"):
+            if _numeric_close(found, expected_val, tolerance):
+                return True
+        for unit in ("万元", "万"):
+            for found in _find_number_before_unit(answer, unit):
+                if _numeric_close(found * 10000, expected_val, tolerance):
+                    return True
+        return False
+
+    return False
+
+
 def _find_chinese_numeric_match(answer: str, expected_val: float, expected_unit: str,
                                 tolerance: float) -> bool:
     if expected_val != int(expected_val):
@@ -233,34 +288,29 @@ def _find_numeric_match(answer: str, expected_val: float, expected_unit: str,
                         tolerance: float) -> bool:
     """Check if expected_val with unit context appears in answer within tolerance."""
     if expected_unit:
-        # Find expected value near occurrences of the unit string
-        for unit_m in re.finditer(re.escape(expected_unit), answer):
-            start = max(0, unit_m.start() - 25)
-            context = answer[start:unit_m.end()]
-            for ns in re.findall(r"(-?\d+\.?\d*)", context):
-                try:
-                    found = float(ns)
-                except ValueError:
-                    continue
-                if expected_val == 0:
-                    if found == 0:
-                        return True
-                elif abs(found - expected_val) / abs(expected_val) <= tolerance:
+        if expected_unit in {"万元", "万", "元"} and _find_scaled_amount_match(
+            answer,
+            expected_val,
+            expected_unit,
+            tolerance,
+        ):
+            return True
+
+        # Find expected value near occurrences of the unit string or aliases.
+        for unit in _unit_aliases(expected_unit):
+            for found in _find_number_before_unit(answer, unit):
+                if _numeric_close(found, expected_val, tolerance):
                     return True
         if _find_chinese_numeric_match(answer, expected_val, expected_unit, tolerance):
             return True
         return False
     else:
         # No unit constraint — find value anywhere
-        for ns in re.findall(r"(-?\d+\.?\d*)", answer):
-            try:
-                found = float(ns)
-            except ValueError:
+        for ns in re.findall(NUMBER_PATTERN, answer):
+            found = _parse_numeric_token(ns)
+            if found is None:
                 continue
-            if expected_val == 0:
-                if found == 0:
-                    return True
-            elif abs(found - expected_val) / abs(expected_val) <= tolerance:
+            if _numeric_close(found, expected_val, tolerance):
                 return True
         return _find_chinese_numeric_match(answer, expected_val, expected_unit, tolerance)
 

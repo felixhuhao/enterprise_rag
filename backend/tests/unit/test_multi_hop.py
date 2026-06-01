@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from app.rag.query.multi_hop import (
     _decide_multi_hop,
     _discover_entities,
+    _extract_responsible_people,
     _merge_results,
     run_multi_hop_search,
 )
@@ -16,6 +17,9 @@ class TestDecideMultiHop:
         assert _decide_multi_hop("none", "哪些公司提到了AI投资计划") is True
         assert _decide_multi_hop("broad", "哪些企业涉及信息安全") is True
         assert _decide_multi_hop("none", "什么公司有培训计划") is True
+
+    def test_responsibility_followup_keyword(self):
+        assert _decide_multi_hop("none", "API v1什么时候下线？迁移指南由谁负责？这个人还负责什么工作？") is True
 
     def test_single_with_keyword_excluded_in_p1(self):
         """P1 不支持 seed relational query，single mode 即使有发现关键词也返回 False"""
@@ -73,6 +77,15 @@ class TestDiscoverEntities:
         discovered = _discover_entities(results, set(), 3)
         assert len(discovered) == 3
         assert discovered == ["entity_0", "entity_1", "entity_2"]
+
+
+def test_extract_responsible_people_from_snippets_and_tables():
+    results = [
+        {"content": "- 李明负责编写《API v1迁移指南》，5月15日前完成"},
+        {"content": "| 序号 | 任务 | 负责人 |\n| 8 | 夜间值班制度正式实施 | 李明 |"},
+    ]
+
+    assert _extract_responsible_people(results) == ["李明"]
 
 
 class TestMergeResults:

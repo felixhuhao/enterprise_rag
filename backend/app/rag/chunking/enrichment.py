@@ -99,6 +99,8 @@ def extract_structured_tags(content: str, section_title: str = "", profile: str 
         tags.append("budget_rule")
     if _DATE_TIME_RE.search(text) and any(word in text for word in ("提交", "报告", "响应", "处理", "申请")):
         tags.append("deadline_rule")
+    if _has_security_incident_evidence(text):
+        tags.append("security_incident_rule")
 
     return normalize_structured_tags(_dedupe(tags), profile=profile)
 
@@ -126,6 +128,7 @@ def build_search_text(chunk: Mapping[str, object], profile: str = "enterprise_po
         " ".join(str(item) for item in keywords),
         " ".join(str(item) for item in tags),
         " ".join(_normalized_amounts(content)),
+        " ".join(_amount_aliases(content)),
         " ".join(_recall_terms(tags)) if profile == "enterprise_policy" else "",
     ]
     return _clean_text(" ".join(piece for piece in pieces if piece))
@@ -196,6 +199,20 @@ def _recall_terms(tags: list[str]) -> list[str]:
         terms.extend(["培训费用", "外部培训", "培训预算"])
     if "deadline_rule" in tag_set:
         terms.extend(["时限", "截止时间", "提交时限", "报告时限", "响应时间"])
+    if "security_incident_rule" in tag_set:
+        terms.extend([
+            "安全事件",
+            "信息安全事件",
+            "安全事件报告",
+            "信息安全报告",
+            "安全事件响应",
+            "数据泄露",
+            "设备丢失",
+            "电脑丢失",
+            "笔记本丢失",
+            "终端丢失",
+            "资产丢失",
+        ])
     return _dedupe(terms)
 
 
@@ -223,6 +240,35 @@ def _normalized_amounts(text: str) -> list[str]:
         compact = re.sub(r"\s+", "", amount).replace(",", "")
         normalized.append(compact)
     return _dedupe(normalized)
+
+
+def _amount_aliases(text: str) -> list[str]:
+    aliases: list[str] = []
+    for amount in _normalized_amounts(text):
+        match = re.fullmatch(r"(\d+)元", amount)
+        if not match:
+            continue
+        value = int(match.group(1))
+        if value >= 10000 and value % 10000 == 0:
+            aliases.append(f"{value // 10000}万元")
+    return _dedupe(aliases)
+
+
+def _has_security_incident_evidence(text: str) -> bool:
+    return any(
+        phrase in text
+        for phrase in (
+            "安全事件",
+            "信息安全事件",
+            "数据泄露",
+            "系统被入侵",
+            "设备丢失",
+            "电脑丢失",
+            "笔记本丢失",
+            "终端丢失",
+            "资产丢失",
+        )
+    )
 
 
 def _clean_text(text: str) -> str:

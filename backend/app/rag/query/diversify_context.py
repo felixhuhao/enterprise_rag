@@ -14,6 +14,7 @@ from app.rag.query.state import QueryState
 
 
 _DIVERSIFY_FLAVORS = {"recall", "discovery"}
+_DIVERSIFY_BUDGET_REASONS = {"balanced_synthesis"}
 _MIN_DIVERSE_SCORE = 0.5
 
 
@@ -21,13 +22,14 @@ def diversify_context_node(state: QueryState, config: RunnableConfig) -> dict:
     cfg = get_query_config(config)
     plan = get_query_plan(state, config)
     flavor = plan.get("retrieval_flavor", cfg.retrieval_flavor)
+    budget = plan_budget(state, config)
+    budget_reason = str((budget or {}).get("reason") or "")
+    should_diversify = flavor in _DIVERSIFY_FLAVORS or budget_reason in _DIVERSIFY_BUDGET_REASONS
     ranked_results = state.get("search_results", [])
     candidates = state.get("rerank_candidates") or ranked_results
-    if flavor in _DIVERSIFY_FLAVORS:
-        budget = plan_budget(state, config)
+    if should_diversify:
         target_k = int(budget.get("final_context_k") or cfg.rerank_max_top_k)
     else:
-        budget = plan_budget(state, config)
         target_k = len(ranked_results) or int(budget.get("final_context_k") or cfg.rerank_max_top_k)
 
     if not candidates or target_k <= 0:
@@ -41,6 +43,8 @@ def diversify_context_node(state: QueryState, config: RunnableConfig) -> dict:
     deduped = _dedupe_chunks(candidates)
     if flavor in _DIVERSIFY_FLAVORS:
         deduped = _filter_low_confidence(deduped)
+        selected = _select_diverse(deduped, target_k)
+    elif should_diversify:
         selected = _select_diverse(deduped, target_k)
     else:
         selected = deduped[:target_k]

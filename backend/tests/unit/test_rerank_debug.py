@@ -3,7 +3,7 @@
 from unittest.mock import patch
 
 from app.rag.query.config import QueryConfig
-from app.rag.query.rerank import rerank_node
+from app.rag.query.rerank import _rerank_preview, rerank_node
 
 
 def _make_results(n: int, start_score: float = 0.5) -> list[dict]:
@@ -136,3 +136,27 @@ class TestRerankBudget:
             out = rerank_node(state, config)
 
         assert len(out["search_results"]) == 4
+
+
+class TestRerankPreview:
+    def test_table_preview_uses_longer_window(self):
+        cfg = QueryConfig(content_preview_length=300)
+        prefix = "x" * 450
+        content = f"{prefix}\n| 8 | 夜间值班制度正式实施 | 李明 | 2026-06-01 |"
+
+        preview = _rerank_preview(
+            "李明 负责 待办事项 工作 截止日期",
+            {"content": content, "source_type": "table_full"},
+            cfg,
+        )
+
+        assert "夜间值班制度正式实施" in preview
+        assert "李明" in preview
+
+    def test_text_preview_keeps_configured_limit(self):
+        cfg = QueryConfig(content_preview_length=300)
+        content = "a" * 450
+
+        preview = _rerank_preview("anything", {"content": content, "source_type": "text"}, cfg)
+
+        assert len(preview) == 300

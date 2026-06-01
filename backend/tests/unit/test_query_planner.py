@@ -45,6 +45,20 @@ def test_balanced_broad_uses_larger_budget_than_single():
     assert broad.budget.search_limit > single.budget.search_limit
 
 
+def test_balanced_synthesis_uses_larger_candidate_budget():
+    cfg = QueryConfig(search_limit=10, rrf_max_results=20, rerank_max_top_k=10)
+
+    plan = build_query_plan("安全事件响应和运维故障响应有什么关联和区别？", "single", cfg)
+
+    assert plan.retrieval_flavor == "balanced"
+    assert plan.budget.search_limit == 20
+    assert plan.budget.rrf_top_k == 32
+    assert plan.budget.rerank_candidate_k == 20
+    assert plan.budget.final_context_k == 10
+    assert plan.budget.max_context_chars == 10000
+    assert plan.budget.reason == "balanced_synthesis"
+
+
 def test_exact_disables_hyde_multi_hop_and_fallback():
     cfg = QueryConfig(retrieval_flavor="exact", use_multi_hop=True, search_limit=20)
 

@@ -40,6 +40,7 @@ export const STRUCTURED_TAG_LABELS: Record<string, string> = {
   approval_rule: '审批规则',
   training_budget: '培训预算',
   deadline_rule: '时限规则',
+  security_incident_rule: '安全事件',
   payment_rule: '付款规则',
   reimbursement_rule: '报销规则',
   procurement_rule: '采购规则',
