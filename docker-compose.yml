@@ -13,8 +13,8 @@ services:
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:9091/healthz"]
       interval: 10s
-      retries: 10
-      start_period: 30s
+      retries: 30
+      start_period: 240s
 
   backend:
     build: ./backend
@@ -30,7 +30,7 @@ services:
       MILVUS_URI: http://milvus-standalone:19530
     volumes:
       - ./data:/app/data
-      - ${EMBEDDING_MODEL_HOST_PATH:-D:/Models/BAAI/bge-m3}:/models/embedding:ro
+      - ${EMBEDDING_MODEL_HOST_PATH:-/mnt/d/Models/BAAI/bge-m3}:/models/embedding:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health')"]
       interval: 5s

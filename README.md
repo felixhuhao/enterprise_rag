@@ -40,7 +40,7 @@ Use two separate `.env` files:
 For local backend development on Windows, set:
 
 ```env
-EMBEDDING_MODEL_PATH=D:\Models\BAAI\bge-m3
+EMBEDDING_MODEL_PATH=/mnt/d/Models/BAAI/bge-m3
 ```
 
 ```bash
@@ -185,8 +185,8 @@ Required:
 
 | Variable | Description |
 |---|---|
-| `EMBEDDING_MODEL_HOST_PATH` | Host path to the local embedding model for Docker volume mount, e.g. `D:/Models/BAAI/bge-m3` |
-| `EMBEDDING_MODEL_PATH` | Runtime embedding model path. Docker uses `/models/embedding`; local dev can use `D:\Models\BAAI\bge-m3` |
+| `EMBEDDING_MODEL_HOST_PATH` | Host path to the local embedding model for Docker volume mount, e.g. `/mnt/d/Models/BAAI/bge-m3` |
+| `EMBEDDING_MODEL_PATH` | Runtime embedding model path. Docker uses `/models/embedding`; local dev can use `/mnt/d/Models/BAAI/bge-m3` |
 | `DEEPSEEK_API_KEY` | DeepSeek-compatible API key for chat, HyDE, query expansion, rerank, and evaluation judge |
 | `ZHIPU_API_KEY` | Zhipu AI API key for image description (GLM-4.6V) |
 | `API_TOKEN` | Bearer token for API auth |
