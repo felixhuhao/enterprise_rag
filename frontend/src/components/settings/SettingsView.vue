@@ -9,163 +9,46 @@
           <a-button size="mini" :loading="loading" @click="loadSettings">刷新</a-button>
         </template>
         <a-tab-pane key="status" title="运行状态">
-          <div class="status-grid">
-            <div class="status-card">
-              <span class="status-label">后端 API</span>
-              <strong :class="loadError ? 'bad' : 'ok'">{{ loadError ? '异常' : '正常' }}</strong>
-              <small>{{ loadError || '设置接口可访问' }}</small>
-            </div>
-            <div class="status-card">
-              <span class="status-label">当前用户</span>
-              <strong>{{ authStore.currentUser?.username || '未知' }}</strong>
-              <small>{{ authStore.currentUser?.user_id || '未读取到用户信息' }}</small>
-            </div>
-            <div class="status-card">
-              <span class="status-label">权限</span>
-              <strong>{{ authStore.isAdmin ? '管理员' : '普通用户' }}</strong>
-              <small>{{ authStore.isAdmin ? '可修改系统设置' : '仅可查看当前设置' }}</small>
-            </div>
-            <div class="status-card">
-              <span class="status-label">配置加载</span>
-              <strong :class="settingsCount ? 'ok' : ''">{{ settingsCount ? '已加载' : '未加载' }}</strong>
-              <small>{{ loadedAt || '尚未刷新' }}</small>
-            </div>
-          </div>
-
-          <div class="info-panel">
-            <div class="panel-title">模型与服务</div>
-            <div class="info-list">
-              <div class="info-row">
-                <span>聊天模型</span>
-                <strong>{{ runtimeInfo?.chat_model || '未读取' }}</strong>
-              </div>
-              <div class="info-row">
-                <span>Embedding</span>
-                <strong>{{ embeddingLabel }}</strong>
-              </div>
-              <div class="info-row">
-                <span>向量库（backend）</span>
-                <strong>{{ backendMilvusLabel }}</strong>
-              </div>
-              <div class="info-row">
-                <span>向量库（宿主机）</span>
-                <strong>{{ hostMilvusUri }}</strong>
-              </div>
-              <div class="info-row">
-                <span>数据库（backend）</span>
-                <strong>{{ backendDatabaseLabel }}</strong>
-              </div>
-              <div class="info-row">
-                <span>Token</span>
-                <strong>{{ tokenStatus }}</strong>
-              </div>
-            </div>
-          </div>
+          <SystemStatusPanel
+            :load-error="loadError"
+            :username="authStore.currentUser?.username || ''"
+            :user-id="authStore.currentUser?.user_id || ''"
+            :is-admin="authStore.isAdmin"
+            :settings-count="settingsCount"
+            :loaded-at="loadedAt"
+            :chat-model="runtimeInfo?.chat_model || ''"
+            :embedding-label="embeddingLabel"
+            :backend-milvus-label="backendMilvusLabel"
+            :host-milvus-uri="hostMilvusUri"
+            :backend-database-label="backendDatabaseLabel"
+            :token-status="tokenStatus"
+          />
         </a-tab-pane>
 
         <a-tab-pane key="tuning" title="策略微调">
-          <div v-if="!authStore.isAdmin" class="readonly-note">当前用户没有修改权限。</div>
-          <div class="strategy-note">
-            当前版本仍使用一组全局参数；这里按后端 planner 展示每种策略真正会使用的部分。固定预算只读显示，避免产生“改了但不生效”的误解。
-          </div>
-
-          <a-tabs :active-key="activeFlavor" size="small" class="strategy-tabs" animation @change="onFlavorTabChange">
-            <a-tab-pane v-for="profile in strategyProfiles" :key="profile.key" :title="profile.label">
-              <div class="capability-band">
-                <div class="profile-heading compact">
-                  <div class="profile-desc">{{ profile.description }}</div>
-                  <a-tooltip :content="profile.reason">
-                    <span class="profile-debug">plan</span>
-                  </a-tooltip>
-                </div>
-                <div class="capability-list">
-                  <div v-for="item in activeCapabilities" :key="item.key" class="capability-chip" :class="{ off: !item.enabled }">
-                    <span class="status-dot" />
-                    <span>{{ item.label }}</span>
-                    <small>{{ item.enabled ? '开启' : '关闭' }}</small>
-                  </div>
-                </div>
-              </div>
-
-              <div class="metric-strip">
-                <div v-for="item in activeBudget" :key="item.label" class="metric-item">
-                  <span>{{ item.label }}</span>
-                  <strong>{{ item.value }}</strong>
-                </div>
-              </div>
-
-              <section class="settings-section">
-                <div v-if="activeControls.length" class="compact-section-title">可调预算</div>
-                <div v-if="activeControls.length" class="parameter-grid">
-                  <label v-for="control in activeControls" :key="control.key" class="parameter-field">
-                    <span>{{ control.label }}</span>
-                    <a-input-number
-                      v-model="form[control.key]"
-                      :min="control.min"
-                      :max="control.max"
-                      :disabled="!authStore.isAdmin"
-                    />
-                  </label>
-                </div>
-                <div v-else class="fixed-note">该策略的检索预算固定为上方显示值。</div>
-              </section>
-            </a-tab-pane>
-          </a-tabs>
-
-          <details class="global-weights">
-            <summary>
-              <span>全局权重</span>
-              <small>影响底层检索与重排，不按策略单独区分</small>
-            </summary>
-            <div class="weight-grid">
-              <label class="compact-slider">
-                <span>语义权重 {{ form.denseWeight.toFixed(2) }}</span>
-                <a-slider v-model="form.denseWeight" :min="0" :max="1" :step="0.05" :disabled="!authStore.isAdmin" />
-              </label>
-              <label class="compact-slider">
-                <span>关键词权重 {{ form.sparseWeight.toFixed(2) }}</span>
-                <a-slider v-model="form.sparseWeight" :min="0" :max="1" :step="0.05" :disabled="!authStore.isAdmin" />
-              </label>
-              <label class="compact-slider">
-                <span>LLM 重排权重 {{ form.rerankLlmWeight.toFixed(2) }}</span>
-                <a-slider v-model="form.rerankLlmWeight" :min="0" :max="1" :step="0.05" :disabled="!authStore.isAdmin" />
-              </label>
-              <label class="compact-slider">
-                <span>RRF 权重 {{ form.rerankRrfWeight.toFixed(2) }}</span>
-                <a-slider v-model="form.rerankRrfWeight" :min="0" :max="1" :step="0.05" :disabled="!authStore.isAdmin" />
-              </label>
-            </div>
-          </details>
-
-          <div class="settings-actions">
-            <a-button type="primary" :loading="saving" :disabled="!authStore.isAdmin" @click="saveRetrievalSettings">
-              保存策略微调
-            </a-button>
-            <a-button :loading="loading" @click="loadSettings">恢复当前值</a-button>
-          </div>
+          <StrategyTuningPanel
+            v-model:active-flavor="activeFlavor"
+            :is-admin="authStore.isAdmin"
+            :strategy-profiles="strategyProfiles"
+            :active-capabilities="activeCapabilities"
+            :active-budget="activeBudget"
+            :active-controls="activeControls"
+            :form="form"
+            :saving="saving"
+            :loading="loading"
+            @update-form-value="setFormValue"
+            @save="saveRetrievalSettings"
+            @reload="loadSettings"
+          />
         </a-tab-pane>
 
         <a-tab-pane key="security" title="安全">
-          <section class="settings-section">
-            <div class="section-heading">
-              <div>
-                <div class="section-title">访问令牌</div>
-                <div class="section-hint">更新后立即写入本地请求 Token，并调用后端持久化。</div>
-              </div>
-              <span class="section-kicker">Admin</span>
-            </div>
-            <div class="token-row">
-              <a-input-password
-                v-model="form.token"
-                placeholder="输入新的访问令牌"
-                allow-clear
-                :disabled="!authStore.isAdmin"
-              />
-              <a-button type="primary" :loading="tokenSaving" :disabled="!authStore.isAdmin" @click="saveToken">
-                更新
-              </a-button>
-            </div>
-          </section>
+          <TokenSettingsPanel
+            v-model="form.token"
+            :is-admin="authStore.isAdmin"
+            :saving="tokenSaving"
+            @save="saveToken"
+          />
         </a-tab-pane>
 
         <a-tab-pane key="tags" title="标签治理">
@@ -372,6 +255,9 @@ import {
   type StructuredTagRecord,
 } from '../../api/structuredTags'
 import { useAuthStore } from '../../stores/auth'
+import StrategyTuningPanel from './StrategyTuningPanel.vue'
+import SystemStatusPanel from './SystemStatusPanel.vue'
+import TokenSettingsPanel from './TokenSettingsPanel.vue'
 
 type FlavorKey = 'balanced' | 'exact' | 'recall' | 'discovery'
 type FormNumberKey =
@@ -526,10 +412,8 @@ const tokenStatus = computed(() => {
   return token ? '已配置' : '未配置'
 })
 
-function onFlavorTabChange(key: string | number) {
-  if (['balanced', 'exact', 'recall', 'discovery'].includes(String(key))) {
-    activeFlavor.value = String(key) as FlavorKey
-  }
+function setFormValue(key: string, value: unknown) {
+  form[key] = value
 }
 
 async function loadSettings() {
@@ -887,101 +771,16 @@ onMounted(loadSettings)
 }
 
 .settings-tabs :deep(.arco-tabs-nav-tab),
-.strategy-tabs :deep(.arco-tabs-nav-tab) {
-  padding-left: 0;
-}
-
 .settings-tabs :deep(.arco-tabs-nav-tab-list),
-.strategy-tabs :deep(.arco-tabs-nav-tab-list) {
+.settings-tabs :deep(.arco-tabs-nav-tab-list) {
   padding-left: 0;
 }
 
-.settings-tabs :deep(.arco-tabs-nav-type-line .arco-tabs-tab:first-of-type),
-.strategy-tabs :deep(.arco-tabs-nav-type-line .arco-tabs-tab:first-of-type) {
+.settings-tabs :deep(.arco-tabs-nav-type-line .arco-tabs-tab:first-of-type) {
   margin-left: 0 !important;
 }
 
-.status-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.status-card,
-.info-panel {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: #fbfdff;
-}
-
-.status-card {
-  display: grid;
-  gap: 6px;
-  padding: 14px;
-}
-
-.status-label,
-.status-card small,
-.metric-item span,
-.info-row span,
-.section-hint,
-.profile-desc {
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.status-card strong,
-.metric-item strong {
-  color: var(--text-primary);
-  font-size: 16px;
-  font-variant-numeric: tabular-nums;
-}
-
-.status-card strong.ok {
-  color: #166534;
-}
-
-.status-card strong.bad {
-  color: #991b1b;
-}
-
-.info-panel {
-  margin-top: 14px;
-  padding: 14px;
-}
-
-.panel-title {
-  margin-bottom: 10px;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-secondary);
-}
-
-.info-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 18px;
-}
-
-.info-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
-}
-
-.info-row strong {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.readonly-note,
-.fixed-note {
+.readonly-note {
   border-radius: var(--radius-sm);
   padding: 8px 10px;
   font-size: 12px;
@@ -994,256 +793,11 @@ onMounted(loadSettings)
   border: 1px solid #fed7aa;
 }
 
-.fixed-note {
-  color: var(--text-secondary);
-  background: #f8fafc;
-  border: 1px solid var(--border);
-}
-
 .strategy-note {
   margin: 4px 0 10px;
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.6;
-}
-
-.settings-section {
-  margin-bottom: 0;
-}
-
-.compact-section-title {
-  margin: 2px 0 8px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.capability-band {
-  margin-bottom: 8px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border);
-}
-
-.profile-heading.compact {
-  margin-bottom: 7px;
-}
-
-.section-heading,
-.profile-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 10px;
-}
-
-.section-title {
-  font-family: var(--font-display);
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.section-hint,
-.profile-desc {
-  margin-top: 4px;
-}
-
-.section-kicker {
-  flex-shrink: 0;
-  padding: 3px 8px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--text-muted);
-  background: var(--bg-hover);
-  font-size: 11px;
-}
-
-.profile-debug {
-  flex-shrink: 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  cursor: help;
-  text-decoration: underline dotted;
-  text-underline-offset: 3px;
-}
-
-.metric-strip {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(88px, 1fr));
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.metric-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-width: 0;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: #fbfdff;
-}
-
-.metric-item span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.parameter-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-}
-
-.parameter-field,
-.compact-slider {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.parameter-field {
-  display: grid;
-  grid-template-columns: max-content 86px;
-  width: max-content;
-  min-width: 210px;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: #fbfdff;
-}
-
-.parameter-field span {
-  white-space: nowrap;
-}
-
-.parameter-field :deep(.arco-input-number) {
-  width: 86px;
-}
-
-.compact-slider span {
-  flex: 0 0 138px;
-  white-space: nowrap;
-}
-
-.compact-slider :deep(.arco-slider) {
-  flex: 1;
-  min-width: 120px;
-}
-
-.capability-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 8px;
-}
-
-.capability-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 3px 8px;
-  border: 1px solid #bbf7d0;
-  border-radius: 999px;
-  background: #f0fdf4;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.capability-chip.off {
-  border-color: var(--border);
-  background: var(--bg-hover);
-  color: var(--text-muted);
-}
-
-.capability-chip small {
-  color: #166534;
-  font-size: 11px;
-}
-
-.capability-chip.off small {
-  color: var(--text-muted);
-}
-
-.status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: #22c55e;
-}
-
-.capability-chip.off .status-dot {
-  background: #cbd5e1;
-}
-
-.global-weights {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-
-.global-weights summary {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-  list-style: none;
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.global-weights summary::-webkit-details-marker {
-  display: none;
-}
-
-.global-weights summary small {
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 400;
-}
-
-.global-weights summary::after {
-  margin-left: auto;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 400;
-  content: '展开';
-}
-
-.global-weights[open] summary::after {
-  content: '收起';
-}
-
-.weight-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(260px, 1fr));
-  gap: 8px 18px;
-  margin-top: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: #fbfdff;
-}
-
-.token-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-}
-
-.settings-actions {
-  display: flex;
-  gap: 10px;
-  margin-top: 16px;
 }
 
 .tag-table-wrap {
@@ -1476,9 +1030,6 @@ onMounted(loadSettings)
 }
 
 @media (max-width: 1100px) {
-  .status-grid,
-  .metric-strip,
-  .weight-grid,
   .tag-metric-grid,
   .tag-preview-controls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1490,35 +1041,9 @@ onMounted(loadSettings)
     padding: 14px;
   }
 
-  .section-heading,
-  .profile-heading {
-    flex-direction: column;
-  }
-
-  .status-grid,
-  .metric-strip,
-  .info-list,
-  .weight-grid,
-  .token-row,
   .tag-metric-grid,
   .tag-preview-controls {
     grid-template-columns: 1fr;
-  }
-
-  .parameter-field,
-  .compact-slider {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .parameter-field span,
-  .compact-slider span {
-    flex: none;
-  }
-
-  .parameter-field,
-  .parameter-field :deep(.arco-input-number) {
-    width: 100%;
   }
 }
 </style>
