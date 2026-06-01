@@ -277,19 +277,7 @@
 
             <a-table-column title="标签" data-index="tags" :width="resultColumns.columnWidth('tags')">
               <template #cell="{ record }">
-                <div v-if="chunkTags(record).length" class="chunk-tags" :title="chunkTagsTitle(record)">
-                  <span
-                    v-for="tag in chunkTags(record)"
-                    :key="tag.value"
-                    class="chunk-tag"
-                  >
-                    {{ tag.label }}
-                  </span>
-                  <span v-if="hiddenChunkTagCount(record)" class="chunk-tag more">
-                    +{{ hiddenChunkTagCount(record) }}
-                  </span>
-                </div>
-                <span v-else class="muted-text">—</span>
+                <ChunkTagList :structured_tags="record.structured_tags" :keywords="record.keywords" />
               </template>
             </a-table-column>
 
@@ -323,6 +311,7 @@ import { useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { IconSearch } from '@arco-design/web-vue/es/icon'
 import { useAutoFitColumns } from '../../composables/useAutoFitColumns'
+import ChunkTagList from '../common/ChunkTagList.vue'
 import {
   FALLBACK_LABELS,
   FLAVOR_OPTIONS,
@@ -331,7 +320,6 @@ import {
   retrievalPathLabel,
   searchModeLabel,
   sourceTypeLabel,
-  structuredTagLabel,
 } from '../../utils/labelMaps'
 
 defineOptions({ name: 'RetrievalTestView' })
@@ -372,11 +360,6 @@ interface TraceRow {
   key: string
   label: string
   value: number
-}
-
-interface ChunkTag {
-  label: string
-  value: string
 }
 
 const flavorModes = FLAVOR_OPTIONS
@@ -594,31 +577,6 @@ function expansionLabel(label: string) {
 
 function sourceTypeColor(sourceType: string) {
   return sourceType.startsWith('table_') ? 'orange' : 'arcoblue'
-}
-
-function chunkTags(record: RetrievalTestResponse['results'][number]): ChunkTag[] {
-  return uniqueStrings(record.structured_tags).slice(0, 3).map((value) => ({
-    value,
-    label: structuredTagLabel(value),
-  }))
-}
-
-function hiddenChunkTagCount(record: RetrievalTestResponse['results'][number]) {
-  const total = uniqueStrings(record.structured_tags).length
-  return Math.max(0, total - chunkTags(record).length)
-}
-
-function chunkTagsTitle(record: RetrievalTestResponse['results'][number]) {
-  const structured = uniqueStrings(record.structured_tags).map(structuredTagLabel)
-  const keywords = uniqueStrings(record.keywords)
-  const parts = []
-  if (structured.length) parts.push(`标签：${structured.join(' / ')}`)
-  if (keywords.length) parts.push(`关键词：${keywords.join(' / ')}`)
-  return parts.join('\n')
-}
-
-function uniqueStrings(values: string[] | null | undefined) {
-  return Array.from(new Set((values ?? []).filter(Boolean)))
 }
 
 function retrievalPathSummary(path: string | null | undefined) {
@@ -1273,35 +1231,6 @@ function filterToScope(filter: string) {
 .score-cell span {
   color: var(--text-muted);
   font-size: 11px;
-}
-
-.chunk-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  align-items: flex-start;
-}
-
-.chunk-tag {
-  max-width: 100%;
-  padding: 2px 6px;
-  border-radius: 999px;
-  font-size: 11px;
-  line-height: 1.35;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: #166534;
-  background: #dcfce7;
-}
-
-.chunk-tag.more {
-  color: var(--text-muted);
-  background: var(--bg-hover);
-}
-
-.muted-text {
-  color: var(--text-muted);
 }
 
 .content-cell {
