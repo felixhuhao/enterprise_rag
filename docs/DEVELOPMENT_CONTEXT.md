@@ -3,7 +3,7 @@
 ## Project Identity
 
 Product name: Enterprise RAG Platform.
-Current folder detected by this session: D:\CodeProjects\enterprise_rag.
+Current folder: D:\Workspace\enterprise_rag.
 Folder spelling is now the intended enterprise_rag.
 Previous project/folder names have been cleaned from text files; app.db may still contain old strings as SQLite runtime state.
 
@@ -92,7 +92,7 @@ Vite large chunk warning is currently accepted and not treated as failure.
 
 ## Rename Notes
 
-The user renamed the folder after committing. Current detected folder is D:\CodeProjects\enterprise_rag.
+The user renamed the folder after committing. Current folder is D:\Workspace\enterprise_rag.
 The intended folder name is now in place.
 Previously stopped PIDs before rename: 52348 npm run dev, 38856 vite cmd, 7064 vite node.
 
@@ -104,7 +104,7 @@ After path cleanup, run compile, tests, and frontend build. Commit rename/path c
 Near term: verify the renamed folder, clean stale paths, run tests/build, then commit path cleanup.
 Potential next work: integration tests with real Milvus and MinerU, better eval report export, more reusable demo datasets, optional financial domain pack.
 
-ChatBI note: D:\CodeProjects\chatbi_nanobot was reviewed. It is useful as future structured analytics add-on, but do not directly merge Nanobot or Gradio architecture. Borrow Text-to-SQL, SQL safety, ARIMA/Bollinger tools, and chart ideas later in current FastAPI/Vue style.
+ChatBI note: A ChatBI/Nanobot project was previously reviewed at D:\CodeProjects\chatbi_nanobot (path may no longer exist). It is useful as future structured analytics add-on, but do not directly merge Nanobot or Gradio architecture. Borrow Text-to-SQL, SQL safety, ARIMA/Bollinger tools, and chart ideas later in current FastAPI/Vue style.
 
 ## User Preferences
 
