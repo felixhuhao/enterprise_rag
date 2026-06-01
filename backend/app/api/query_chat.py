@@ -139,24 +139,10 @@ async def _stream_generator(
     is_eval: bool = False,
 ):
     """两阶段 SSE 生成器。所有路径（成功/失败/中断）均落库 query_run_stats。"""
-    from app.rag.query.entity_confirm import entity_confirm_node
-    from app.rag.query.rewrite_query import rewrite_query_node
-    from app.rag.query.direct_search import run_direct_search
-    from app.rag.query.fallback import (
-        REASON_LOW_SCORE_OR_INSUFFICIENT_HITS,
-        fallback_blocked,
-        fallback_used,
-        merge_fallback_info,
-        state_fallback_info,
-    )
-    from app.rag.query.planner import get_query_plan, plan_allows_entity_fallback, query_plan_node
-    from app.rag.query.table_expand import table_expand_node
-    from app.rag.query.rerank import rerank_node
-    from app.rag.query.diversify_context import diversify_context_node
-    from app.rag.query.context_expand import context_expand_node
     from app.rag.query.build_prompt import build_prompt_node
-    from app.rag.query.config import get_query_config
+    from app.rag.query.fallback import state_fallback_info
     from app.rag.query.generate import _chat_llm
+    from app.rag.query.search_pipeline import run_search_pipeline
     from app.rag.query.validate_citations import validate_citations_node
     from app.errors import classify_error
     from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
@@ -181,114 +167,14 @@ async def _stream_generator(
     # Phase 1: 搜索管线（同步，线程内执行）
     def run_search():
         trace: dict = {}
-        t0 = time.monotonic()
-        state = {"query": query}
-
-        t = time.monotonic()
-        state.update(entity_confirm_node(state, run_config))
-        trace["entity_confirm_ms"] = tick_ms(t)
-
-        t = time.monotonic()
-        state.update(query_plan_node(state, run_config))
-        trace["query_plan_ms"] = tick_ms(t)
-
-        cfg = get_query_config(run_config)
-        from app.rag.query.multi_hop import _decide_multi_hop
-
-        plan = get_query_plan(state, run_config)
-        if plan.get("use_multi_hop") and _decide_multi_hop(state.get("entity_mode", "none"), query):
-            # ── Discovery path ──
-            from app.rag.query.multi_hop import run_multi_hop_search
-            state.update(run_multi_hop_search(state, query, run_config, cfg, trace))
-
-            t = time.monotonic()
-            state.update(table_expand_node(state, run_config))
-            trace["table_expand_ms"] = tick_ms(t)
-
-            t = time.monotonic()
-            state.update(rerank_node(state, run_config))
-            trace["rerank_ms"] = tick_ms(t)
-        else:
-            # ── Direct path（含 post-rerank fallback）──
-            _run_direct_with_fallback(state, run_config, trace)
-
-        t = time.monotonic()
-        state.update(diversify_context_node(state, run_config))
-        trace["diversify_context_ms"] = tick_ms(t)
-
-        t = time.monotonic()
-        state.update(context_expand_node(state, run_config))
-        trace["context_expand_ms"] = tick_ms(t)
+        state = run_search_pipeline(query, run_config, trace=trace)
 
         t = time.monotonic()
         state.update(build_prompt_node(state, run_config))
         trace["build_prompt_ms"] = tick_ms(t)
-
-        trace["retrieval_wall_ms"] = tick_ms(t0)
+        trace["retrieval_wall_ms"] = trace.get("retrieval_wall_ms", 0) + trace["build_prompt_ms"]
         state["trace"] = trace
         return state
-
-    def _run_direct_retrieval(st, cfg_dict, trace):
-        """rewrite → search+hyde → rrf."""
-        t = time.monotonic()
-        st.update(rewrite_query_node(st, cfg_dict))
-        trace["rewrite_ms"] = tick_ms(t)
-
-        t = time.monotonic()
-        direct = run_direct_search(st, cfg_dict)
-        trace["search_hyde_ms"] = tick_ms(t)
-        trace["rrf_fusion_ms"] = direct.pop("_rrf_fusion_ms", 0)
-        st.update(direct)
-
-        return st
-
-    def _run_direct_with_fallback(st, cfg_dict, trace):
-        """rewrite → search+hyde → rrf → table → rerank → [fallback] → final."""
-        st.update(_run_direct_retrieval(st, cfg_dict, trace))
-
-        t = time.monotonic()
-        st.update(table_expand_node(st, cfg_dict))
-        trace["table_expand_ms"] = tick_ms(t)
-
-        t = time.monotonic()
-        st.update(rerank_node(st, cfg_dict))
-        trace["rerank_ms"] = tick_ms(t)
-
-        # Post-rerank fallback：rerank 后 top_score 仍低 → 去掉 filter 重搜
-        entity_filter = st.get("entity_filter")
-        already_fell_back = (
-            state_fallback_info(st).get("used")
-            or "fallback" in st.get("search_mode", "")
-            or "fallback" in st.get("search_mode_hyde", "")
-            or any("fallback" in mode for mode in st.get("search_modes_expanded", []))
-        )
-        results = st.get("search_results", [])
-        if entity_filter and not already_fell_back and results:
-            top_score = results[0].get("score", 0)
-            if top_score < query_config.entity_filter_rerank_min_score and plan_allows_entity_fallback(st, cfg_dict):
-                logger.info(
-                    "Post-rerank fallback: top_score=%.3f < %.3f, retrying unfiltered",
-                    top_score, query_config.entity_filter_rerank_min_score,
-                )
-                t_fb = time.monotonic()
-                st["entity_filter"] = ""
-                st.update(_run_direct_retrieval(st, cfg_dict, trace))
-
-                t_fb2 = time.monotonic()
-                st.update(table_expand_node(st, cfg_dict))
-                st.update(rerank_node(st, cfg_dict))
-                trace["post_rerank_fallback_ms"] = tick_ms(t_fb) + tick_ms(t_fb2)
-
-                st["search_mode"] = st.get("search_mode", "") + "_post_rerank_fallback"
-                st["fallback_info"] = merge_fallback_info(
-                    state_fallback_info(st),
-                    fallback_used(entity_filter, REASON_LOW_SCORE_OR_INSUFFICIENT_HITS),
-                )
-            elif top_score < query_config.entity_filter_rerank_min_score:
-                st["fallback_info"] = merge_fallback_info(
-                    state_fallback_info(st),
-                    fallback_blocked(entity_filter),
-                )
 
     # ── 所有 yield/await 都在 finally 保护内 ──
     try:

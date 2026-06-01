@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import logging
-import time
 from pathlib import Path
 
 from app.config import settings
-from app.rag.query.fallback import empty_fallback_info, fallback_blocked, fallback_used, merge_fallback_info
+from app.rag.query.fallback import empty_fallback_info, fallback_blocked, fallback_used
 from app.rag.query.config import QueryConfig, get_default_query_config
-from app.utils.time import tick_ms
+from app.rag.query.search_pipeline import SearchPipelineHooks, SearchPipelineNodes, run_search_pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +25,6 @@ def run_retrieval_test(
     allowed_document_ids: list[str] | None = None,
 ) -> dict:
     """Run the query pipeline up to rerank, without prompt building or generation."""
-    from app.rag.query.direct_search import run_direct_search
-
     cfg = _build_config(
         top_k=top_k,
         use_hyde=use_hyde,
@@ -40,63 +37,34 @@ def run_retrieval_test(
         "allowed_document_ids": allowed_document_ids,
     }}
     trace: dict[str, int] = {}
-    t0 = time.monotonic()
-    state: dict = {"query": query}
-
-    t = time.monotonic()
-    state.update(_entity_confirm_node(state, run_config))
-    trace["entity_confirm_ms"] = tick_ms(t)
-
-    t = time.monotonic()
-    state.update(_query_plan_node(state, run_config))
-    trace["query_plan_ms"] = tick_ms(t)
-    plan = state.get("query_plan", {})
-
-    if _should_run_multi_hop(state, query, plan):
-        state["rewritten_query"] = query
-        state.update(_run_multi_hop_search(state, query, run_config, cfg, trace))
-        _apply_default_path(state.get("search_results", []), "Multi-hop")
-    else:
-        t = time.monotonic()
-        state.update(_rewrite_query_node(state, run_config))
-        trace["rewrite_ms"] = tick_ms(t)
-
-        t = time.monotonic()
-        direct = run_direct_search(
-            state,
-            run_config,
-            search_fn=lambda st, conf: _run_primary_search(st, conf, cfg, use_hybrid=use_hybrid),
-            hyde_fn=_hyde_search_node,
-        )
-        trace["search_hyde_ms"] = tick_ms(t)
-        trace["rrf_fusion_ms"] = direct.pop("_rrf_fusion_ms", 0)
-        state.update(direct)
-        _localize_retrieval_paths(state.get("search_results", []))
-
-    table_paths = _table_path_map(state.get("search_results", []))
-    t = time.monotonic()
-    state.update(_table_expand_node(state, run_config))
-    _apply_table_paths(state.get("search_results", []), table_paths)
-    trace["table_expand_ms"] = tick_ms(t)
-
-    t = time.monotonic()
-    if use_rerank:
-        state.update(_rerank_node(state, run_config))
-    else:
-        state["search_results"] = state.get("search_results", [])[:cfg.rerank_max_top_k]
-        state["rerank_candidates"] = list(state.get("search_results", []))
-        state["rerank_debug"] = []
-    trace["rerank_ms"] = tick_ms(t)
-
-    t = time.monotonic()
-    state.update(_diversify_context_node(state, run_config))
-    trace["diversify_context_ms"] = tick_ms(t)
-
-    t = time.monotonic()
-    state.update(_context_expand_node(state, run_config))
-    trace["context_expand_ms"] = tick_ms(t)
-
-    trace["retrieval_wall_ms"] = tick_ms(t0)
+    table_paths: dict[str, list[str]] = {}
+    hooks = SearchPipelineHooks(
+        after_direct_search=lambda st: _localize_retrieval_paths(st.get("search_results", [])),
+        after_multi_hop_search=lambda st: _apply_default_path(st.get("search_results", []), "Multi-hop"),
+        before_table_expand=lambda st: _capture_table_paths(st, table_paths),
+        after_table_expand=lambda st: _apply_table_paths(st.get("search_results", []), table_paths),
+    )
+    nodes = SearchPipelineNodes(
+        entity_confirm=_entity_confirm_node,
+        query_plan=_query_plan_node,
+        rewrite_query=_rewrite_query_node,
+        table_expand=_table_expand_node,
+        rerank=lambda st, conf: _retrieval_test_rerank_node(st, conf, cfg),
+        diversify_context=_diversify_context_node,
+        context_expand=_context_expand_node,
+        multi_hop_search=_run_multi_hop_search,
+        should_run_multi_hop=_should_run_multi_hop,
+    )
+    state = run_search_pipeline(
+        query,
+        run_config,
+        trace=trace,
+        nodes=nodes,
+        hooks=hooks,
+        search_fn=lambda st, conf: _run_primary_search(st, conf, cfg, use_hybrid=use_hybrid),
+        hyde_fn=_hyde_search_node,
+        enable_post_rerank_fallback=False,
+    )
 
     results = [
         _format_result(row, rank, use_rerank=use_rerank)
@@ -277,6 +245,11 @@ def _apply_default_path(rows: list[dict], label: str):
         row["retrieval_path"] = label
 
 
+def _capture_table_paths(state: dict, table_paths: dict[str, list[str]]):
+    table_paths.clear()
+    table_paths.update(_table_path_map(state.get("search_results", [])))
+
+
 def _localize_retrieval_paths(rows: list[dict]):
     for row in rows:
         paths = row.get("retrieval_paths") or []
@@ -304,6 +277,17 @@ def _apply_table_paths(rows: list[dict], table_paths: dict[str, list[str]]):
             paths = [*table_paths[table_id], "表格展开"]
             row["retrieval_paths"] = paths
             row["retrieval_path"] = " + ".join(paths)
+
+
+def _retrieval_test_rerank_node(state: dict, config: dict, cfg: QueryConfig) -> dict:
+    if cfg.use_rerank:
+        return _rerank_node(state, config)
+    results = state.get("search_results", [])[:cfg.rerank_max_top_k]
+    return {
+        "search_results": results,
+        "rerank_candidates": list(results),
+        "rerank_debug": [],
+    }
 
 
 def _format_result(row: dict, rank: int, *, use_rerank: bool) -> dict:

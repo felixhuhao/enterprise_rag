@@ -261,6 +261,62 @@ def test_dense_only_balanced_records_fallback_used(monkeypatch):
     assert payload["fallback_info"]["original_filter"] == '(entity_name == "实体A")'
 
 
+def test_retrieval_test_does_not_post_rerank_fallback(monkeypatch):
+    monkeypatch.setattr(svc, "get_default_query_config", lambda: QueryConfig(use_table_expand=False))
+    monkeypatch.setattr(svc, "_entity_confirm_node", lambda state, config: {
+        "confirmed_entity": "实体A",
+        "entity_filter": '(entity_name == "实体A")',
+        "entity_mode": "single",
+        "matched_entities": ["实体A"],
+        "per_entity_counts": {},
+    })
+    monkeypatch.setattr(svc, "_rewrite_query_node", _noop_rewrite)
+    monkeypatch.setattr(svc, "_hyde_search_node", lambda state, config: {
+        "search_mode_hyde": "disabled",
+        "search_results_hyde": [],
+        "fallback_info": {},
+    })
+    monkeypatch.setattr(svc, "_table_expand_node", _noop_table_expand)
+
+    seen_filters: list[str] = []
+
+    def fake_search(state, config):
+        seen_filters.append(state.get("entity_filter", ""))
+        return {
+            "search_mode": "hybrid_filtered",
+            "search_results": [{
+                "chunk_id": 1,
+                "document_id": "doc-entity",
+                "file_title": "实体A.md",
+                "entity_name": "实体A",
+                "source_type": "text",
+                "content": "rerank 后低分，但 retrieval test 不做 post-rerank fallback。",
+                "score": 0.9,
+            }],
+            "fallback_info": {},
+        }
+
+    def low_rerank(state, config):
+        results = [dict(row, score=0.1) for row in state.get("search_results", [])]
+        return {"search_results": results, "rerank_candidates": results, "rerank_debug": []}
+
+    monkeypatch.setattr(svc, "_search_node", fake_search)
+    monkeypatch.setattr(svc, "_rerank_node", low_rerank)
+
+    payload = svc.run_retrieval_test(
+        "实体A 的制度？",
+        top_k=4,
+        use_hybrid=True,
+        use_hyde=False,
+        use_rerank=True,
+    )
+
+    assert seen_filters == ['(entity_name == "实体A")']
+    assert payload["entity_filter"] == '(entity_name == "实体A")'
+    assert payload["strategy"]["search_mode"] == "hybrid_filtered"
+    assert payload["fallback_info"]["used"] is False
+
+
 def test_dense_only_exact_records_fallback_blocked(monkeypatch):
     monkeypatch.setattr(svc, "get_default_query_config", lambda: QueryConfig(use_table_expand=False))
     monkeypatch.setattr(svc, "_entity_confirm_node", lambda state, config: {
