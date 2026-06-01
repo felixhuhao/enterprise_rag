@@ -106,71 +106,75 @@ strict_evidence = true | false
 Users see the Chinese labels: 标准问答, 精确查找, 全面查找, 关联查找.
 
 ```
-                    User Query
-                        │
-                        ▼
-               ┌─────────────────┐
-               │ Entity Confirm  │  detect entity, confirm or fallback
-               └────────┬────────┘
-                        ▼
-               ┌─────────────────┐
-               │   Query Plan    │  flavor, strictness, fallback policy, budget
-               └────────┬────────┘
-                        ▼
-               ┌─────────────────┐
-               │  Query Rewrite  │  optimize for retrieval
-               └────────┬────────┘
-                        │
-          ┌─────────────┼────────────────────┬─────────────────┐
-          ▼             ▼                    ▼                 ▼
-  ┌───────────────┐ ┌───────────────┐ ┌───────────────┐ ┌───────────────┐
-  │ Dense+Sparse  │ │   HyDE Search │ │ Query Expand  │ │ Multi-Hop     │
-  │ Search        │ │ balanced only │ │ recall only   │ │ discovery only│
-  └───────┬───────┘ └───────┬───────┘ └───────┬───────┘ └───────┬───────┘
-          └─────────────────┼─────────────────┼─────────────────┘
-                        ▼
-               ┌─────────────────┐
-               │   RRF Fusion    │  merge ranked lists
-               └────────┬────────┘
-                        ▼
-               ┌─────────────────┐
-               │  Table Expand   │  expand table chunks with context
-               └────────┬────────┘
-                        ▼
-               ┌─────────────────┐
-               │    Rerank       │  LLM cross-encoder rerank
-               └────────┬────────┘
-                        ▼
-               ┌─────────────────┐
-               │ Diversify       │  reduce duplicate evidence for recall/discovery/synthesis
-               │ Context         │
-               └────────┬────────┘
-                        ▼
-               ┌─────────────────┐
-               │ Context Expand  │  same-section neighbor chunks
-               └────────┬────────┘
-                        ▼
-               ┌─────────────────┐
-               │ Build Prompt    │  assemble context + citations
-               └────────┬────────┘
-                        ▼
-               ┌─────────────────┐
-               │    Generate     │  streaming LLM answer (SSE)
-               └────────┬────────┘
-                        ▼
-               ┌─────────────────┐
-               │    Validate     │  verify citations against sources
-               │   Citations     │
-               └────────┬────────┘
-                        ▼
-               ┌─────────────────┐
-               │ Groundedness    │  optional support diagnostics
-               └────────┬────────┘
-                        │
-                        ▼
-              Response + Citations
-              + Trace + Query Stats
+                  User Query
+                      │
+                      ▼
+             ┌─────────────────┐
+             │ Entity Confirm  │  detect entity, alias, fallback policy
+             └────────┬────────┘
+                      ▼
+             ┌─────────────────┐
+             │   Query Plan    │  flavor, strictness, budget
+             └────────┬────────┘
+                      ▼
+             ┌─────────────────┐
+             │  Query Rewrite  │  optimize for retrieval
+             └────────┬────────┘
+                      │
+        ┌─────────────┼─────────────┬─────────────┐
+        ▼             ▼             ▼             ▼
+┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+│ balanced     │ │ exact        │ │ recall       │ │ discovery    │
+│ search +     │ │ search only  │ │ query expand │ │ multi-hop    │
+│ optional     │ │ no HyDE      │ │ + parallel   │ │ retrieval    │
+│ HyDE         │ │              │ │ searches     │ │              │
+└───────┬──────┘ └──────┬───────┘ └──────┬───────┘ └──────┬───────┘
+        │               │                │                │
+        └───────────────┴────────┬───────┴────────────────┘
+                                 ▼
+                        ┌─────────────────┐
+                        │   RRF Fusion    │  merge result sets when needed
+                        └────────┬────────┘
+                                 ▼
+                        ┌─────────────────┐
+                        │  Table Expand   │
+                        └────────┬────────┘
+                                 ▼
+                        ┌─────────────────┐
+                        │    Rerank       │
+                        └────────┬────────┘
+                                 ▼
+                        ┌─────────────────┐
+                        │ Diversify       │
+                        │ Context         │
+                        └────────┬────────┘
+                                 ▼
+                        ┌─────────────────┐
+                        │ Context Expand  │
+                        └────────┬────────┘
+                                 ▼
+                        ┌─────────────────┐
+                        │ Build Prompt    │
+                        └────────┬────────┘
+                                 ▼
+                        ┌─────────────────┐
+                        │    Generate     │
+                        └────────┬────────┘
+                                 ▼
+                        ┌─────────────────┐
+                        │ Validate        │
+                        │ Citations       │
+                        └────────┬────────┘
+                                 ▼
+                        ┌─────────────────┐
+                        │ Groundedness    │
+                        └────────┬────────┘
+                                 ▼
+                       Response + Citations
+                       + Trace + Query Stats
 ```
+
+Only one flavor branch runs for a single query. Balanced may run primary search and HyDE in parallel; recall expands the query first and then runs multiple searches; discovery uses multi-hop retrieval instead of the direct-search path.
 
 ### Retrieval Flavors
 
