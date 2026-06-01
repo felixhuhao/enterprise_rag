@@ -14,6 +14,7 @@ from app.core.auth import CurrentUser, get_allowed_document_ids
 from app.deps import verify_token
 from app.services.chat_history import load_history, save_message
 from app.utils.sse import sse_event
+from app.utils.time import tick_ms
 
 logger = logging.getLogger(__name__)
 
@@ -129,11 +130,6 @@ async def query_chat_stream(req: QueryChatRequest, current_user: CurrentUser = D
     )
 
 
-def _tick_ms(t0: float) -> int:
-    """返回从 t0 到现在的毫秒数。"""
-    return round((time.monotonic() - t0) * 1000)
-
-
 async def _stream_generator(
     session_id: str,
     query: str,
@@ -190,11 +186,11 @@ async def _stream_generator(
 
         t = time.monotonic()
         state.update(entity_confirm_node(state, run_config))
-        trace["entity_confirm_ms"] = _tick_ms(t)
+        trace["entity_confirm_ms"] = tick_ms(t)
 
         t = time.monotonic()
         state.update(query_plan_node(state, run_config))
-        trace["query_plan_ms"] = _tick_ms(t)
+        trace["query_plan_ms"] = tick_ms(t)
 
         cfg = get_query_config(run_config)
         from app.rag.query.multi_hop import _decide_multi_hop
@@ -207,28 +203,28 @@ async def _stream_generator(
 
             t = time.monotonic()
             state.update(table_expand_node(state, run_config))
-            trace["table_expand_ms"] = _tick_ms(t)
+            trace["table_expand_ms"] = tick_ms(t)
 
             t = time.monotonic()
             state.update(rerank_node(state, run_config))
-            trace["rerank_ms"] = _tick_ms(t)
+            trace["rerank_ms"] = tick_ms(t)
         else:
             # ── Direct path（含 post-rerank fallback）──
             _run_direct_with_fallback(state, run_config, trace)
 
         t = time.monotonic()
         state.update(diversify_context_node(state, run_config))
-        trace["diversify_context_ms"] = _tick_ms(t)
+        trace["diversify_context_ms"] = tick_ms(t)
 
         t = time.monotonic()
         state.update(context_expand_node(state, run_config))
-        trace["context_expand_ms"] = _tick_ms(t)
+        trace["context_expand_ms"] = tick_ms(t)
 
         t = time.monotonic()
         state.update(build_prompt_node(state, run_config))
-        trace["build_prompt_ms"] = _tick_ms(t)
+        trace["build_prompt_ms"] = tick_ms(t)
 
-        trace["retrieval_wall_ms"] = _tick_ms(t0)
+        trace["retrieval_wall_ms"] = tick_ms(t0)
         state["trace"] = trace
         return state
 
@@ -236,11 +232,11 @@ async def _stream_generator(
         """rewrite → search+hyde → rrf."""
         t = time.monotonic()
         st.update(rewrite_query_node(st, cfg_dict))
-        trace["rewrite_ms"] = _tick_ms(t)
+        trace["rewrite_ms"] = tick_ms(t)
 
         t = time.monotonic()
         direct = run_direct_search(st, cfg_dict)
-        trace["search_hyde_ms"] = _tick_ms(t)
+        trace["search_hyde_ms"] = tick_ms(t)
         trace["rrf_fusion_ms"] = direct.pop("_rrf_fusion_ms", 0)
         st.update(direct)
 
@@ -252,11 +248,11 @@ async def _stream_generator(
 
         t = time.monotonic()
         st.update(table_expand_node(st, cfg_dict))
-        trace["table_expand_ms"] = _tick_ms(t)
+        trace["table_expand_ms"] = tick_ms(t)
 
         t = time.monotonic()
         st.update(rerank_node(st, cfg_dict))
-        trace["rerank_ms"] = _tick_ms(t)
+        trace["rerank_ms"] = tick_ms(t)
 
         # Post-rerank fallback：rerank 后 top_score 仍低 → 去掉 filter 重搜
         entity_filter = st.get("entity_filter")
@@ -281,7 +277,7 @@ async def _stream_generator(
                 t_fb2 = time.monotonic()
                 st.update(table_expand_node(st, cfg_dict))
                 st.update(rerank_node(st, cfg_dict))
-                trace["post_rerank_fallback_ms"] = _tick_ms(t_fb) + _tick_ms(t_fb2)
+                trace["post_rerank_fallback_ms"] = tick_ms(t_fb) + tick_ms(t_fb2)
 
                 st["search_mode"] = st.get("search_mode", "") + "_post_rerank_fallback"
                 st["fallback_info"] = merge_fallback_info(

@@ -12,6 +12,7 @@ import time
 
 from app.rag.query.config import QueryConfig
 from app.rag.query.fallback import empty_fallback_info, merge_fallback_info
+from app.utils.time import tick_ms
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +199,7 @@ def run_multi_hop_search(
             "status": person_status,
         })
 
-    trace["multi_hop_ms"] = _tick_ms(t)
+    trace["multi_hop_ms"] = tick_ms(t)
 
     search_mode = "multi_hop" if discovered and hop2_status == "ok" else "multi_hop_hop1_only"
 
@@ -213,7 +214,3 @@ def run_multi_hop_search(
         "hop_trace": hop_trace,
         "fallback_info": fallback_info,
     }
-
-
-def _tick_ms(t0: float) -> int:
-    return round((time.monotonic() - t0) * 1000)

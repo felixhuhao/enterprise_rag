@@ -9,6 +9,7 @@ from pathlib import Path
 from app.config import settings
 from app.rag.query.fallback import empty_fallback_info, fallback_blocked, fallback_used, merge_fallback_info
 from app.rag.query.config import QueryConfig, get_default_query_config
+from app.utils.time import tick_ms
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +45,11 @@ def run_retrieval_test(
 
     t = time.monotonic()
     state.update(_entity_confirm_node(state, run_config))
-    trace["entity_confirm_ms"] = _tick_ms(t)
+    trace["entity_confirm_ms"] = tick_ms(t)
 
     t = time.monotonic()
     state.update(_query_plan_node(state, run_config))
-    trace["query_plan_ms"] = _tick_ms(t)
+    trace["query_plan_ms"] = tick_ms(t)
     plan = state.get("query_plan", {})
 
     if _should_run_multi_hop(state, query, plan):
@@ -58,7 +59,7 @@ def run_retrieval_test(
     else:
         t = time.monotonic()
         state.update(_rewrite_query_node(state, run_config))
-        trace["rewrite_ms"] = _tick_ms(t)
+        trace["rewrite_ms"] = tick_ms(t)
 
         t = time.monotonic()
         direct = run_direct_search(
@@ -67,7 +68,7 @@ def run_retrieval_test(
             search_fn=lambda st, conf: _run_primary_search(st, conf, cfg, use_hybrid=use_hybrid),
             hyde_fn=_hyde_search_node,
         )
-        trace["search_hyde_ms"] = _tick_ms(t)
+        trace["search_hyde_ms"] = tick_ms(t)
         trace["rrf_fusion_ms"] = direct.pop("_rrf_fusion_ms", 0)
         state.update(direct)
         _localize_retrieval_paths(state.get("search_results", []))
@@ -76,7 +77,7 @@ def run_retrieval_test(
     t = time.monotonic()
     state.update(_table_expand_node(state, run_config))
     _apply_table_paths(state.get("search_results", []), table_paths)
-    trace["table_expand_ms"] = _tick_ms(t)
+    trace["table_expand_ms"] = tick_ms(t)
 
     t = time.monotonic()
     if use_rerank:
@@ -85,17 +86,17 @@ def run_retrieval_test(
         state["search_results"] = state.get("search_results", [])[:cfg.rerank_max_top_k]
         state["rerank_candidates"] = list(state.get("search_results", []))
         state["rerank_debug"] = []
-    trace["rerank_ms"] = _tick_ms(t)
+    trace["rerank_ms"] = tick_ms(t)
 
     t = time.monotonic()
     state.update(_diversify_context_node(state, run_config))
-    trace["diversify_context_ms"] = _tick_ms(t)
+    trace["diversify_context_ms"] = tick_ms(t)
 
     t = time.monotonic()
     state.update(_context_expand_node(state, run_config))
-    trace["context_expand_ms"] = _tick_ms(t)
+    trace["context_expand_ms"] = tick_ms(t)
 
-    trace["retrieval_wall_ms"] = _tick_ms(t0)
+    trace["retrieval_wall_ms"] = tick_ms(t0)
 
     results = [
         _format_result(row, rank, use_rerank=use_rerank)
@@ -402,10 +403,6 @@ def _mode_label(mode: str) -> str:
     if mode.startswith("hybrid"):
         return "Hybrid"
     return mode
-
-
-def _tick_ms(t0: float) -> int:
-    return round((time.monotonic() - t0) * 1000)
 
 
 def _entity_confirm_node(state: dict, config: dict) -> dict:
