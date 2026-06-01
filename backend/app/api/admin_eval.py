@@ -404,7 +404,6 @@ def _runner(token: str, req: RunRequest):
             mode=mode,
         )
 
-        summary = build_summary(results, mode=mode)
         failed_count = _failed_case_count(results)
 
         # write to disk
@@ -412,6 +411,12 @@ def _runner(token: str, req: RunRequest):
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         result_path = RESULT_DIR / f"eval_{ts}_results.jsonl"
         summary_path = RESULT_DIR / f"eval_{ts}_summary.json"
+        summary = build_summary(
+            results,
+            mode=mode,
+            output_path=str(result_path),
+            summary_path=str(summary_path),
+        )
 
         with open(result_path, "w", encoding="utf-8") as f:
             for r in results:

@@ -75,6 +75,88 @@ def test_summary_records_eval_mode():
     assert summary["case_count"] == 1
 
 
+def test_summary_exposes_compact_run_metrics_and_paths():
+    summary = build_summary([
+        {
+            "id": "pass",
+            "eval_mode": "full",
+            "final_score": 1.0,
+            "eval_type": "rule",
+            "preferred_flavor": "exact",
+            "strict_evidence": False,
+            "expected_documents": ["doc.md"],
+            "citation_score": 1.0,
+            "hit_metric_applicable": True,
+            "hit_at_5": True,
+            "hit_at_10": True,
+            "trace": {"total_ms": 100},
+        },
+        {
+            "id": "warn",
+            "eval_mode": "full",
+            "final_score": 0.7,
+            "eval_type": "rule",
+            "preferred_flavor": "exact",
+            "strict_evidence": False,
+            "expected_documents": ["doc.md"],
+            "citation_score": 0.0,
+            "hit_metric_applicable": True,
+            "hit_at_5": False,
+            "hit_at_10": True,
+            "trace": {"total_ms": 200},
+        },
+        {
+            "id": "timeout",
+            "eval_mode": "full",
+            "final_score": 0.0,
+            "eval_type": "rule",
+            "preferred_flavor": "exact",
+            "strict_evidence": False,
+            "error": "case timed out after 1s",
+            "trace": {"total_ms": 300},
+        },
+    ], output_path="/tmp/results.jsonl", summary_path="/tmp/summary.json")
+
+    assert summary["flavor"] == "exact"
+    assert summary["scored_count"] == 3
+    assert summary["passed"] == 1
+    assert summary["warning"] == 1
+    assert summary["failed"] == 1
+    assert summary["timeout_count"] == 1
+    assert summary["hit_at_5"] == 0.5
+    assert summary["hit_at_10"] == 1.0
+    assert summary["citation_hit_rate"] == 0.5
+    assert summary["answer_pass_rate"] == 0.3333
+    assert summary["latency_p50_ms"] == 200
+    assert summary["latency_p95_ms"] == 300
+    assert summary["output_path"] == "/tmp/results.jsonl"
+    assert summary["summary_path"] == "/tmp/summary.json"
+
+
+def test_retrieval_only_summary_marks_answer_metrics_not_applicable():
+    summary = build_summary([
+        {
+            "id": "r1",
+            "eval_mode": "retrieval_only",
+            "final_score": 1.0,
+            "eval_type": "rule",
+            "preferred_flavor": "recall",
+            "strict_evidence": True,
+            "hit_metric_applicable": True,
+            "hit_at_5": True,
+            "hit_at_10": True,
+            "retrieval_latency_ms": 12,
+        }
+    ], mode="retrieval_only")
+
+    assert summary["mode"] == "retrieval_only"
+    assert summary["hit_at_5"] == 1.0
+    assert summary["hit_at_10"] == 1.0
+    assert summary["answer_pass_rate"] is None
+    assert summary["citation_hit_rate"] is None
+    assert summary["latency_p50_ms"] == 12
+
+
 def test_query_rag_marks_request_as_eval(monkeypatch):
     captured = {}
 

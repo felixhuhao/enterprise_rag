@@ -11,16 +11,35 @@ export interface EvalBreakdownMetric {
 
 export interface EvalSummary {
   mode?: string
+  flavor?: string
   case_count?: number
+  scored_count?: number
+  passed?: number
+  warning?: number
+  failed?: number
+  timeout_count?: number
+  hit_at_5?: number | null
+  hit_at_10?: number | null
+  citation_hit_rate?: number | null
+  answer_pass_rate?: number | null
+  latency_p50_ms?: number | null
+  latency_p95_ms?: number | null
+  output_path?: string
+  summary_path?: string
   overall: {
     count: number
-    avg_score: number
-    pass_rate: number
+    avg_score?: number | null
+    pass_rate?: number | null
+    hit_eval_count?: number
+    hit_at_5_rate?: number | null
+    hit_at_10_rate?: number | null
+    p50_latency_ms?: number | null
+    p95_latency_ms?: number | null
   }
   per_breakdown?: Record<string, unknown>
   per_flavor?: Record<string, EvalBreakdownMetric>
-  per_strict?: EvalBreakdownMetric
-  low_score_cases?: Array<{ id: string; final_score: number; question: string }>
+  per_strict?: EvalBreakdownMetric | null
+  low_score_cases?: Array<{ id: string; score?: number; final_score?: number; question?: string; reason?: string }>
 }
 
 export interface EvalStatus {

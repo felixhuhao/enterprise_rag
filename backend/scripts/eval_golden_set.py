@@ -22,6 +22,7 @@ Golden Set 自动化评估脚本 V2
 
 import argparse
 import json
+import math
 import re
 import sys
 import time
@@ -1379,17 +1380,40 @@ def _infer_eval_mode(results: list[dict]) -> str:
     return "full"
 
 
-def build_summary(results: list[dict], mode: str | None = None) -> dict:
+def build_summary(
+    results: list[dict],
+    mode: str | None = None,
+    output_path: str = "",
+    summary_path: str = "",
+) -> dict:
     """Build structured summary with per-type breakdown."""
     eval_mode = normalize_eval_mode(mode or _infer_eval_mode(results))
     scored = [r for r in results if r.get("final_score") is not None]
 
     if not scored:
+        overall = _empty_overall()
         return {
             "mode": eval_mode,
+            "flavor": _summary_flavor(results),
             "case_count": len(results),
-            "overall": {"count": 0},
+            "scored_count": 0,
+            "passed": 0,
+            "warning": 0,
+            "failed": _summary_failed_count(results),
+            "timeout_count": _summary_timeout_count(results),
+            "hit_at_5": None,
+            "hit_at_10": None,
+            "citation_hit_rate": None,
+            "answer_pass_rate": None,
+            "latency_p50_ms": None,
+            "latency_p95_ms": None,
+            "output_path": str(output_path or ""),
+            "summary_path": str(summary_path or ""),
+            "overall": overall,
             "per_breakdown": {},
+            "per_flavor": {},
+            "per_tag": {},
+            "per_strict": None,
             "low_score_cases": [],
         }
 
@@ -1404,11 +1428,10 @@ def build_summary(results: list[dict], mode: str | None = None) -> dict:
         "hit_at_10_rate": round(sum(1 for r in hit_scored if r.get("hit_at_10")) / len(hit_scored), 4) if hit_scored else None,
     }
 
-    # p95 latency from trace
-    latencies = sorted(r.get("trace", {}).get("total_ms", 0) for r in scored if r.get("trace", {}).get("total_ms"))
+    latencies = _summary_latencies(scored)
     if latencies:
-        p95_idx = min(int(len(latencies) * 0.95), len(latencies) - 1)
-        overall["p95_latency_ms"] = latencies[p95_idx]
+        overall["p50_latency_ms"] = _percentile_ms(latencies, 0.50)
+        overall["p95_latency_ms"] = _percentile_ms(latencies, 0.95)
 
     per_breakdown = {}
     for etype in ["rule", "llm_judge", "no_answer"]:
@@ -1492,7 +1515,21 @@ def build_summary(results: list[dict], mode: str | None = None) -> dict:
 
     return {
         "mode": eval_mode,
+        "flavor": _summary_flavor(results),
         "case_count": len(results),
+        "scored_count": len(scored),
+        "passed": sum(1 for s in scores if s >= 0.8),
+        "warning": sum(1 for s in scores if 0.5 <= s < 0.8),
+        "failed": _summary_failed_count(results),
+        "timeout_count": _summary_timeout_count(results),
+        "hit_at_5": overall["hit_at_5_rate"],
+        "hit_at_10": overall["hit_at_10_rate"],
+        "citation_hit_rate": _citation_hit_rate(scored, eval_mode),
+        "answer_pass_rate": None if eval_mode == "retrieval_only" else overall["pass_rate"],
+        "latency_p50_ms": overall.get("p50_latency_ms"),
+        "latency_p95_ms": overall.get("p95_latency_ms"),
+        "output_path": str(output_path or ""),
+        "summary_path": str(summary_path or ""),
         "overall": overall,
         "per_breakdown": per_breakdown,
         "per_flavor": per_flavor,
@@ -1500,6 +1537,86 @@ def build_summary(results: list[dict], mode: str | None = None) -> dict:
         "per_strict": per_strict,
         "low_score_cases": low_cases,
     }
+
+
+def _empty_overall() -> dict:
+    return {
+        "count": 0,
+        "avg_score": None,
+        "pass_rate": None,
+        "hit_eval_count": 0,
+        "hit_at_5_rate": None,
+        "hit_at_10_rate": None,
+        "p50_latency_ms": None,
+        "p95_latency_ms": None,
+    }
+
+
+def _summary_flavor(results: list[dict]) -> str:
+    flavors = sorted({_actual_or_requested_flavor(row) for row in results if row})
+    if not flavors:
+        return ""
+    return flavors[0] if len(flavors) == 1 else "mixed"
+
+
+def _summary_failed_count(results: list[dict]) -> int:
+    failed = 0
+    for row in results:
+        score = row.get("final_score")
+        if row.get("error"):
+            failed += 1
+        elif score is not None and score < 0.5:
+            failed += 1
+    return failed
+
+
+def _summary_timeout_count(results: list[dict]) -> int:
+    return sum(1 for row in results if "timed out" in str(row.get("error") or "").lower())
+
+
+def _summary_latencies(results: list[dict]) -> list[int]:
+    values = []
+    for row in results:
+        trace = row.get("trace") if isinstance(row.get("trace"), dict) else {}
+        value = (
+            _positive_ms(trace.get("total_ms"))
+            or _positive_ms(row.get("retrieval_latency_ms"))
+            or _positive_ms(trace.get("retrieval_wall_ms"))
+        )
+        if value is not None:
+            values.append(value)
+    return sorted(values)
+
+
+def _positive_ms(value) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number <= 0:
+        return None
+    return int(round(number))
+
+
+def _percentile_ms(sorted_values: list[int], percentile: float) -> int | None:
+    if not sorted_values:
+        return None
+    idx = max(0, min(math.ceil(len(sorted_values) * percentile) - 1, len(sorted_values) - 1))
+    return sorted_values[idx]
+
+
+def _citation_hit_rate(scored: list[dict], eval_mode: str) -> float | None:
+    if eval_mode == "retrieval_only":
+        return None
+    cited = [
+        row for row in scored
+        if row.get("citation_score") is not None and row.get("expected_documents")
+    ]
+    if not cited:
+        return None
+    return round(sum(1 for row in cited if float(row.get("citation_score") or 0) >= 1.0) / len(cited), 4)
 
 
 def print_summary(results: list[dict]):
@@ -1726,7 +1843,7 @@ def main():
         base = base[:-len("_results")]
     summary_path = str(Path(output_path).parent / f"{base}_summary.json")
 
-    summary = build_summary(results, mode=mode)
+    summary = build_summary(results, mode=mode, output_path=output_path, summary_path=summary_path)
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
     print(f"Summary saved to {summary_path}")

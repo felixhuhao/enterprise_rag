@@ -70,9 +70,25 @@
     <div v-if="summary && (status === 'succeeded' || status === 'failed')" class="eval-summary">
       <div class="sum-row">
         <span class="sum-item">模式 {{ evalModeLabel(summary.mode || runMode) }}</span>
-        <span class="sum-item">{{ summary.overall.count }} 题</span>
+        <span class="sum-item">策略 {{ summaryFlavorLabel(summary.flavor) }}</span>
+        <span class="sum-item">题目 {{ summary.case_count ?? summary.overall.count }}</span>
+        <span class="sum-item">已评分 {{ summary.scored_count ?? summary.overall.count }}</span>
+        <span class="sum-item">通过 {{ summary.passed ?? '-' }}</span>
+        <span class="sum-item">警告 {{ summary.warning ?? '-' }}</span>
+        <span class="sum-item">失败 {{ summary.failed ?? '-' }}</span>
         <span class="sum-item">均分 {{ percent(summary.overall.avg_score) }}</span>
-        <span class="sum-item">通过率 {{ percent(summary.overall.pass_rate) }}</span>
+        <span class="sum-item">评分通过 {{ percent(summary.overall.pass_rate) }}</span>
+        <span class="sum-item">答案通过 {{ percent(summary.answer_pass_rate) }}</span>
+        <span class="sum-item">Hit@5 {{ percent(summary.hit_at_5 ?? summary.overall.hit_at_5_rate) }}</span>
+        <span class="sum-item">Hit@10 {{ percent(summary.hit_at_10 ?? summary.overall.hit_at_10_rate) }}</span>
+        <span class="sum-item">引用命中 {{ percent(summary.citation_hit_rate) }}</span>
+        <span class="sum-item">P50 {{ ms(summary.latency_p50_ms ?? summary.overall.p50_latency_ms) }}</span>
+        <span class="sum-item">P95 {{ ms(summary.latency_p95_ms ?? summary.overall.p95_latency_ms) }}</span>
+        <span class="sum-item">超时 {{ summary.timeout_count ?? 0 }}</span>
+      </div>
+      <div v-if="currentResultPath || currentSummaryPath" class="eval-output-paths">
+        <span v-if="currentResultPath">结果 {{ currentResultPath }}</span>
+        <span v-if="currentSummaryPath">摘要 {{ currentSummaryPath }}</span>
       </div>
 
       <div v-if="flavorRows.length" class="flavor-breakdown">
@@ -348,6 +364,8 @@ const evalTotal = ref(0)
 const evalCurrent = ref(0)
 const evalCurrentId = ref('')
 const evalResults = ref<EvalCaseResult[]>([])
+const resultPath = ref('')
+const summaryPath = ref('')
 const runMode = ref<'full' | 'quick' | 'retrieval_only'>('full')
 const runScope = ref<'all' | 'failed' | 'flavor' | 'first_n'>('all')
 const runFlavor = ref('balanced')
@@ -413,6 +431,8 @@ const evalProgressPercent = computed(() => {
   if (!evalTotal.value) return 0
   return Math.min(100, Math.max(0, (evalCurrent.value / evalTotal.value) * 100))
 })
+const currentResultPath = computed(() => summary.value?.output_path || resultPath.value)
+const currentSummaryPath = computed(() => summary.value?.summary_path || summaryPath.value)
 
 function emptyDraftForm(): GoldenDraftUpdate {
   return {
@@ -436,6 +456,11 @@ function percent(value: number | null | undefined): string {
 function formatScore(value: number | null | undefined): string {
   if (value === null || value === undefined) return ''
   return value.toFixed(2)
+}
+
+function ms(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '-'
+  return `${Math.round(value)}ms`
 }
 
 function columnStyle(key: string) {
@@ -475,16 +500,27 @@ function evalModeLabel(value: string): string {
   return '完整'
 }
 
+function summaryFlavorLabel(value: string | undefined): string {
+  if (!value) return '-'
+  if (value === 'mixed') return '混合'
+  return flavorLabel(value)
+}
+
 async function refresh(): Promise<boolean> {
   try {
     const s = await getEvalStatus()
     status.value = s.status
     summary.value = s.summary
     error.value = s.error
+    resultPath.value = s.result_path || s.summary?.output_path || ''
+    summaryPath.value = s.summary_path || s.summary?.summary_path || ''
     evalTotal.value = s.total ?? 0
     evalCurrent.value = s.current ?? 0
     evalCurrentId.value = s.current_id ?? ''
     evalResults.value = s.results_preview ?? []
+    if (s.mode === 'full' || s.mode === 'quick' || s.mode === 'retrieval_only') {
+      runMode.value = s.mode
+    }
     pollFailCount = 0
     return true
   } catch {
@@ -502,7 +538,10 @@ async function onRun() {
   if (!options) return
   clearPoll()
   status.value = 'running'
+  summary.value = null
   error.value = ''
+  resultPath.value = ''
+  summaryPath.value = ''
   evalCurrent.value = 0
   evalCurrentId.value = ''
   evalResults.value = []
@@ -882,6 +921,16 @@ onUnmounted(clearPoll)
   color: var(--text-secondary);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+.eval-output-paths {
+  display: grid;
+  gap: 3px;
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
 }
 
 .flavor-breakdown {
