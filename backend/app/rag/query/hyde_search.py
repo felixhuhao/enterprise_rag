@@ -9,7 +9,6 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph.state import RunnableConfig
 
 from app.config import settings
-from app.rag.chunking.chunk_keys import base_chunk_key
 from app.rag.embeddings.dense_embedding import dense_embedding
 from app.rag.query.config import get_query_config
 from app.rag.query.fallback import (
@@ -19,11 +18,11 @@ from app.rag.query.fallback import (
     fallback_used,
 )
 from app.rag.query.filter_utils import build_acl_expr, combine_filters, get_allowed_ids
-from app.rag.query.metadata_utils import parse_json_list
 from app.rag.query.planner import get_query_plan, plan_allows_entity_fallback, plan_budget
 from app.rag.query.search import SEARCH_TIMEOUT
 from app.rag.query.state import QueryState
 from app.rag.vectorstores.general_milvus import COLLECTION_NAME, available_output_fields, client
+from app.rag.vectorstores.milvus_hits import parse_hits
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +112,7 @@ def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
             output_fields=available_output_fields(OUTPUT_FIELDS),
             timeout=SEARCH_TIMEOUT,
         )
-        hits = _parse_hits(results[0])
+        hits = parse_hits(results[0])
         mode = "hyde_filtered" if entity_filter else "hyde"
         need_fb = original_entity_filter and (
             len(hits) < cfg.entity_filter_min_results
@@ -136,7 +135,7 @@ def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
                     output_fields=available_output_fields(OUTPUT_FIELDS),
                     timeout=SEARCH_TIMEOUT,
                 )
-                hits = _parse_hits(results[0])
+                hits = parse_hits(results[0])
                 mode = "hyde_filtered_fallback_unfiltered"
                 info = fallback_used(original_entity_filter, REASON_LOW_SCORE_OR_INSUFFICIENT_HITS)
             else:
@@ -147,42 +146,3 @@ def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
 
     logger.debug("HyDE search mode: %s (%d hits)", mode, len(hits))
     return {"search_results_hyde": hits, "search_mode_hyde": mode, "fallback_info": info}
-
-
-def _parse_hits(hits) -> list[dict]:
-    out = []
-    for hit in hits:
-        entity = hit["entity"]
-        chunk_id = hit.get("id") or hit.get("chunk_id") or entity.get("chunk_id")
-        out.append({
-            "chunk_id": chunk_id,
-            "chunk_key": entity.get("chunk_key") or _fallback_chunk_key(entity),
-            "document_id": entity.get("document_id", ""),
-            "page": entity.get("page"),
-            "file_title": entity.get("file_title", ""),
-            "entity_name": entity.get("entity_name", ""),
-            "title": entity.get("title", ""),
-            "section_title": entity.get("section_title", ""),
-            "source_type": entity.get("source_type", ""),
-            "table_id": entity.get("table_id", ""),
-            "table_title": entity.get("table_title", ""),
-            "table_tokens": entity.get("table_tokens"),
-            "raw_table_path": entity.get("raw_table_path", ""),
-            "content": entity.get("content", ""),
-            "keywords": parse_json_list(entity.get("keywords")),
-            "structured_tags": parse_json_list(entity.get("structured_tags")),
-            "part": entity.get("part"),
-            "score": hit["distance"],
-        })
-    return out
-
-
-def _fallback_chunk_key(entity: dict) -> str:
-    return base_chunk_key({
-        "document_id": entity.get("document_id", ""),
-        "source_type": entity.get("source_type", ""),
-        "table_id": entity.get("table_id", ""),
-        "section_title": entity.get("section_title", ""),
-        "part": entity.get("part"),
-        "content": entity.get("content", ""),
-    })

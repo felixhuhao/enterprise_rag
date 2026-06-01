@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import logging
 
 from pymilvus import AnnSearchRequest, WeightedRanker
 from langgraph.graph.state import RunnableConfig
 
-from app.rag.chunking.chunk_keys import base_chunk_key
 from app.rag.embeddings.dense_embedding import dense_embedding
 from app.rag.query.config import QueryConfig, get_query_config
 from app.rag.query.fallback import (
@@ -18,11 +16,11 @@ from app.rag.query.fallback import (
     fallback_used,
 )
 from app.rag.query.filter_utils import build_acl_expr, build_entity_expr, combine_filters, get_allowed_ids
-from app.rag.query.metadata_utils import parse_json_list
 from app.rag.query.planner import plan_allows_entity_fallback, plan_budget
 from app.rag.query.scoring_utils import need_fallback
 from app.rag.query.state import QueryState
 from app.rag.vectorstores.general_milvus import COLLECTION_NAME, available_output_fields, client
+from app.rag.vectorstores.milvus_hits import parse_hits
 
 logger = logging.getLogger(__name__)
 
@@ -244,7 +242,7 @@ def _hybrid_search_limited(query_dense, query_text, entity_filter, limit: int, c
         output_fields=available_output_fields(OUTPUT_FIELDS),
         timeout=SEARCH_TIMEOUT,
     )
-    return _parse_hits(results[0])
+    return parse_hits(results[0], include_image_paths=True)
 
 
 def _dense_only_search_limited(query_dense, entity_filter, limit: int):
@@ -259,7 +257,7 @@ def _dense_only_search_limited(query_dense, entity_filter, limit: int):
         output_fields=available_output_fields(OUTPUT_FIELDS),
         timeout=SEARCH_TIMEOUT,
     )
-    return _parse_hits(results[0])
+    return parse_hits(results[0], include_image_paths=True)
 
 
 def _hybrid_search(query_dense, query_text, entity_filter, cfg: QueryConfig, limit: int | None = None):
@@ -286,7 +284,7 @@ def _hybrid_search(query_dense, query_text, entity_filter, cfg: QueryConfig, lim
         output_fields=available_output_fields(OUTPUT_FIELDS),
         timeout=SEARCH_TIMEOUT,
     )
-    return _parse_hits(results[0])
+    return parse_hits(results[0], include_image_paths=True)
 
 
 def _dense_only_search(query_dense, entity_filter, cfg: QueryConfig, limit: int | None = None):
@@ -301,44 +299,4 @@ def _dense_only_search(query_dense, entity_filter, cfg: QueryConfig, limit: int 
         output_fields=available_output_fields(OUTPUT_FIELDS),
         timeout=SEARCH_TIMEOUT,
     )
-    return _parse_hits(results[0])
-
-
-def _parse_hits(hits) -> list[dict]:
-    out = []
-    for hit in hits:
-        entity = hit["entity"]
-        chunk_id = hit.get("id") or hit.get("chunk_id") or entity.get("chunk_id")
-        out.append({
-            "chunk_id": chunk_id,
-            "chunk_key": entity.get("chunk_key") or _fallback_chunk_key(entity),
-            "document_id": entity.get("document_id", ""),
-            "page": entity.get("page"),
-            "file_title": entity.get("file_title", ""),
-            "entity_name": entity.get("entity_name", ""),
-            "title": entity.get("title", ""),
-            "section_title": entity.get("section_title", ""),
-            "source_type": entity.get("source_type", ""),
-            "table_id": entity.get("table_id", ""),
-            "table_title": entity.get("table_title", ""),
-            "table_tokens": entity.get("table_tokens"),
-            "raw_table_path": entity.get("raw_table_path", ""),
-            "content": entity.get("content", ""),
-            "keywords": parse_json_list(entity.get("keywords")),
-            "structured_tags": parse_json_list(entity.get("structured_tags")),
-            "part": entity.get("part"),
-            "image_paths": json.loads(entity.get("image_paths") or "[]"),
-            "score": hit["distance"],
-        })
-    return out
-
-
-def _fallback_chunk_key(entity: dict) -> str:
-    return base_chunk_key({
-        "document_id": entity.get("document_id", ""),
-        "source_type": entity.get("source_type", ""),
-        "table_id": entity.get("table_id", ""),
-        "section_title": entity.get("section_title", ""),
-        "part": entity.get("part"),
-        "content": entity.get("content", ""),
-    })
+    return parse_hits(results[0], include_image_paths=True)

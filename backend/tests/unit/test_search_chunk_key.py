@@ -1,7 +1,7 @@
 """Unit tests for derived chunk_key on search results."""
 
 from app.rag.chunking.chunk_keys import base_chunk_key
-from app.rag.query.search import _parse_hits
+from app.rag.vectorstores.milvus_hits import parse_hits
 
 
 def test_parse_hits_derives_chunk_key_when_old_schema_has_none():
@@ -14,7 +14,7 @@ def test_parse_hits_derives_chunk_key_when_old_schema_has_none():
         "content": "hello world",
     }
 
-    rows = _parse_hits([{"id": 123, "distance": 0.9, "entity": entity}])
+    rows = parse_hits([{"id": 123, "distance": 0.9, "entity": entity}])
 
     assert rows[0]["chunk_key"] == base_chunk_key(entity)
 
@@ -27,7 +27,7 @@ def test_parse_hits_preserves_milvus_chunk_key():
         "content": "hello world",
     }
 
-    rows = _parse_hits([{"id": 123, "distance": 0.9, "entity": entity}])
+    rows = parse_hits([{"id": 123, "distance": 0.9, "entity": entity}])
 
     assert rows[0]["chunk_key"] == "ck_existing"
 
@@ -42,7 +42,7 @@ def test_parse_hits_decodes_enrichment_metadata():
         "structured_tags": '["amount_threshold", "approval_rule"]',
     }
 
-    rows = _parse_hits([{"id": 123, "distance": 0.9, "entity": entity}])
+    rows = parse_hits([{"id": 123, "distance": 0.9, "entity": entity}])
 
     assert rows[0]["keywords"] == ["VP审批"]
     assert rows[0]["structured_tags"] == ["amount_threshold", "approval_rule"]
