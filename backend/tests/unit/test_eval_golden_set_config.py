@@ -541,7 +541,7 @@ def test_retrieval_only_case_uses_retrieval_service_without_generation(monkeypat
     assert row["trace"]["total_ms"] == 12
 
 
-def test_answer_lite_scores_llm_cases_without_judge(monkeypatch):
+def test_answer_lite_scores_llm_cases_without_judge(monkeypatch, tmp_path):
     def fake_query_rag(*_args, **_kwargs):
         return {
             "answer": "covered answer",
@@ -572,7 +572,12 @@ def test_answer_lite_scores_llm_cases_without_judge(monkeypatch):
         "http://test/api",
         "token",
         delay=0,
-        judge_config={"chat_model": "model", "api_key": "key", "base_url": "url"},
+        judge_config={
+            "chat_model": "model",
+            "api_key": "key",
+            "base_url": "url",
+            "cache_path": str(tmp_path / "judge_cache.json"),
+        },
         mode="answer_lite",
     )
 
@@ -653,7 +658,7 @@ def test_case_error_row_marks_timeout_category():
     assert row["failure_categories"] == ["timeout"]
 
 
-def test_llm_judge_scores_before_case_finished(monkeypatch):
+def test_llm_judge_scores_before_case_finished(monkeypatch, tmp_path):
     events = []
 
     def fake_query_rag(*_args, **_kwargs):
@@ -685,7 +690,12 @@ def test_llm_judge_scores_before_case_finished(monkeypatch):
         "http://test/api",
         "token",
         delay=0,
-        judge_config={"chat_model": "model", "api_key": "key", "base_url": "url"},
+        judge_config={
+            "chat_model": "model",
+            "api_key": "key",
+            "base_url": "url",
+            "cache_path": str(tmp_path / "judge_cache.json"),
+        },
         progress_callback=events.append,
     )
 
@@ -695,7 +705,214 @@ def test_llm_judge_scores_before_case_finished(monkeypatch):
     assert finished[0]["row"]["final_score"] == 0.85
 
 
-def test_quick_mode_can_run_judge_when_requested(monkeypatch):
+def test_llm_judge_cache_reuses_unchanged_answer(monkeypatch, tmp_path):
+    calls = {"count": 0}
+
+    def fake_query_rag(*_args, **_kwargs):
+        return {
+            "answer": "covered answer [C1]",
+            "citations": [{"id": "C1", "file_title": "doc.md"}],
+            "trace": {},
+            "retrieval_step": {},
+            "rerank_results": [],
+            "search_mode": "",
+            "retrieval_flavor": "balanced",
+            "strict_evidence": False,
+            "error": None,
+        }
+
+    def fake_judge(**_kwargs):
+        calls["count"] += 1
+        return {"score": 0.8, "verdict": "pass", "reason": "ok"}
+
+    monkeypatch.setattr(client, "query_rag", fake_query_rag)
+    monkeypatch.setattr(judge, "_call_llm_judge", fake_judge)
+    judge_config = {
+        "chat_model": "model",
+        "api_key": "key",
+        "base_url": "url",
+        "cache_path": str(tmp_path / "judge_cache.json"),
+    }
+    case = {
+        "id": "judge-cache",
+        "question": "judge-cache",
+        "eval_type": "llm_judge",
+        "expected_points": ["covered"],
+        "expected_documents": ["doc.md"],
+    }
+
+    first = run_eval([case], "http://test/api", "token", delay=0, judge_config=judge_config)
+    second = run_eval([case], "http://test/api", "token", delay=0, judge_config=judge_config)
+    summary = build_summary([first[0], second[0]])
+
+    assert calls["count"] == 1
+    assert first[0]["judge_cache_status"] == "fresh"
+    assert first[0]["judge_cache_hit"] is False
+    assert second[0]["judge_cache_status"] == "cached"
+    assert second[0]["judge_cache_hit"] is True
+    assert second[0]["judge_score"] == 0.8
+    assert summary["judge_cache"] == {
+        "checked": 2,
+        "hits": 1,
+        "misses": 1,
+        "cached": 1,
+        "fresh": 1,
+        "lookup_miss": 0,
+        "errors": 0,
+        "score": {
+            "checked": 2,
+            "hits": 1,
+            "misses": 1,
+            "cached": 1,
+            "fresh": 1,
+            "lookup_miss": 0,
+            "errors": 0,
+        },
+        "lookup_only": {
+            "checked": 0,
+            "hits": 0,
+            "misses": 0,
+            "cached": 0,
+            "fresh": 0,
+            "lookup_miss": 0,
+            "errors": 0,
+        },
+    }
+
+
+def test_llm_judge_cache_misses_when_answer_changes(monkeypatch, tmp_path):
+    calls = {"count": 0}
+    answers = iter(["first answer", "second answer"])
+
+    def fake_query_rag(*_args, **_kwargs):
+        return {
+            "answer": next(answers),
+            "citations": [],
+            "trace": {},
+            "retrieval_step": {},
+            "rerank_results": [],
+            "search_mode": "",
+            "retrieval_flavor": "balanced",
+            "strict_evidence": False,
+            "error": None,
+        }
+
+    def fake_judge(**_kwargs):
+        calls["count"] += 1
+        return {"score": 0.8, "verdict": "pass", "reason": "ok"}
+
+    monkeypatch.setattr(client, "query_rag", fake_query_rag)
+    monkeypatch.setattr(judge, "_call_llm_judge", fake_judge)
+    judge_config = {
+        "chat_model": "model",
+        "api_key": "key",
+        "base_url": "url",
+        "cache_path": str(tmp_path / "judge_cache.json"),
+    }
+    case = {"id": "judge-cache", "question": "judge-cache", "eval_type": "llm_judge"}
+
+    first = run_eval([case], "http://test/api", "token", delay=0, judge_config=judge_config)
+    second = run_eval([case], "http://test/api", "token", delay=0, judge_config=judge_config)
+
+    assert calls["count"] == 2
+    assert first[0]["judge_cache_status"] == "fresh"
+    assert second[0]["judge_cache_status"] == "fresh"
+
+
+def test_answer_lite_can_reuse_cached_judge_without_fresh_call(monkeypatch, tmp_path):
+    calls = {"count": 0}
+
+    def fake_query_rag(*_args, **_kwargs):
+        return {
+            "answer": "qualitative answer",
+            "citations": [],
+            "trace": {},
+            "retrieval_step": {},
+            "rerank_results": [],
+            "search_mode": "",
+            "retrieval_flavor": "balanced",
+            "strict_evidence": False,
+            "error": None,
+        }
+
+    def fake_judge(**_kwargs):
+        calls["count"] += 1
+        return {"score": 0.9, "verdict": "pass", "reason": "ok"}
+
+    monkeypatch.setattr(client, "query_rag", fake_query_rag)
+    monkeypatch.setattr(judge, "_call_llm_judge", fake_judge)
+    judge_config = {
+        "chat_model": "model",
+        "api_key": "key",
+        "base_url": "url",
+        "cache_path": str(tmp_path / "judge_cache.json"),
+    }
+    case = {
+        "id": "lite-cache",
+        "question": "lite-cache",
+        "eval_type": "llm_judge",
+        "expected_points": ["not in answer"],
+    }
+
+    run_eval([case], "http://test/api", "token", delay=0, judge_config=judge_config)
+    lite = run_eval([case], "http://test/api", "token", delay=0, judge_config=judge_config, mode="answer_lite")
+
+    assert calls["count"] == 1
+    assert lite[0]["eval_mode"] == "answer_lite"
+    assert lite[0]["judge_cache_status"] == "cached"
+    assert lite[0]["judge_cache_hit"] is True
+    assert lite[0]["judge_cache_usage"] == "score"
+    assert lite[0]["final_score"] == 0.925
+    assert "unscored_reason" not in lite[0]
+
+
+def test_answer_lite_cached_judge_overrides_deterministic_score(monkeypatch, tmp_path):
+    calls = {"count": 0}
+
+    def fake_query_rag(*_args, **_kwargs):
+        return {
+            "answer": "covered answer",
+            "citations": [],
+            "trace": {},
+            "retrieval_step": {},
+            "rerank_results": [],
+            "search_mode": "",
+            "retrieval_flavor": "balanced",
+            "strict_evidence": False,
+            "error": None,
+        }
+
+    def fake_judge(**_kwargs):
+        calls["count"] += 1
+        return {"score": 0.3, "verdict": "fail", "reason": "not good enough"}
+
+    monkeypatch.setattr(client, "query_rag", fake_query_rag)
+    monkeypatch.setattr(judge, "_call_llm_judge", fake_judge)
+    judge_config = {
+        "chat_model": "model",
+        "api_key": "key",
+        "base_url": "url",
+        "cache_path": str(tmp_path / "judge_cache.json"),
+    }
+    case = {
+        "id": "lite-cache-override",
+        "question": "lite-cache-override",
+        "eval_type": "llm_judge",
+        "expected_points": ["covered"],
+    }
+
+    run_eval([case], "http://test/api", "token", delay=0, judge_config=judge_config)
+    lite = run_eval([case], "http://test/api", "token", delay=0, judge_config=judge_config, mode="answer_lite")
+
+    assert calls["count"] == 1
+    assert lite[0]["answer_score"] == 1.0
+    assert lite[0]["judge_cache_status"] == "cached"
+    assert lite[0]["judge_score"] == 0.3
+    assert lite[0]["final_score"] == 0.475
+    assert lite[0]["scoring_version"] == "answer_lite_cached_judge_v1"
+
+
+def test_quick_mode_can_run_judge_when_requested(monkeypatch, tmp_path):
     def fake_query_rag(*_args, **_kwargs):
         return {
             "answer": "covered answer",
@@ -725,7 +942,12 @@ def test_quick_mode_can_run_judge_when_requested(monkeypatch):
         "http://test/api",
         "token",
         delay=0,
-        judge_config={"chat_model": "model", "api_key": "key", "base_url": "url"},
+        judge_config={
+            "chat_model": "model",
+            "api_key": "key",
+            "base_url": "url",
+            "cache_path": str(tmp_path / "judge_cache.json"),
+        },
         mode="quick",
     )
 
@@ -734,7 +956,7 @@ def test_quick_mode_can_run_judge_when_requested(monkeypatch):
     assert results[0]["final_score"] == 0.85
 
 
-def test_llm_judge_error_falls_back_to_citation_score(monkeypatch):
+def test_llm_judge_error_falls_back_to_citation_score(monkeypatch, tmp_path):
     def fake_query_rag(*_args, **_kwargs):
         return {
             "answer": "covered answer [C1]",
@@ -766,13 +988,64 @@ def test_llm_judge_error_falls_back_to_citation_score(monkeypatch):
         "http://test/api",
         "token",
         delay=0,
-        judge_config={"chat_model": "model", "api_key": "key", "base_url": "url"},
+        judge_config={
+            "chat_model": "model",
+            "api_key": "key",
+            "base_url": "url",
+            "cache_path": str(tmp_path / "judge_cache.json"),
+        },
     )
 
     assert results[0].get("error") is None
     assert results[0]["judge_error"] == "judge error: empty judge response"
     assert results[0]["final_score"] == 1.0
     assert results[0]["verdict"] == "pass"
+
+
+def test_llm_judge_error_falls_back_to_zero_when_expected_docs_missing(monkeypatch, tmp_path):
+    def fake_query_rag(*_args, **_kwargs):
+        return {
+            "answer": "covered answer without citations",
+            "citations": [],
+            "trace": {},
+            "retrieval_step": {},
+            "rerank_results": [],
+            "search_mode": "",
+            "retrieval_flavor": "balanced",
+            "strict_evidence": False,
+            "error": None,
+        }
+
+    def fake_judge(**_kwargs):
+        return {"error": "empty judge response"}
+
+    monkeypatch.setattr(client, "query_rag", fake_query_rag)
+    monkeypatch.setattr(judge, "_call_llm_judge", fake_judge)
+
+    results = run_eval(
+        [{
+            "id": "judge-empty-citation",
+            "question": "judge-empty-citation",
+            "eval_type": "llm_judge",
+            "expected_points": ["covered"],
+            "expected_documents": ["doc.md"],
+            "min_expected_citations": 1,
+        }],
+        "http://test/api",
+        "token",
+        delay=0,
+        judge_config={
+            "chat_model": "model",
+            "api_key": "key",
+            "base_url": "url",
+            "cache_path": str(tmp_path / "judge_cache.json"),
+        },
+    )
+
+    assert results[0]["expected_docs"] == ["doc.md"]
+    assert results[0]["judge_error"] == "judge error: empty judge response"
+    assert results[0]["final_score"] == 0.0
+    assert results[0]["verdict"] == "fail"
 
 
 def test_filter_cases_for_run_supports_ids_flavor_and_limit():

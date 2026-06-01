@@ -38,6 +38,7 @@ def build_summary(
             "failed": _summary_failed_count(results),
             "timeout_count": _summary_timeout_count(results),
             "failure_categories": _failure_category_counts(results),
+            "judge_cache": _judge_cache_counts(results),
             "hit_at_5": None,
             "hit_at_10": None,
             "citation_hit_rate": None,
@@ -164,6 +165,7 @@ def build_summary(
         "failed": _summary_failed_count(results),
         "timeout_count": _summary_timeout_count(results),
         "failure_categories": _failure_category_counts(results),
+        "judge_cache": _judge_cache_counts(results),
         "hit_at_5": overall["hit_at_5_rate"],
         "hit_at_10": overall["hit_at_10_rate"],
         "citation_hit_rate": _citation_hit_rate(scored, eval_mode),
@@ -227,6 +229,41 @@ def _failure_category_counts(results: list[dict]) -> dict:
     return ordered
 
 
+def _judge_cache_counts(results: list[dict]) -> dict:
+    rows = [row for row in results if row.get("judge_cache_status")]
+    counts = Counter(str(row.get("judge_cache_status")) for row in rows)
+    score_rows = [row for row in rows if row.get("judge_cache_usage") == "score"]
+    lookup_rows = [row for row in rows if row.get("judge_cache_usage") == "lookup_only"]
+    checked = len(rows)
+    hits = counts.get("cached", 0)
+    return {
+        "checked": checked,
+        "hits": hits,
+        "misses": checked - hits,
+        "cached": hits,
+        "fresh": counts.get("fresh", 0),
+        "lookup_miss": counts.get("miss", 0),
+        "errors": counts.get("error", 0),
+        "score": _judge_cache_usage_counts(score_rows),
+        "lookup_only": _judge_cache_usage_counts(lookup_rows),
+    }
+
+
+def _judge_cache_usage_counts(rows: list[dict]) -> dict:
+    counts = Counter(str(row.get("judge_cache_status")) for row in rows)
+    checked = len(rows)
+    hits = counts.get("cached", 0)
+    return {
+        "checked": checked,
+        "hits": hits,
+        "misses": checked - hits,
+        "cached": hits,
+        "fresh": counts.get("fresh", 0),
+        "lookup_miss": counts.get("miss", 0),
+        "errors": counts.get("error", 0),
+    }
+
+
 def _summary_latencies(results: list[dict]) -> list[int]:
     values = []
     for row in results:
@@ -287,6 +324,10 @@ def print_summary(results: list[dict]):
         print(f"\n  Overall: 0 scored questions")
         if pending:
             print(f"  Pending LLM judge: {len(pending)} questions (use --judge)")
+        cache = summary.get("judge_cache") or {}
+        if cache.get("checked"):
+            score_cache = cache.get("score") or {}
+            print(f"  Judge cache: score hits={score_cache.get('hits', 0)}/{score_cache.get('checked', 0)}")
         print()
         return
 
@@ -324,6 +365,15 @@ def print_summary(results: list[dict]):
         print(f"\n  --- failure categories ---")
         for category, count in summary["failure_categories"].items():
             print(f"    {category}: {count}")
+
+    cache = summary.get("judge_cache") or {}
+    if cache.get("checked"):
+        score_cache = cache.get("score") or {}
+        lookup_cache = cache.get("lookup_only") or {}
+        print(f"\n  --- judge cache ---")
+        print(f"    score hits={score_cache.get('hits', 0)}/{score_cache.get('checked', 0)}, "
+              f"lookup-only hits={lookup_cache.get('hits', 0)}/{lookup_cache.get('checked', 0)}, "
+              f"fresh={cache.get('fresh', 0)}, errors={cache.get('errors', 0)}")
 
     # Strict evidence slice
     if summary.get("per_strict"):

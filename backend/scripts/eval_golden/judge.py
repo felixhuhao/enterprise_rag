@@ -5,6 +5,7 @@ import re
 import time
 
 from .common import _compose_final_score, _verdict
+from .judge_cache import get_cached_judge_result, put_judge_result
 
 
 JUDGE_PROMPT = """\
@@ -197,7 +198,33 @@ def run_judge(results: list[dict], chat_model: str, api_key: str,
         time.sleep(delay)
 
 
-def _apply_llm_judge(row: dict, chat_model: str, api_key: str, base_url: str) -> None:
+def _apply_llm_judge(
+    row: dict,
+    chat_model: str,
+    api_key: str,
+    base_url: str,
+    cache_path: str | None = None,
+    cache_lookup_only: bool = False,
+    apply_score: bool = True,
+) -> bool:
+    cached = get_cached_judge_result(row, chat_model=chat_model, cache_path=cache_path)
+    if cached:
+        row["judge_cache_status"] = "cached"
+        row["judge_cache_hit"] = True
+        row["judge_cache_usage"] = "score" if apply_score else "lookup_only"
+        if apply_score:
+            _apply_judge_result(row, cached)
+        else:
+            row["cached_judge"] = cached
+            row["cached_judge_score"] = cached.get("score")
+        return True
+
+    row["judge_cache_status"] = "miss"
+    row["judge_cache_hit"] = False
+    row["judge_cache_usage"] = "lookup_only" if cache_lookup_only else "score"
+    if cache_lookup_only:
+        return False
+
     judge = _call_llm_judge(
         question=row["question"],
         expected_answer=row.get("expected_answer", ""),
@@ -208,9 +235,24 @@ def _apply_llm_judge(row: dict, chat_model: str, api_key: str, base_url: str) ->
         api_key=api_key,
         base_url=base_url,
     )
+    if "error" in judge:
+        row["judge_cache_status"] = "error"
+    else:
+        try:
+            put_judge_result(row, chat_model=chat_model, judge_result=judge, cache_path=cache_path)
+        except OSError as exc:
+            row["judge_cache_error"] = f"cache write failed: {exc}"
+        row["judge_cache_status"] = "fresh"
+    row["judge_cache_usage"] = "score"
+
+    _apply_judge_result(row, judge)
+    return "error" not in judge
+
+
+def _apply_judge_result(row: dict, judge: dict) -> None:
     row["judge"] = judge
     if "error" in judge:
-        citation_score = row.get("citation_score", 0)
+        citation_score = _citation_score_for_judge(row)
         row["judge_error"] = f"judge error: {judge['error']}"
         row["judge_score"] = None
         row["final_score"] = round(citation_score, 4)
@@ -218,7 +260,16 @@ def _apply_llm_judge(row: dict, chat_model: str, api_key: str, base_url: str) ->
         return
 
     judge_score = judge.get("score", 0)
-    citation_score = row.get("citation_score", 0)
+    citation_score = _citation_score_for_judge(row)
     row["judge_score"] = judge_score
     row["final_score"] = _compose_final_score(judge_score, citation_score)
     row["verdict"] = judge.get("verdict", _verdict(row["final_score"]))
+    row.pop("unscored_reason", None)
+
+
+def _citation_score_for_judge(row: dict) -> float:
+    value = row.get("citation_score")
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    expected_docs = row.get("expected_docs") or row.get("expected_documents") or []
+    return 1.0 if not expected_docs else 0.0

@@ -222,6 +222,9 @@ def _eval_result_preview(row: dict, index: int | None = None, total: int | None 
         "error": error or "",
         "failure_category": row.get("failure_category", ""),
         "failure_categories": row.get("failure_categories", []),
+        "judge_cache_status": row.get("judge_cache_status", ""),
+        "judge_cache_hit": row.get("judge_cache_hit"),
+        "judge_cache_usage": row.get("judge_cache_usage", ""),
     }
 
 

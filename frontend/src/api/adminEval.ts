@@ -20,6 +20,17 @@ export interface EvalSummary {
   failed?: number
   timeout_count?: number
   failure_categories?: Record<string, number>
+  judge_cache?: {
+    checked: number
+    hits: number
+    misses: number
+    cached: number
+    fresh: number
+    lookup_miss: number
+    errors: number
+    score?: EvalJudgeCacheMetric
+    lookup_only?: EvalJudgeCacheMetric
+  }
   hit_at_5?: number | null
   hit_at_10?: number | null
   citation_hit_rate?: number | null
@@ -42,6 +53,16 @@ export interface EvalSummary {
   per_flavor?: Record<string, EvalBreakdownMetric>
   per_strict?: EvalBreakdownMetric | null
   low_score_cases?: Array<{ id: string; score?: number; final_score?: number; question?: string; reason?: string }>
+}
+
+export interface EvalJudgeCacheMetric {
+  checked: number
+  hits: number
+  misses: number
+  cached: number
+  fresh: number
+  lookup_miss: number
+  errors: number
 }
 
 export interface EvalStatus {
@@ -80,6 +101,9 @@ export interface EvalCaseResult {
   error?: string
   failure_category?: string
   failure_categories?: string[]
+  judge_cache_status?: string
+  judge_cache_hit?: boolean | null
+  judge_cache_usage?: string
 }
 
 export interface GoldenSetCase {

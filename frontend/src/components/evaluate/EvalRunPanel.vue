@@ -91,6 +91,9 @@
         <span class="sum-item">P50 {{ ms(summary.latency_p50_ms ?? summary.overall.p50_latency_ms) }}</span>
         <span class="sum-item">P95 {{ ms(summary.latency_p95_ms ?? summary.overall.p95_latency_ms) }}</span>
         <span class="sum-item">超时 {{ summary.timeout_count ?? 0 }}</span>
+        <span v-if="summary.judge_cache?.checked" class="sum-item">
+          Judge缓存 {{ judgeCacheSummary(summary.judge_cache) }}
+        </span>
       </div>
       <div v-if="currentResultPath || currentSummaryPath" class="eval-output-paths">
         <span v-if="currentResultPath">结果 {{ currentResultPath }}</span>
@@ -175,6 +178,9 @@
                   class="result-failure-tag"
                 >
                   {{ failureCategoryLabel(caseResult(item.id).failure_category || '') }}
+                </small>
+                <small v-if="caseResult(item.id).judge_cache_status" class="result-cache-tag">
+                  {{ judgeCacheLabel(caseResult(item.id).judge_cache_status || '') }}
                 </small>
               </td>
               <td class="question-cell">{{ item.question }}</td>
@@ -537,6 +543,22 @@ function failureCategoryLabel(value: string): string {
   if (value === 'timeout') return '超时'
   if (value === 'unknown') return '未知'
   return value || '-'
+}
+
+function judgeCacheLabel(value: string): string {
+  if (value === 'cached') return 'Judge缓存命中'
+  if (value === 'fresh') return 'Judge新评分'
+  if (value === 'miss') return 'Judge缓存未命中'
+  if (value === 'error') return 'Judge错误'
+  return value || '-'
+}
+
+function judgeCacheSummary(cache: EvalSummary['judge_cache']): string {
+  if (!cache) return '-'
+  const parts: string[] = []
+  if (cache.score?.checked) parts.push(`评分 ${cache.score.hits}/${cache.score.checked}`)
+  if (cache.lookup_only?.checked) parts.push(`只查 ${cache.lookup_only.hits}/${cache.lookup_only.checked}`)
+  return parts.length ? parts.join(' · ') : `${cache.hits}/${cache.checked}`
 }
 
 function summaryFlavorLabel(value: string | undefined): string {
@@ -1277,6 +1299,11 @@ onUnmounted(clearPoll)
 
 .col-result .result-failure-tag {
   color: #991b1b;
+  font-weight: 600;
+}
+
+.col-result .result-cache-tag {
+  color: #2563eb;
   font-weight: 600;
 }
 

@@ -337,6 +337,19 @@ def run_eval_case(
                 print(f"  [citations] {files}")
             if mode == "answer_lite":
                 row.update(score_answer_lite(rag["answer"], rag["citations"], item))
+                lookup_config = _answer_lite_judge_lookup_config(judge_config)
+                if lookup_config:
+                    cache_used = judge._apply_llm_judge(
+                        row,
+                        chat_model=lookup_config["chat_model"],
+                        api_key=lookup_config.get("api_key", ""),
+                        base_url=lookup_config.get("base_url", ""),
+                        cache_path=lookup_config.get("cache_path"),
+                        cache_lookup_only=True,
+                        apply_score=True,
+                    )
+                    if cache_used:
+                        row["scoring_version"] = "answer_lite_cached_judge_v1"
                 if row.get("final_score") is None:
                     print(f"  WARNING: {qid} answer_lite has no deterministic scoring signals")
                 else:
@@ -347,6 +360,7 @@ def run_eval_case(
                     chat_model=judge_config["chat_model"],
                     api_key=judge_config["api_key"],
                     base_url=judge_config.get("base_url", ""),
+                    cache_path=judge_config.get("cache_path"),
                 )
             else:
                 row["final_score"] = None  # pending judge
@@ -423,6 +437,23 @@ def _case_error_row(
     }
     _apply_failure_category(row)
     return row
+
+
+def _answer_lite_judge_lookup_config(judge_config: dict | None) -> dict | None:
+    if judge_config and judge_config.get("chat_model"):
+        return judge_config
+    try:
+        from app.config import settings
+    except Exception:
+        return None
+    chat_model = getattr(settings, "CHAT_MODEL", "")
+    if not chat_model:
+        return None
+    return {
+        "chat_model": chat_model,
+        "api_key": "",
+        "base_url": getattr(settings, "DEEPSEEK_BASE_URL", ""),
+    }
 
 
 def _apply_failure_category(row: dict) -> None:
