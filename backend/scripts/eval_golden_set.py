@@ -32,6 +32,8 @@ from threading import Event, Thread
 
 import requests
 
+EVAL_MODES = {"full", "quick", "retrieval_only"}
+
 # ---------------------------------------------------------------------------
 # SSE consumer
 # ---------------------------------------------------------------------------
@@ -452,9 +454,58 @@ def compute_hit_at_k(rerank_results: list[dict], expected_documents: list[str],
     return False
 
 
+def compute_chunk_hit_at_k(rerank_results: list[dict], expected_chunk_keys: list[str],
+                           k: int = 5) -> bool:
+    """Check if any expected chunk key appears in top-k reranked/retrieved results."""
+    if not expected_chunk_keys or not rerank_results:
+        return False
+    expected = {str(key) for key in expected_chunk_keys if key}
+    top_k_keys = {str(r.get("chunk_key", "")) for r in rerank_results[:k]}
+    return bool(expected & top_k_keys)
+
+
 def is_hit_metric_applicable(item: dict) -> bool:
     """Hit@K applies only to answerable cases with explicit expected docs."""
-    return bool(item.get("expected_documents")) and item.get("should_answer", True)
+    return bool(_expected_documents(item) or _expected_chunk_keys(item)) and _expected_behavior(item) == "answer"
+
+
+def _expected_documents(item: dict) -> list[str]:
+    docs = item.get("expected_docs", item.get("expected_documents", []))
+    return docs if isinstance(docs, list) else []
+
+
+def _expected_chunk_keys(item: dict) -> list[str]:
+    keys = item.get("expected_chunk_keys", [])
+    return keys if isinstance(keys, list) else []
+
+
+def _case_slices(item: dict) -> list[str]:
+    slices = item.get("slices", item.get("tags", []))
+    return slices if isinstance(slices, list) else []
+
+
+def _expected_behavior(item: dict) -> str:
+    behavior = str(item.get("expected_behavior", "")).strip().lower()
+    if behavior in {"answer", "no_answer"}:
+        return behavior
+    return "answer" if item.get("should_answer", True) else "no_answer"
+
+
+def _apply_hit_metrics(row: dict, results: list[dict], item: dict) -> None:
+    expected_docs = _expected_documents(item)
+    expected_chunk_keys = _expected_chunk_keys(item)
+    hit_applicable = is_hit_metric_applicable(item)
+    row["hit_metric_applicable"] = hit_applicable
+    row["doc_hit_at_5"] = compute_hit_at_k(results, expected_docs, k=5) if expected_docs else None
+    row["doc_hit_at_10"] = compute_hit_at_k(results, expected_docs, k=10) if expected_docs else None
+    row["chunk_hit_at_5"] = compute_chunk_hit_at_k(results, expected_chunk_keys, k=5) if expected_chunk_keys else None
+    row["chunk_hit_at_10"] = compute_chunk_hit_at_k(results, expected_chunk_keys, k=10) if expected_chunk_keys else None
+    row["hit_at_5"] = (
+        bool(row.get("doc_hit_at_5")) or bool(row.get("chunk_hit_at_5"))
+    ) if hit_applicable else None
+    row["hit_at_10"] = (
+        bool(row.get("doc_hit_at_10")) or bool(row.get("chunk_hit_at_10"))
+    ) if hit_applicable else None
 
 
 # ---------------------------------------------------------------------------
@@ -478,6 +529,7 @@ def filter_by_slice(golden_set: list[dict], slices: list[str]) -> list[dict]:
     for item in golden_set:
         flavor = item.get("preferred_flavor", "")
         tags = item.get("tags", [])
+        case_slices = _case_slices(item)
         strict = item.get("strict_evidence", False)
 
         for s in slices:
@@ -487,11 +539,22 @@ def filter_by_slice(golden_set: list[dict], slices: list[str]) -> list[dict]:
             elif s == flavor:
                 filtered.append(item)
                 break
-            elif s in tags:
+            elif s in tags or s in case_slices:
                 filtered.append(item)
                 break
 
     return filtered
+
+
+def filter_quick_cases(golden_set: list[dict]) -> list[dict]:
+    return [item for item in golden_set if _boolish(item.get("quick", False))]
+
+
+def normalize_eval_mode(value: str | None) -> str:
+    mode = (value or "full").strip().lower()
+    if mode not in EVAL_MODES:
+        raise ValueError(f"invalid eval mode: {value}. Expected one of: {', '.join(sorted(EVAL_MODES))}")
+    return mode
 
 
 # ---------------------------------------------------------------------------
@@ -922,14 +985,14 @@ def _case_query_config(item: dict) -> dict:
     }
 
 
-def load_golden_set(path: str) -> list[dict]:
+def load_golden_set(path: str, *, include_disabled: bool = False) -> list[dict]:
     items = []
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if line:
                 item = json.loads(line)
-                if item.get("status", "active") != "disabled":
+                if include_disabled or item.get("status", "active") != "disabled":
                     items.append(item)
     return items
 
@@ -942,7 +1005,10 @@ def run_eval(
     progress_callback=None,
     case_timeout_sec: int = 180,
     judge_config: dict | None = None,
+    mode: str = "full",
 ):
+    mode = normalize_eval_mode(mode)
+
     results = []
 
     for i, item in enumerate(golden_set):
@@ -955,6 +1021,7 @@ def run_eval(
             progress_callback,
             case_timeout_sec=case_timeout_sec,
             judge_config=judge_config,
+            mode=mode,
         )
         results.append(row)
         time.sleep(delay)
@@ -971,6 +1038,7 @@ def _run_eval_case_with_timeout(
     progress_callback=None,
     case_timeout_sec: int = 180,
     judge_config: dict | None = None,
+    mode: str = "full",
 ) -> dict:
     result_queue: Queue[dict] = Queue(maxsize=1)
     active = Event()
@@ -981,7 +1049,19 @@ def _run_eval_case_with_timeout(
             progress_callback(event)
 
     def _target() -> None:
-        result_queue.put(run_eval_case(item, index, total, api_base, token, _safe_progress, judge_config=judge_config))
+        if mode == "retrieval_only":
+            result_queue.put(run_retrieval_only_case(item, index, total, _safe_progress))
+        else:
+            result_queue.put(run_eval_case(
+                item,
+                index,
+                total,
+                api_base,
+                token,
+                _safe_progress,
+                judge_config=judge_config,
+                mode=mode,
+            ))
 
     worker = Thread(target=_target, daemon=True)
     worker.start()
@@ -990,7 +1070,7 @@ def _run_eval_case_with_timeout(
     except Empty:
         active.clear()
         exc = TimeoutError(f"case timed out after {case_timeout_sec}s")
-        row = _case_error_row(item, exc)
+        row = _case_error_row(item, exc, mode=mode)
         print(f"  CASE TIMEOUT: {row['error']}")
         if progress_callback:
             progress_callback({
@@ -1010,7 +1090,9 @@ def run_eval_case(
     token: str,
     progress_callback=None,
     judge_config: dict | None = None,
+    mode: str = "full",
 ) -> dict:
+    mode = normalize_eval_mode(mode)
     qid = item.get("id") or f"case_{index + 1}"
     question = item.get("question", "")
     eval_type = _get_eval_type(item)
@@ -1031,6 +1113,7 @@ def run_eval_case(
 
         row = {
             "id": qid,
+            "eval_mode": mode,
             "question": question,
             "eval_type": eval_type,
             "expected_answer": item.get("expected_answer", ""),
@@ -1048,11 +1131,16 @@ def run_eval_case(
             "actual_retrieval_flavor": rag.get("retrieval_flavor") or None,
             "actual_strict_evidence": rag.get("strict_evidence"),
             "tags": item.get("tags", []),
+            "slices": _case_slices(item),
+            "quick": _boolish(item.get("quick", False)),
             "should_answer": item.get("should_answer", True),
+            "expected_behavior": _expected_behavior(item),
+            "expected_docs": _expected_documents(item),
+            "expected_chunk_keys": _expected_chunk_keys(item),
         }
 
         # Hit@K from rerank results
-        expected_docs = item.get("expected_documents", [])
+        expected_docs = _expected_documents(item)
         hit_applicable = is_hit_metric_applicable(item)
         row["hit_metric_applicable"] = hit_applicable
         row["hit_at_5"] = compute_hit_at_k(rag["rerank_results"], expected_docs, k=5) if hit_applicable else None
@@ -1088,7 +1176,7 @@ def run_eval_case(
         elif eval_type == "llm_judge":
             cite = score_citation(
                 rag["citations"],
-                item.get("expected_documents", []),
+                expected_docs,
                 item.get("min_expected_citations", 1),
                 item=item,
             )
@@ -1121,7 +1209,7 @@ def run_eval_case(
         return row
 
     except Exception as exc:
-        row = _case_error_row(item, exc, eval_type=eval_type, query_config=query_config)
+        row = _case_error_row(item, exc, eval_type=eval_type, query_config=query_config, mode=mode)
         print(f"  CASE ERROR: {row['error']}")
         if progress_callback:
             progress_callback({
@@ -1133,10 +1221,17 @@ def run_eval_case(
         return row
 
 
-def _case_error_row(item: dict, exc: Exception, eval_type: str = "", query_config: dict | None = None) -> dict:
+def _case_error_row(
+    item: dict,
+    exc: Exception,
+    eval_type: str = "",
+    query_config: dict | None = None,
+    mode: str = "full",
+) -> dict:
     query_config = query_config or _case_query_config(item)
     return {
         "id": item.get("id") or "",
+        "eval_mode": normalize_eval_mode(mode),
         "question": item.get("question", ""),
         "eval_type": eval_type or _get_eval_type(item),
         "expected_answer": item.get("expected_answer", ""),
@@ -1153,7 +1248,12 @@ def _case_error_row(item: dict, exc: Exception, eval_type: str = "", query_confi
         "actual_retrieval_flavor": None,
         "actual_strict_evidence": None,
         "tags": item.get("tags", []),
+        "slices": _case_slices(item),
+        "quick": _boolish(item.get("quick", False)),
         "should_answer": item.get("should_answer", True),
+        "expected_behavior": _expected_behavior(item),
+        "expected_docs": _expected_documents(item),
+        "expected_chunk_keys": _expected_chunk_keys(item),
         "hit_metric_applicable": is_hit_metric_applicable(item),
         "hit_at_5": False,
         "hit_at_10": False,
@@ -1167,12 +1267,27 @@ def _case_error_row(item: dict, exc: Exception, eval_type: str = "", query_confi
 # ---------------------------------------------------------------------------
 
 
-def build_summary(results: list[dict]) -> dict:
+def _infer_eval_mode(results: list[dict]) -> str:
+    for row in results:
+        mode = row.get("eval_mode")
+        if mode:
+            return normalize_eval_mode(str(mode))
+    return "full"
+
+
+def build_summary(results: list[dict], mode: str | None = None) -> dict:
     """Build structured summary with per-type breakdown."""
+    eval_mode = normalize_eval_mode(mode or _infer_eval_mode(results))
     scored = [r for r in results if r.get("final_score") is not None]
 
     if not scored:
-        return {"overall": {"count": 0}, "per_breakdown": {}, "low_score_cases": []}
+        return {
+            "mode": eval_mode,
+            "case_count": len(results),
+            "overall": {"count": 0},
+            "per_breakdown": {},
+            "low_score_cases": [],
+        }
 
     scores = [r["final_score"] for r in scored]
     hit_scored = [r for r in scored if r.get("hit_metric_applicable")]
@@ -1272,6 +1387,8 @@ def build_summary(results: list[dict]) -> dict:
         low_cases.append({"id": r["id"], "score": r["final_score"], "reason": reason})
 
     return {
+        "mode": eval_mode,
+        "case_count": len(results),
         "overall": overall,
         "per_breakdown": per_breakdown,
         "per_flavor": per_flavor,
@@ -1288,6 +1405,7 @@ def print_summary(results: list[dict]):
     print("\n" + "=" * 60)
     print("EVAL SUMMARY")
     print("=" * 60)
+    print(f"Mode: {summary.get('mode', 'full')}")
 
     o = summary["overall"]
     if not o.get("count"):
@@ -1389,9 +1507,15 @@ def main():
     parser.add_argument("--judge", action="store_true", help="启用 LLM judge")
     parser.add_argument("--judge-model", default=None, help="Judge 模型")
     parser.add_argument("--case-timeout", type=int, default=180, help="单题超时秒数")
+    parser.add_argument("--mode", default="full", choices=sorted(EVAL_MODES),
+                        help="评测模式: full | quick | retrieval_only")
     parser.add_argument("--slice", action="append", default=[],
                         help="按 tag/flavor/strict 过滤: --slice exact --slice recall --slice strict")
     args = parser.parse_args()
+    mode = normalize_eval_mode(args.mode)
+    if mode == "retrieval_only":
+        print(f"Error: {RETRIEVAL_ONLY_NOT_IMPLEMENTED}")
+        sys.exit(2)
 
     # --- Token ---
     token = args.token
@@ -1414,10 +1538,11 @@ def main():
         sys.exit(1)
 
     # --- Load ---
-    golden_set = load_golden_set(args.golden_set)
+    golden_set = load_golden_set(args.golden_set, include_disabled=mode == "quick")
     types = Counter(_get_eval_type(item) for item in golden_set)
     print(f"Loaded {len(golden_set)} questions from {args.golden_set}")
     print(f"  Types: {dict(types)}")
+    print(f"  Mode: {mode}")
 
     # --- Slice filtering ---
     if args.slice:
@@ -1425,6 +1550,13 @@ def main():
         print(f"  Filtered by slice {args.slice}: {len(golden_set)} questions remain")
         if not golden_set:
             print("Error: no questions match the specified slice(s)")
+            sys.exit(0)
+
+    if mode == "quick":
+        golden_set = filter_quick_cases(golden_set)
+        print(f"  Filtered by quick=true: {len(golden_set)} questions remain")
+        if not golden_set:
+            print("Error: no quick cases found")
             sys.exit(0)
 
     # --- LLM Judge config (optional, applied per case) ---
@@ -1466,6 +1598,7 @@ def main():
         delay=args.delay,
         case_timeout_sec=args.case_timeout,
         judge_config=judge_config,
+        mode=mode,
     )
 
     # --- Save results ---
@@ -1485,7 +1618,7 @@ def main():
         base = base[:-len("_results")]
     summary_path = str(Path(output_path).parent / f"{base}_summary.json")
 
-    summary = build_summary(results)
+    summary = build_summary(results, mode=mode)
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
     print(f"Summary saved to {summary_path}")

@@ -4,9 +4,12 @@ import pytest
 
 from app.api.admin_eval import (
     GoldenCaseUpdate,
+    RunRequest,
     _eval_result_preview,
+    _filter_cases_for_run,
     _load_golden_cases,
     _normalize_golden_case_update,
+    _normalize_eval_mode,
     _summarize_golden_case,
 )
 
@@ -32,6 +35,11 @@ def test_summarize_golden_case_exposes_config_and_counts():
         "eval_type": "rule",
         "expected_points": ["审批单", "发票"],
         "expected_documents": ["费用报销制度.md"],
+        "expected_docs": ["费用报销制度.md"],
+        "expected_chunk_keys": ["ck_1"],
+        "quick": True,
+        "slices": ["quick", "exact"],
+        "expected_behavior": "answer",
         "min_expected_citations": 1,
     })
 
@@ -41,7 +49,29 @@ def test_summarize_golden_case_exposes_config_and_counts():
     assert summary["expected_points"] == ["审批单", "发票"]
     assert summary["expected_answer"] == ""
     assert summary["expected_documents"] == ["费用报销制度.md"]
+    assert summary["expected_docs"] == ["费用报销制度.md"]
+    assert summary["expected_chunk_keys"] == ["ck_1"]
+    assert summary["quick"] is True
+    assert summary["slices"] == ["quick", "exact"]
+    assert summary["expected_behavior"] == "answer"
     assert summary["min_expected_citations"] == 1
+
+
+def test_filter_cases_for_run_supports_quick_mode():
+    cases = [
+        {"id": "a", "quick": True, "preferred_flavor": "balanced"},
+        {"id": "b", "quick": False, "preferred_flavor": "balanced"},
+        {"id": "c", "quick": "true", "preferred_flavor": "recall"},
+    ]
+
+    assert [case["id"] for case in _filter_cases_for_run(cases, RunRequest(mode="quick"))] == ["a", "c"]
+    assert [case["id"] for case in _filter_cases_for_run(cases, RunRequest(mode="quick", flavor="recall"))] == ["c"]
+
+
+def test_normalize_eval_mode_rejects_unknown_mode():
+    assert _normalize_eval_mode("") == "full"
+    with pytest.raises(ValueError, match="评测模式无效"):
+        _normalize_eval_mode("wide")
 
 
 def test_eval_result_preview_statuses():

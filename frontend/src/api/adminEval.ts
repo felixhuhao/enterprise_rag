@@ -10,6 +10,8 @@ export interface EvalBreakdownMetric {
 }
 
 export interface EvalSummary {
+  mode?: string
+  case_count?: number
   overall: {
     count: number
     avg_score: number
@@ -34,9 +36,11 @@ export interface EvalStatus {
   current_id?: string
   current_question?: string
   results_preview?: EvalCaseResult[]
+  mode?: string
 }
 
 export interface EvalRunOptions {
+  mode?: string
   judge?: boolean
   case_ids?: string[]
   flavor?: string
@@ -58,12 +62,17 @@ export interface EvalCaseResult {
 export interface GoldenSetCase {
   id: string
   question: string
+  quick?: boolean
+  slices?: string[]
   preferred_flavor: string
   strict_evidence: boolean
   eval_type: string
   level: string
   question_type: string
   expected_documents: string[]
+  expected_docs?: string[]
+  expected_chunk_keys?: string[]
+  expected_behavior?: string
   expected_points: string[]
   expected_answer: string
   expected_points_count: number

@@ -3,7 +3,9 @@ from scripts.eval_golden_set import (
     _case_query_config,
     _parse_judge_response,
     build_summary,
+    filter_quick_cases,
     load_golden_set,
+    normalize_eval_mode,
     query_rag,
     run_eval,
     score_citation,
@@ -55,6 +57,22 @@ def test_summary_groups_by_actual_flavor_when_available():
     assert "balanced" not in summary["per_flavor"]
 
 
+def test_summary_records_eval_mode():
+    summary = build_summary([
+        {
+            "id": "case-1",
+            "eval_mode": "quick",
+            "final_score": 1.0,
+            "eval_type": "rule",
+            "preferred_flavor": "balanced",
+            "strict_evidence": False,
+        }
+    ])
+
+    assert summary["mode"] == "quick"
+    assert summary["case_count"] == 1
+
+
 def test_query_rag_marks_request_as_eval(monkeypatch):
     captured = {}
 
@@ -93,6 +111,39 @@ def test_load_golden_set_skips_disabled_cases(tmp_path):
     items = load_golden_set(str(path))
 
     assert [item["id"] for item in items] == ["a"]
+
+
+def test_load_golden_set_can_include_disabled_cases(tmp_path):
+    path = tmp_path / "golden.jsonl"
+    path.write_text(
+        '{"id": "a", "question": "active"}\n'
+        '{"id": "b", "question": "disabled", "status": "disabled"}\n',
+        encoding="utf-8",
+    )
+
+    items = load_golden_set(str(path), include_disabled=True)
+
+    assert [item["id"] for item in items] == ["a", "b"]
+
+
+def test_filter_quick_cases_uses_quick_flag():
+    cases = [
+        {"id": "a", "quick": True},
+        {"id": "b", "quick": "true"},
+        {"id": "c", "quick": False},
+        {"id": "d"},
+    ]
+
+    assert [item["id"] for item in filter_quick_cases(cases)] == ["a", "b"]
+
+
+def test_normalize_eval_mode_rejects_unknown_mode():
+    assert normalize_eval_mode("") == "full"
+
+    import pytest
+
+    with pytest.raises(ValueError, match="invalid eval mode"):
+        normalize_eval_mode("wide")
 
 
 def test_summarize_golden_case_exposes_enabled_state():
@@ -352,6 +403,20 @@ def test_filter_cases_for_run_supports_ids_flavor_and_limit():
 
     assert [case["id"] for case in by_ids] == ["b"]
     assert [case["id"] for case in by_flavor] == ["b"]
+
+
+def test_filter_cases_for_run_supports_quick_mode():
+    cases = [
+        {"id": "a", "preferred_flavor": "balanced", "quick": True},
+        {"id": "b", "preferred_flavor": "recall", "quick": False},
+        {"id": "c", "preferred_flavor": "recall", "quick": "true"},
+    ]
+
+    quick = _filter_cases_for_run(cases, RunRequest(mode="quick"))
+    quick_recall = _filter_cases_for_run(cases, RunRequest(mode="quick", flavor="recall"))
+
+    assert [case["id"] for case in quick] == ["a", "c"]
+    assert [case["id"] for case in quick_recall] == ["c"]
 
 
 def test_failed_case_count_uses_preview_status():

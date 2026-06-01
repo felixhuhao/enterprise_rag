@@ -23,6 +23,8 @@ from app.deps import verify_token
 router = APIRouter()
 
 RESULT_DIR = DATA_DIR / "eval_results"
+EVAL_MODES = {"full", "quick", "retrieval_only"}
+RETRIEVAL_ONLY_NOT_IMPLEMENTED = "retrieval_only mode will be implemented in Phase 11 Iteration 2"
 
 _lock = threading.Lock()
 _state: dict = {
@@ -38,10 +40,12 @@ _state: dict = {
     "current_id": "",
     "current_question": "",
     "results_preview": [],
+    "mode": "full",
 }
 
 
 class RunRequest(BaseModel):
+    mode: str = "full"
     judge: bool = False
     case_ids: list[str] = Field(default_factory=list)
     flavor: str = ""
@@ -96,13 +100,27 @@ def _case_enabled(case: dict) -> bool:
     return case.get("status", "active") != "disabled"
 
 
+def _normalize_eval_mode(value: str | None) -> str:
+    mode = (value or "full").strip().lower()
+    if mode not in EVAL_MODES:
+        raise ValueError(f"评测模式无效: {value}")
+    return mode
+
+
+def _case_quick(case: dict) -> bool:
+    return _boolish(case.get("quick", False))
+
+
 def _filter_cases_for_run(cases: list[dict], req: RunRequest) -> list[dict]:
+    mode = _normalize_eval_mode(req.mode)
     selected = list(cases)
     if req.case_ids:
         allowed = set(req.case_ids)
         selected = [case for case in selected if case.get("id") in allowed]
     if req.flavor:
         selected = [case for case in selected if _case_flavor(case) == req.flavor]
+    if mode == "quick":
+        selected = [case for case in selected if _case_quick(case)]
     if req.limit and req.limit > 0:
         selected = selected[:req.limit]
     return selected
@@ -115,15 +133,23 @@ def _failed_case_count(results: list[dict]) -> int:
 def _summarize_golden_case(case: dict) -> dict:
     expected_points = case.get("expected_points", [])
     expected_documents = case.get("expected_documents", [])
+    expected_docs = case.get("expected_docs", expected_documents)
+    expected_chunk_keys = case.get("expected_chunk_keys", [])
+    slices = case.get("slices", case.get("tags", []))
     return {
         "id": case.get("id", ""),
         "question": case.get("question", ""),
+        "quick": _case_quick(case),
+        "slices": slices if isinstance(slices, list) else [],
         "preferred_flavor": _case_flavor(case),
         "strict_evidence": _case_strict(case),
         "eval_type": case.get("eval_type", ""),
         "level": case.get("level", ""),
         "question_type": case.get("question_type", ""),
         "expected_documents": expected_documents if isinstance(expected_documents, list) else [],
+        "expected_docs": expected_docs if isinstance(expected_docs, list) else [],
+        "expected_chunk_keys": expected_chunk_keys if isinstance(expected_chunk_keys, list) else [],
+        "expected_behavior": case.get("expected_behavior", "answer" if case.get("should_answer", True) else "no_answer"),
         "expected_points": expected_points if isinstance(expected_points, list) else [],
         "expected_answer": case.get("expected_answer", ""),
         "expected_points_count": len(expected_points) if isinstance(expected_points, list) else 0,
@@ -312,6 +338,12 @@ async def run_eval(req: RunRequest, current_user: CurrentUser = Depends(verify_t
                    authorization: str = Header(...)):
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="仅管理员")
+    try:
+        mode = _normalize_eval_mode(req.mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if mode == "retrieval_only":
+        raise HTTPException(status_code=501, detail=RETRIEVAL_ONLY_NOT_IMPLEMENTED)
 
     with _lock:
         if _state["status"] == "running":
@@ -328,6 +360,7 @@ async def run_eval(req: RunRequest, current_user: CurrentUser = Depends(verify_t
         _state["current_id"] = ""
         _state["current_question"] = ""
         _state["results_preview"] = []
+        _state["mode"] = mode
 
     token = authorization.removeprefix("Bearer ").strip()
     threading.Thread(
@@ -343,8 +376,9 @@ def _runner(token: str, req: RunRequest):
         from scripts.eval_golden_set import _get_eval_type, load_golden_set, run_eval, build_summary
 
         golden_set_path = _active_golden_set_path()
+        mode = _normalize_eval_mode(req.mode)
 
-        golden = _filter_cases_for_run(load_golden_set(str(golden_set_path)), req)
+        golden = _filter_cases_for_run(load_golden_set(str(golden_set_path), include_disabled=mode == "quick"), req)
         if not golden:
             raise ValueError("未选择基准测试用例")
         with _lock:
@@ -370,9 +404,10 @@ def _runner(token: str, req: RunRequest):
             progress_callback=_update_eval_progress,
             case_timeout_sec=req.case_timeout_sec,
             judge_config=judge_config,
+            mode=mode,
         )
 
-        summary = build_summary(results)
+        summary = build_summary(results, mode=mode)
         failed_count = _failed_case_count(results)
 
         # write to disk

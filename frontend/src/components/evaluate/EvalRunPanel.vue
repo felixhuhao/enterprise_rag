@@ -11,6 +11,11 @@
 
       <div class="eval-actions">
         <template v-if="status !== 'running'">
+          <a-select v-model="runMode" size="small" class="run-mode-select">
+            <a-option value="full">完整</a-option>
+            <a-option value="quick">快速</a-option>
+            <a-option value="retrieval_only" disabled>仅检索</a-option>
+          </a-select>
           <a-select v-model="runScope" size="small" class="run-scope-select">
             <a-option value="all">全部启用</a-option>
             <a-option value="failed">失败重跑</a-option>
@@ -64,6 +69,7 @@
 
     <div v-if="summary && (status === 'succeeded' || status === 'failed')" class="eval-summary">
       <div class="sum-row">
+        <span class="sum-item">模式 {{ evalModeLabel(summary.mode || runMode) }}</span>
         <span class="sum-item">{{ summary.overall.count }} 题</span>
         <span class="sum-item">均分 {{ percent(summary.overall.avg_score) }}</span>
         <span class="sum-item">通过率 {{ percent(summary.overall.pass_rate) }}</span>
@@ -342,6 +348,7 @@ const evalTotal = ref(0)
 const evalCurrent = ref(0)
 const evalCurrentId = ref('')
 const evalResults = ref<EvalCaseResult[]>([])
+const runMode = ref<'full' | 'quick' | 'retrieval_only'>('full')
 const runScope = ref<'all' | 'failed' | 'flavor' | 'first_n'>('all')
 const runFlavor = ref('balanced')
 const runLimit = ref(5)
@@ -462,6 +469,12 @@ function evalTypeLabel(value: string): string {
   return value || '-'
 }
 
+function evalModeLabel(value: string): string {
+  if (value === 'quick') return '快速'
+  if (value === 'retrieval_only') return '仅检索'
+  return '完整'
+}
+
 async function refresh(): Promise<boolean> {
   try {
     const s = await getEvalStatus()
@@ -507,7 +520,8 @@ async function onRun() {
 
 function buildRunOptions(): EvalRunOptions | null {
   const options: EvalRunOptions = {
-    judge: true,
+    mode: runMode.value,
+    judge: runMode.value === 'full',
     case_timeout_sec: caseTimeoutSec.value,
   }
   if (runScope.value === 'failed') {
@@ -817,6 +831,10 @@ onUnmounted(clearPoll)
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.run-mode-select {
+  width: 88px;
 }
 
 .run-scope-select {
