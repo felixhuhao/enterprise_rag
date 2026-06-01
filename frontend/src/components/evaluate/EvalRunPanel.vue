@@ -52,9 +52,23 @@
               class="run-timeout-input"
             />
           </label>
+          <label class="run-timeout">
+            <span>并发</span>
+            <a-input-number
+              v-model="runConcurrency"
+              size="small"
+              :min="0"
+              :max="16"
+              class="run-concurrency-input"
+            />
+          </label>
           <label v-if="runMode === 'quick'" class="run-judge">
             <input v-model="quickJudge" type="checkbox" />
             <span>Judge</span>
+          </label>
+          <label class="run-judge">
+            <input v-model="acceptBaseline" type="checkbox" />
+            <span>设为基线</span>
           </label>
         </template>
         <a-button
@@ -93,6 +107,12 @@
         <span class="sum-item">超时 {{ summary.timeout_count ?? 0 }}</span>
         <span v-if="summary.judge_cache?.checked" class="sum-item">
           Judge缓存 {{ judgeCacheSummary(summary.judge_cache) }}
+        </span>
+        <span v-if="summary.baseline_delta" class="sum-item">
+          基线 {{ baselineDeltaSummary(summary.baseline_delta.overall) }}
+        </span>
+        <span v-else-if="summary.baseline && !summary.baseline.available" class="sum-item">
+          基线 -
         </span>
       </div>
       <div v-if="currentResultPath || currentSummaryPath" class="eval-output-paths">
@@ -345,7 +365,9 @@ import {
   runEval,
   setGoldenCaseEnabled,
   updateGoldenCase,
+  type EvalBaselineDelta,
   type EvalCaseResult,
+  type EvalMetricDelta,
   type GoldenCaseUpdate,
   type EvalRunOptions,
   type EvalSummary,
@@ -398,6 +420,8 @@ const runFlavor = ref('balanced')
 const runLimit = ref(5)
 const quickJudge = ref(false)
 const caseTimeoutSec = ref(180)
+const runConcurrency = ref(0)
+const acceptBaseline = ref(false)
 let timer: ReturnType<typeof setTimeout> | null = null
 let pollFailCount = 0
 
@@ -561,6 +585,31 @@ function judgeCacheSummary(cache: EvalSummary['judge_cache']): string {
   return parts.length ? parts.join(' · ') : `${cache.hits}/${cache.checked}`
 }
 
+function baselineDeltaSummary(delta: EvalBaselineDelta['overall']): string {
+  if (!delta) return '-'
+  const parts = [
+    baselineMetricDelta('Hit@10', delta.hit_at_10, true),
+    baselineMetricDelta('引用', delta.citation_hit_rate, true),
+    baselineMetricDelta('答案', delta.answer_pass_rate, true),
+    baselineMetricDelta('P95', delta.p95_latency_ms, false, 'ms'),
+    baselineMetricDelta('超时', delta.timeout_count, false),
+  ].filter(Boolean)
+  return parts.length ? parts.join(' · ') : '-'
+}
+
+function baselineMetricDelta(
+  label: string,
+  item: EvalMetricDelta | undefined,
+  asPercent: boolean,
+  suffix = '',
+): string {
+  const value = item?.delta
+  if (value === null || value === undefined) return ''
+  const signed = value > 0 ? '+' : ''
+  if (asPercent) return `${label} ${signed}${(value * 100).toFixed(1)}pp`
+  return `${label} ${signed}${Math.round(value)}${suffix}`
+}
+
 function summaryFlavorLabel(value: string | undefined): string {
   if (!value) return '-'
   if (value === 'mixed') return '混合'
@@ -623,6 +672,8 @@ function buildRunOptions(): EvalRunOptions | null {
     mode: runMode.value,
     judge: runMode.value === 'full' || (runMode.value === 'quick' && quickJudge.value),
     case_timeout_sec: caseTimeoutSec.value,
+    concurrency: runConcurrency.value,
+    accept_baseline: acceptBaseline.value,
   }
   if (runScope.value === 'failed') {
     const failedIds = evalResults.value
@@ -960,6 +1011,10 @@ onUnmounted(clearPoll)
 
 .run-timeout-input {
   width: 84px;
+}
+
+.run-concurrency-input {
+  width: 72px;
 }
 
 .run-judge {

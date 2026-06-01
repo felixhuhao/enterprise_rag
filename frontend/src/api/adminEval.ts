@@ -4,6 +4,10 @@ export interface EvalBreakdownMetric {
   count: number
   avg_score: number
   pass_rate: number
+  answer_pass_rate?: number | null
+  citation_hit_rate?: number | null
+  p95_latency_ms?: number | null
+  timeout_count?: number
   hit_eval_count?: number
   hit_at_5_rate?: number | null
   hit_at_10_rate?: number | null
@@ -39,6 +43,8 @@ export interface EvalSummary {
   latency_p95_ms?: number | null
   output_path?: string
   summary_path?: string
+  baseline?: EvalBaselineInfo
+  baseline_delta?: EvalBaselineDelta | null
   overall: {
     count: number
     avg_score?: number | null
@@ -65,6 +71,27 @@ export interface EvalJudgeCacheMetric {
   errors: number
 }
 
+export interface EvalBaselineInfo {
+  available: boolean
+  path?: string
+  accepted_at?: string
+  mode?: string
+  flavor?: string
+  accepted_current_run?: boolean
+}
+
+export interface EvalMetricDelta {
+  current?: number | null
+  baseline?: number | null
+  delta?: number | null
+  direction?: 'higher_is_better' | 'lower_is_better' | string
+}
+
+export interface EvalBaselineDelta {
+  overall?: Record<string, EvalMetricDelta>
+  per_flavor?: Record<string, Record<string, EvalMetricDelta>>
+}
+
 export interface EvalStatus {
   status: 'idle' | 'running' | 'succeeded' | 'failed'
   started_at: string
@@ -84,10 +111,12 @@ export interface EvalStatus {
 export interface EvalRunOptions {
   mode?: string
   judge?: boolean
+  accept_baseline?: boolean
   case_ids?: string[]
   flavor?: string
   limit?: number
   case_timeout_sec?: number
+  concurrency?: number
 }
 
 export interface EvalCaseResult {

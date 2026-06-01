@@ -6,6 +6,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from .baseline import attach_baseline_delta, save_accepted_baseline
 from .cases import filter_by_slice, filter_quick_cases, load_golden_set
 from .common import EVAL_MODES, normalize_eval_mode
 from .runner import _get_eval_type, run_eval
@@ -19,10 +20,16 @@ def main():
                         help="API base URL")
     parser.add_argument("--token", default=None, help="API token")
     parser.add_argument("--output", default=None, help="结果 JSONL 路径")
-    parser.add_argument("--delay", type=float, default=1.0, help="每题间隔秒数")
+    parser.add_argument("--delay", type=float, default=1.0,
+                        help="提交用例的间隔秒数；并发模式下控制提交节流")
     parser.add_argument("--judge", action="store_true", help="启用 LLM judge")
     parser.add_argument("--judge-model", default=None, help="Judge 模型")
     parser.add_argument("--case-timeout", type=int, default=180, help="单题超时秒数")
+    parser.add_argument("--concurrency", type=int, default=0,
+                        help="并发数；默认 retrieval_only=4，其他模式=2")
+    parser.add_argument("--accept-baseline", action="store_true",
+                        help="将本次摘要保存为当前 mode/flavor 的 accepted baseline")
+    parser.add_argument("--baseline-path", default=None, help="accepted baseline JSON 路径")
     parser.add_argument("--mode", default="full", choices=sorted(EVAL_MODES),
                         help="评测模式: full | quick | retrieval_only | answer_lite")
     parser.add_argument("--slice", action="append", default=[],
@@ -115,6 +122,7 @@ def main():
         case_timeout_sec=args.case_timeout,
         judge_config=judge_config,
         mode=mode,
+        concurrency=args.concurrency,
     )
 
     # --- Save results ---
@@ -135,9 +143,19 @@ def main():
     summary_path = str(Path(output_path).parent / f"{base}_summary.json")
 
     summary = build_summary(results, mode=mode, output_path=output_path, summary_path=summary_path)
+    attach_baseline_delta(summary, baseline_path=args.baseline_path)
+    if args.accept_baseline:
+        accepted = save_accepted_baseline(summary, baseline_path=args.baseline_path)
+        summary.setdefault("baseline", {}).update({
+            "available": True,
+            "accepted_current_run": True,
+            "accepted_at": accepted.get("accepted_at", ""),
+            "mode": accepted.get("mode", ""),
+            "flavor": accepted.get("flavor", ""),
+        })
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
     print(f"Summary saved to {summary_path}")
 
     # --- Print terminal summary ---
-    print_summary(results)
+    print_summary(results, summary=summary)

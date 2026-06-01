@@ -1,6 +1,7 @@
 """Golden-set eval execution and per-case result shaping."""
 
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from queue import Empty, Queue
 from threading import Event, Thread
 
@@ -54,27 +55,67 @@ def run_eval(
     case_timeout_sec: int = 180,
     judge_config: dict | None = None,
     mode: str = "full",
+    concurrency: int = 0,
 ):
     mode = normalize_eval_mode(mode)
+    concurrency = _eval_concurrency(mode, concurrency)
+    results: list[dict | None] = [None] * len(golden_set)
 
-    results = []
+    if concurrency <= 1:
+        for i, item in enumerate(golden_set):
+            row = _run_eval_case_with_timeout(
+                item,
+                i,
+                len(golden_set),
+                api_base,
+                token,
+                progress_callback,
+                case_timeout_sec=case_timeout_sec,
+                judge_config=judge_config,
+                mode=mode,
+            )
+            results[i] = row
+            if delay > 0:
+                time.sleep(delay)
+        return [row for row in results if row is not None]
 
-    for i, item in enumerate(golden_set):
-        row = _run_eval_case_with_timeout(
-            item,
-            i,
-            len(golden_set),
-            api_base,
-            token,
-            progress_callback,
-            case_timeout_sec=case_timeout_sec,
-            judge_config=judge_config,
-            mode=mode,
-        )
-        results.append(row)
-        time.sleep(delay)
+    with ThreadPoolExecutor(max_workers=concurrency) as executor:
+        futures = {}
+        for i, item in enumerate(golden_set):
+            future = executor.submit(
+                _run_eval_case_with_timeout,
+                item,
+                i,
+                len(golden_set),
+                api_base,
+                token,
+                progress_callback,
+                case_timeout_sec,
+                judge_config,
+                mode,
+            )
+            futures[future] = i
+            if delay > 0:
+                time.sleep(delay)
 
-    return results
+        for future in as_completed(futures):
+            index = futures[future]
+            try:
+                results[index] = future.result()
+            except Exception as exc:
+                results[index] = _case_error_row(golden_set[index], exc, mode=mode)
+
+    return [row for row in results if row is not None]
+
+
+def _eval_concurrency(mode: str, concurrency: int = 0) -> int:
+    try:
+        requested = int(concurrency)
+    except (TypeError, ValueError):
+        requested = 0
+    if requested > 0:
+        return max(1, min(requested, 16))
+    return 4 if mode == "retrieval_only" else 2
 
 
 def _run_eval_case_with_timeout(

@@ -47,10 +47,12 @@ _state: dict = {
 class RunRequest(BaseModel):
     mode: str = "full"
     judge: bool = False
+    accept_baseline: bool = False
     case_ids: list[str] = Field(default_factory=list)
     flavor: str = ""
     limit: int = 0
     case_timeout_sec: int = 180
+    concurrency: int = 0
 
 
 class CaseEnabledRequest(BaseModel):
@@ -236,10 +238,13 @@ def _upsert_result_preview(preview: list[dict], item: dict) -> list[dict]:
     return [*preview, item]
 
 
+def _finished_preview_count(preview: list[dict]) -> int:
+    return sum(1 for item in preview if item.get("status") != "running")
+
+
 def _update_eval_progress(event: dict) -> None:
     with _lock:
         _state["total"] = event.get("total", _state.get("total", 0))
-        _state["current"] = event.get("index", _state.get("current", 0))
         if event.get("type") == "case_started":
             _state["current_id"] = event.get("id", "")
             _state["current_question"] = event.get("question", "")
@@ -254,12 +259,14 @@ def _update_eval_progress(event: dict) -> None:
                 "error": "",
             }
             _state["results_preview"] = _upsert_result_preview(_state.get("results_preview", []), item)
+            _state["current"] = _finished_preview_count(_state["results_preview"])
         elif event.get("type") == "case_finished":
             row = event.get("row", {})
             _state["current_id"] = row.get("id", "")
             _state["current_question"] = row.get("question", "")
             item = _eval_result_preview(row, event.get("index"), event.get("total"))
             _state["results_preview"] = _upsert_result_preview(_state.get("results_preview", []), item)
+            _state["current"] = _finished_preview_count(_state["results_preview"])
 
 
 @router.get("/admin/eval/status")
@@ -376,6 +383,7 @@ def _runner(token: str, req: RunRequest):
         # add backend/ to path so scripts can import app.* modules
         sys.path.insert(0, str(_backend))
         from scripts.eval_golden.cases import load_golden_set
+        from scripts.eval_golden.baseline import attach_baseline_delta, save_accepted_baseline
         from scripts.eval_golden.runner import _get_eval_type, run_eval
         from scripts.eval_golden.summary import build_summary
 
@@ -409,6 +417,7 @@ def _runner(token: str, req: RunRequest):
             case_timeout_sec=req.case_timeout_sec,
             judge_config=judge_config,
             mode=mode,
+            concurrency=req.concurrency,
         )
 
         failed_count = _failed_case_count(results)
@@ -424,6 +433,16 @@ def _runner(token: str, req: RunRequest):
             output_path=str(result_path),
             summary_path=str(summary_path),
         )
+        attach_baseline_delta(summary)
+        if req.accept_baseline:
+            accepted = save_accepted_baseline(summary)
+            summary.setdefault("baseline", {}).update({
+                "available": True,
+                "accepted_current_run": True,
+                "accepted_at": accepted.get("accepted_at", ""),
+                "mode": accepted.get("mode", ""),
+                "flavor": accepted.get("flavor", ""),
+            })
 
         with open(result_path, "w", encoding="utf-8") as f:
             for r in results:

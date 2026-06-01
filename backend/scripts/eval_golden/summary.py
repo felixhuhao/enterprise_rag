@@ -91,10 +91,15 @@ def build_summary(
             continue
         fs = [r["final_score"] for r in fr]
         fr_hit = [r for r in fr if r.get("hit_metric_applicable")]
+        fr_latencies = _summary_latencies(fr)
         per_flavor[flavor] = {
             "count": len(fr),
             "avg_score": round(sum(fs) / len(fs), 4),
             "pass_rate": round(sum(1 for s in fs if s >= 0.8) / len(fs), 4),
+            "answer_pass_rate": None if eval_mode == "retrieval_only" else round(sum(1 for s in fs if s >= 0.8) / len(fs), 4),
+            "citation_hit_rate": _citation_hit_rate(fr, eval_mode),
+            "p95_latency_ms": _percentile_ms(fr_latencies, 0.95) if fr_latencies else None,
+            "timeout_count": _summary_timeout_count(fr),
             "hit_eval_count": len(fr_hit),
             "hit_at_5_rate": round(sum(1 for r in fr_hit if r.get("hit_at_5")) / len(fr_hit), 4) if fr_hit else None,
             "hit_at_10_rate": round(sum(1 for r in fr_hit if r.get("hit_at_10")) / len(fr_hit), 4) if fr_hit else None,
@@ -309,9 +314,9 @@ def _citation_hit_rate(scored: list[dict], eval_mode: str) -> float | None:
     return round(sum(1 for row in cited if float(row.get("citation_score") or 0) >= 1.0) / len(cited), 4)
 
 
-def print_summary(results: list[dict]):
+def print_summary(results: list[dict], summary: dict | None = None):
     """Terminal summary."""
-    summary = build_summary(results)
+    summary = summary or build_summary(results)
 
     print("\n" + "=" * 60)
     print("EVAL SUMMARY")
@@ -366,6 +371,10 @@ def print_summary(results: list[dict]):
         for category, count in summary["failure_categories"].items():
             print(f"    {category}: {count}")
 
+    if summary.get("baseline_delta"):
+        print(f"\n  --- baseline delta ---")
+        _print_baseline_delta(summary["baseline_delta"].get("overall", {}))
+
     cache = summary.get("judge_cache") or {}
     if cache.get("checked"):
         score_cache = cache.get("score") or {}
@@ -392,6 +401,29 @@ def print_summary(results: list[dict]):
         print(f"\n  Pending LLM judge: {len(pending)} questions (use --judge)")
 
     print()
+
+
+def _print_baseline_delta(delta: dict) -> None:
+    labels = {
+        "hit_at_10": "Hit@10",
+        "citation_hit_rate": "citation",
+        "answer_pass_rate": "answer",
+        "p95_latency_ms": "p95",
+        "timeout_count": "timeouts",
+    }
+    parts = []
+    for key, label in labels.items():
+        item = delta.get(key) if isinstance(delta.get(key), dict) else {}
+        value = item.get("delta")
+        if value is None:
+            continue
+        suffix = "ms" if key == "p95_latency_ms" else ""
+        parts.append(f"{label} {_fmt_delta(value)}{suffix}")
+    print(f"    {', '.join(parts) if parts else 'no comparable metrics'}")
+
+
+def _fmt_delta(value: float | int) -> str:
+    return f"+{value}" if value > 0 else str(value)
 
 
 def _fmt_rate(value: float | None) -> str:

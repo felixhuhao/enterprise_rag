@@ -1,4 +1,4 @@
-from scripts.eval_golden import client, judge, runner
+from scripts.eval_golden import baseline, client, judge, runner
 from scripts.eval_golden import (
     _case_query_config,
     _parse_judge_response,
@@ -132,6 +132,46 @@ def test_summary_exposes_compact_run_metrics_and_paths():
     assert summary["latency_p95_ms"] == 300
     assert summary["output_path"] == "/tmp/results.jsonl"
     assert summary["summary_path"] == "/tmp/summary.json"
+
+
+def test_baseline_delta_compares_current_summary_to_accepted_baseline(tmp_path):
+    baseline_summary = build_summary([
+        {
+            "id": "base",
+            "eval_mode": "retrieval_only",
+            "final_score": 1.0,
+            "eval_type": "rule",
+            "preferred_flavor": "exact",
+            "strict_evidence": False,
+            "hit_metric_applicable": True,
+            "hit_at_5": True,
+            "hit_at_10": True,
+            "retrieval_latency_ms": 100,
+        }
+    ], mode="retrieval_only")
+    current_summary = build_summary([
+        {
+            "id": "current",
+            "eval_mode": "retrieval_only",
+            "final_score": 0.0,
+            "eval_type": "rule",
+            "preferred_flavor": "exact",
+            "strict_evidence": False,
+            "hit_metric_applicable": True,
+            "hit_at_5": False,
+            "hit_at_10": False,
+            "retrieval_latency_ms": 140,
+        }
+    ], mode="retrieval_only")
+    path = tmp_path / "accepted_baselines.json"
+
+    baseline.save_accepted_baseline(baseline_summary, baseline_path=path)
+    baseline.attach_baseline_delta(current_summary, baseline_path=path)
+
+    assert current_summary["baseline"]["available"] is True
+    assert current_summary["baseline_delta"]["overall"]["hit_at_10"]["delta"] == -1
+    assert current_summary["baseline_delta"]["overall"]["p95_latency_ms"]["delta"] == 40
+    assert current_summary["baseline_delta"]["per_flavor"]["exact"]["hit_at_10"]["delta"] == -1
 
 
 def test_summary_counts_failure_categories():
@@ -462,6 +502,7 @@ def test_run_eval_keeps_going_after_case_exception(monkeypatch):
         "http://test/api",
         "token",
         delay=0,
+        concurrency=1,
     )
 
     assert [row["id"] for row in results] == ["bad", "ok"]
@@ -495,6 +536,51 @@ def test_run_eval_marks_case_timeout(monkeypatch):
     assert results[0]["chunk_hit_at_5"] is None
     assert results[0]["fallback_info"] == {}
     assert results[0]["retrieval_latency_ms"] is None
+
+
+def test_run_eval_honors_concurrency_cap(monkeypatch):
+    import threading
+    import time
+
+    active = 0
+    max_active = 0
+    lock = threading.Lock()
+
+    def fake_case(item, index, total, *_args, **_kwargs):
+        nonlocal active, max_active
+        with lock:
+            active += 1
+            max_active = max(max_active, active)
+        time.sleep(0.02)
+        with lock:
+            active -= 1
+        return {
+            "id": item["id"],
+            "eval_mode": "full",
+            "question": item["question"],
+            "eval_type": "rule",
+            "final_score": 1.0,
+            "preferred_flavor": "balanced",
+            "strict_evidence": False,
+        }
+
+    monkeypatch.setattr(runner, "run_eval_case", fake_case)
+
+    results = run_eval(
+        [
+            {"id": "a", "question": "a", "eval_type": "rule"},
+            {"id": "b", "question": "b", "eval_type": "rule"},
+            {"id": "c", "question": "c", "eval_type": "rule"},
+            {"id": "d", "question": "d", "eval_type": "rule"},
+        ],
+        "http://test/api",
+        "token",
+        delay=0,
+        concurrency=2,
+    )
+
+    assert [row["id"] for row in results] == ["a", "b", "c", "d"]
+    assert max_active == 2
 
 
 def test_retrieval_only_case_uses_retrieval_service_without_generation(monkeypatch):
