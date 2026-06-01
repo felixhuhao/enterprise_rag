@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 from app.config import settings
-from app.rag.query.fallback import empty_fallback_info, fallback_blocked, fallback_used
 from app.rag.query.config import QueryConfig, get_default_query_config
 from app.rag.query.search_pipeline import SearchPipelineHooks, SearchPipelineNodes, run_search_pipeline
+from app.services import retrieval_test_formatting
+from app.services import retrieval_test_search
 
 logger = logging.getLogger(__name__)
 
@@ -140,40 +140,17 @@ def _combine_acl(entity_filter: str | None, acl_filter: str | None) -> str | Non
 
 
 def _run_primary_search(state: dict, run_config: dict, cfg: QueryConfig, *, use_hybrid: bool) -> dict:
-    from app.rag.query.scoring_utils import need_fallback
-    from app.rag.query.planner import plan_allows_entity_fallback, plan_budget
-
-    acl_filter, allowed_ids = _retrieval_acl_filter(run_config)
-    if allowed_ids is not None and not allowed_ids:
-        return {"search_results": [], "search_mode": "acl_empty", "fallback_info": empty_fallback_info()}
-
-    if use_hybrid:
-        return _search_node(state, run_config)
-
-    if state.get("entity_mode") == "multi_explicit":
-        return _run_multi_entity_dense_search(state, cfg, acl_filter)
-
-    query = state.get("rewritten_query") or state["query"]
-    entity_filter = state.get("entity_filter") or None
-    combined = _combine_acl(entity_filter, acl_filter)
-    query_dense = _embed_query(query)
-    budget = plan_budget(state, run_config)
-    search_limit = int(budget.get("search_limit") or cfg.search_limit)
-
-    results = _dense_only_search_limited(query_dense, combined, search_limit)
-    should_fallback = bool(entity_filter) and need_fallback(results, combined, cfg)
-    info = empty_fallback_info()
-    if should_fallback:
-        if plan_allows_entity_fallback(state, run_config):
-            results = _dense_only_search_limited(query_dense, acl_filter, search_limit)
-            mode = "dense_filtered_fallback_unfiltered"
-            info = fallback_used(entity_filter)
-        else:
-            mode = "dense_filtered"
-            info = fallback_blocked(entity_filter)
-    else:
-        mode = "dense_filtered" if combined else "dense"
-    return {"search_results": results, "search_mode": mode, "fallback_info": info}
+    return retrieval_test_search.run_primary_search(
+        state,
+        run_config,
+        cfg,
+        use_hybrid=use_hybrid,
+        hybrid_search=_search_node,
+        acl_filter=_retrieval_acl_filter,
+        combine_acl=_combine_acl,
+        embed_query=_embed_query,
+        dense_search=_dense_only_search_limited,
+    )
 
 
 def _should_run_multi_hop(state: dict, query: str, plan: dict) -> bool:
@@ -189,52 +166,14 @@ def _run_multi_hop_search(state: dict, query: str, run_config: dict, cfg: QueryC
 
 
 def _run_multi_entity_dense_search(state: dict, cfg: QueryConfig, acl_filter: str | None = None) -> dict:
-    """Dense-only variant of multi-entity retrieval for the retrieval test page."""
-    from concurrent.futures import ThreadPoolExecutor
-
-    query = state.get("rewritten_query") or state["query"]
-    matched = state.get("matched_entities", [])
-    n = max(len(matched), 1)
-    per_limit = max(cfg.search_limit // n, 5)
-    query_dense = _embed_query(query)
-
-    def _search_one(entity: str) -> tuple[str, list[dict], str]:
-        from app.rag.query.filter_utils import build_entity_expr
-        combined = _combine_acl(build_entity_expr(entity), acl_filter)
-        try:
-            rows = _dense_only_search_limited(query_dense, combined, per_limit)
-            return entity, rows, "dense_filtered"
-        except Exception:
-            return entity, [], "failed"
-
-    all_results: list[dict] = []
-    per_counts: dict[str, int] = {}
-    all_failed = True
-    with ThreadPoolExecutor(max_workers=min(n, 4)) as pool:
-        futures = [pool.submit(_search_one, entity) for entity in matched]
-        for future in futures:
-            entity, rows, mode = future.result()
-            per_counts[entity] = len(rows)
-            all_results.extend(rows)
-            if mode != "failed":
-                all_failed = False
-
-    if all_failed:
-        raise RuntimeError(f"多实体 dense 检索全部失败: entities={matched}")
-
-    seen: dict[str, dict] = {}
-    for row in all_results:
-        key = str(row.get("chunk_key") or row.get("chunk_id") or f"{row.get('document_id')}|{row.get('source_type')}|{row.get('part')}")
-        if key not in seen or row["score"] > seen[key]["score"]:
-            seen[key] = row
-
-    cap = min(len(seen), cfg.search_limit * 2)
-    return {
-        "search_results": sorted(seen.values(), key=lambda x: x["score"], reverse=True)[:cap],
-        "search_mode": "multi_dense_filtered",
-        "per_entity_counts": per_counts,
-        "fallback_info": empty_fallback_info(),
-    }
+    return retrieval_test_search.run_multi_entity_dense_search(
+        state,
+        cfg,
+        acl_filter,
+        combine_acl=_combine_acl,
+        embed_query=_embed_query,
+        dense_search=_dense_only_search_limited,
+    )
 
 
 def _apply_default_path(rows: list[dict], label: str):
@@ -291,83 +230,25 @@ def _retrieval_test_rerank_node(state: dict, config: dict, cfg: QueryConfig) -> 
 
 
 def _format_result(row: dict, rank: int, *, use_rerank: bool) -> dict:
-    rerank = row.get("rerank") or {}
-    content = row.get("content", "") or ""
-    return {
-        "rank": rank,
-        "chunk_id": row.get("chunk_id"),
-        "chunk_key": row.get("chunk_key", ""),
-        "document_id": row.get("document_id", ""),
-        "file_title": row.get("file_title", ""),
-        "entity_name": row.get("entity_name", ""),
-        "section_title": row.get("section_title", "") or row.get("title", ""),
-        "page": row.get("page"),
-        "source_type": row.get("source_type", ""),
-        "keywords": row.get("keywords", []),
-        "structured_tags": row.get("structured_tags", []),
-        "table_id": row.get("table_id", ""),
-        "table_title": row.get("table_title", ""),
-        "score": round(float(row.get("score", 0) or 0), 4),
-        "llm_score": rerank.get("llm_score") if use_rerank else None,
-        "rrf_score": rerank.get("rrf_score") if use_rerank else None,
-        "final_score": rerank.get("final_score") if use_rerank else None,
-        "retrieval_path": row.get("retrieval_path", "未知"),
-        "retrieval_paths": row.get("retrieval_paths", []),
-        "context_expanded_chunk_ids": row.get("context_expanded_chunk_ids", []),
-        "context_expand_parts": row.get("context_expand_parts", []),
-        "content": content,
-        "content_preview": content[:500],
-    }
+    return retrieval_test_formatting.format_result(row, rank, use_rerank=use_rerank)
 
 
 def _strategy_summary(cfg: QueryConfig, use_hybrid: bool, state: dict) -> dict:
-    search_mode = state.get("search_mode", "")
-    hyde_mode = state.get("search_mode_hyde", "")
-    expanded_modes = state.get("search_modes_expanded", []) or []
-    fallback_info = state.get("fallback_info", {}) or {}
-    return {
-        "top_k": cfg.rerank_max_top_k,
-        "hybrid": use_hybrid,
-        "hyde": bool(state.get("query_plan", {}).get("use_hyde", cfg.use_hyde)),
-        "query_expansion": bool(state.get("query_plan", {}).get("use_query_expansion", False)),
-        "rerank": cfg.use_rerank,
-        "table_expand": cfg.use_table_expand,
-        "fallback": bool(fallback_info.get("used"))
-        or "fallback" in search_mode
-        or "fallback" in hyde_mode
-        or any("fallback" in mode for mode in expanded_modes),
-        "search_mode": search_mode,
-        "search_mode_hyde": hyde_mode,
-        "retrieval_flavor": state.get("query_plan", {}).get("retrieval_flavor", "balanced"),
-        "strict_evidence": state.get("query_plan", {}).get("strict_evidence", False),
-        "embedding_model": _embedding_model_label(),
-        "chat_model": settings.LOCAL_MODEL_NAME or settings.CHAT_MODEL,
-        "dense_weight": cfg.dense_weight if use_hybrid else 1.0,
-        "sparse_weight": cfg.sparse_weight if use_hybrid else 0.0,
-    }
+    return retrieval_test_formatting.strategy_summary(
+        cfg,
+        use_hybrid,
+        state,
+        settings_obj=settings,
+        embedding_model_label=_embedding_model_label(),
+    )
 
 
 def _embedding_model_label() -> str:
-    name = settings.EMBEDDING_MODEL_NAME.strip()
-    if name:
-        return name
-    return Path(settings.EMBEDDING_MODEL_PATH).name or settings.EMBEDDING_MODEL_PATH
+    return retrieval_test_formatting.embedding_model_label(settings)
 
 
 def _mode_label(mode: str) -> str:
-    if not mode:
-        return "主检索"
-    if mode == "disabled":
-        return "关闭"
-    if mode.startswith("hyde"):
-        if "fallback" in mode:
-            return "HyDE(回退)"
-        return "HyDE"
-    if mode.startswith("dense"):
-        return "Dense"
-    if mode.startswith("hybrid"):
-        return "Hybrid"
-    return mode
+    return retrieval_test_formatting.mode_label(mode)
 
 
 def _entity_confirm_node(state: dict, config: dict) -> dict:

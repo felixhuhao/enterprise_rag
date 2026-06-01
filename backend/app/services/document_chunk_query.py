@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
 from app.config import settings
@@ -11,6 +13,76 @@ from app.rag.chunking.chunk_keys import base_chunk_key
 from app.rag.query.metadata_utils import parse_json_list
 
 logger = logging.getLogger(__name__)
+
+QueryChunksFn = Callable[[str], list[dict]]
+QueryChunkByKeyFn = Callable[[str, str], dict | None]
+LoadParsedChunksFn = Callable[[str], list[dict]]
+NormalizeChunkFn = Callable[[dict, str, int], dict]
+SortChunksFn = Callable[[list[dict]], list[dict]]
+
+
+async def get_document_chunks_payload(
+    document_id: str,
+    document: dict,
+    *,
+    query_milvus_chunks: QueryChunksFn,
+    load_parsed_chunks: LoadParsedChunksFn,
+    normalize_chunk: NormalizeChunkFn,
+    sort_chunks: SortChunksFn,
+) -> dict:
+    """Return document metadata and normalized chunks from Milvus or parsed artifacts."""
+    chunks_source = "none"
+    chunks: list[dict] = []
+
+    try:
+        chunks = await asyncio.to_thread(query_milvus_chunks, document_id)
+        if chunks:
+            chunks_source = "milvus"
+    except Exception:
+        logger.warning("Failed to query Milvus chunks: document_id=%s", document_id, exc_info=True)
+
+    if not chunks:
+        chunks = load_parsed_chunks(document_id)
+        if chunks:
+            chunks_source = "parsed_artifact"
+
+    return {
+        "chunks_source": chunks_source,
+        "document": document,
+        "chunks": [
+            normalize_chunk(row, document_id, idx)
+            for idx, row in enumerate(sort_chunks(chunks), start=1)
+        ],
+    }
+
+
+async def get_document_chunk_by_key_payload(
+    document_id: str,
+    chunk_key: str,
+    *,
+    query_milvus_chunk_by_key: QueryChunkByKeyFn,
+    load_parsed_chunks: LoadParsedChunksFn,
+    normalize_chunk: NormalizeChunkFn,
+    sort_chunks: SortChunksFn,
+) -> dict | None:
+    """Return one normalized chunk by stable chunk_key from Milvus or parsed artifacts."""
+    try:
+        row = await asyncio.to_thread(query_milvus_chunk_by_key, document_id, chunk_key)
+        if row:
+            return normalize_chunk(row, document_id, 1)
+    except Exception:
+        logger.warning(
+            "Failed to query Milvus chunk: document_id=%s chunk_key=%s",
+            document_id,
+            chunk_key,
+            exc_info=True,
+        )
+
+    for idx, row in enumerate(sort_chunks(load_parsed_chunks(document_id)), start=1):
+        chunk = normalize_chunk(row, document_id, idx)
+        if chunk.get("chunk_key") == chunk_key:
+            return chunk
+    return None
 
 
 def query_milvus_chunks(document_id: str) -> list[dict]:

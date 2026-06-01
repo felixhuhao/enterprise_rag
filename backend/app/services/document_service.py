@@ -111,29 +111,14 @@ async def get_document_chunks(document_id: str) -> dict | None:
     if not doc:
         return None
 
-    chunks_source = "none"
-    chunks: list[dict] = []
-
-    try:
-        chunks = await asyncio.to_thread(_sync_query_milvus_chunks, document_id)
-        if chunks:
-            chunks_source = "milvus"
-    except Exception:
-        logger.warning("查询 Milvus chunks 失败 document_id=%s", document_id, exc_info=True)
-
-    if not chunks:
-        chunks = _load_parsed_chunks(document_id)
-        if chunks:
-            chunks_source = "parsed_artifact"
-
-    return {
-        "chunks_source": chunks_source,
-        "document": doc,
-        "chunks": [
-            _normalize_chunk(row, document_id, idx)
-            for idx, row in enumerate(_sort_chunks(chunks), start=1)
-        ],
-    }
+    return await document_chunk_query.get_document_chunks_payload(
+        document_id,
+        doc,
+        query_milvus_chunks=_sync_query_milvus_chunks,
+        load_parsed_chunks=_load_parsed_chunks,
+        normalize_chunk=_normalize_chunk,
+        sort_chunks=_sort_chunks,
+    )
 
 
 async def get_document_chunk_by_key(document_id: str, chunk_key: str) -> dict | None:
@@ -141,23 +126,14 @@ async def get_document_chunk_by_key(document_id: str, chunk_key: str) -> dict | 
     if not await get_document(document_id):
         return None
 
-    try:
-        row = await asyncio.to_thread(_sync_query_milvus_chunk_by_key, document_id, chunk_key)
-        if row:
-            return _normalize_chunk(row, document_id, 1)
-    except Exception:
-        logger.warning(
-            "查询 Milvus chunk 失败 document_id=%s chunk_key=%s",
-            document_id,
-            chunk_key,
-            exc_info=True,
-        )
-
-    for idx, row in enumerate(_sort_chunks(_load_parsed_chunks(document_id)), start=1):
-        chunk = _normalize_chunk(row, document_id, idx)
-        if chunk.get("chunk_key") == chunk_key:
-            return chunk
-    return None
+    return await document_chunk_query.get_document_chunk_by_key_payload(
+        document_id,
+        chunk_key,
+        query_milvus_chunk_by_key=_sync_query_milvus_chunk_by_key,
+        load_parsed_chunks=_load_parsed_chunks,
+        normalize_chunk=_normalize_chunk,
+        sort_chunks=_sort_chunks,
+    )
 
 
 _ALLOWED_STATUS_FIELDS = frozenset({
@@ -325,32 +301,16 @@ async def delete_document(document_id: str) -> str:
     - partial: Milvus 失败，本地清理但 DB 保留（cleanup_status=milvus_delete_failed）
     - not_found: 文档不存在
     """
-    doc = await get_document(document_id)
-    if not doc:
-        return "not_found"
-
-    milvus_ok = True
-    try:
-        await asyncio.to_thread(_sync_delete_from_milvus, document_id)
-    except Exception as exc:
-        milvus_ok = False
-        logger.warning("Milvus 删除失败 document_id=%s: %s", document_id, exc)
-        from app.errors import classify_error
-        code = classify_error(exc)
-        await update_document_status(
-            document_id, doc["status"],
-            cleanup_status="milvus_delete_failed",
-            error_code=code.value, error_msg=str(exc)[:1000],
-        )
-        await append_error_event(document_id, "delete_cleanup", code.value, str(exc)[:2000])
-
-    _delete_local_artifacts(document_id)
-    _invalidate_entity_cache()
-
-    if milvus_ok:
-        await delete_document_record(document_id)
-        return "deleted"
-    return "partial"
+    return await document_cleanup.delete_document(
+        document_id,
+        get_document=get_document,
+        update_document_status=update_document_status,
+        append_error_event=append_error_event,
+        delete_document_record=delete_document_record,
+        delete_from_milvus=_sync_delete_from_milvus,
+        delete_local_artifacts=_delete_local_artifacts,
+        invalidate_entity_cache=_invalidate_entity_cache,
+    )
 
 
 async def repair_delete_document(document_id: str) -> str:
@@ -358,18 +318,14 @@ async def repair_delete_document(document_id: str) -> str:
 
     返回 "deleted"。Milvus 仍失败则 raise。
     """
-    doc = await get_document(document_id)
-    if not doc or doc.get("cleanup_status") != "milvus_delete_failed":
-        raise ValueError("文档不处于可修复删除状态")
-
-    # 重试 Milvus 删除
-    await asyncio.to_thread(_sync_delete_from_milvus, document_id)
-
-    # Milvus 成功 → 清理本地（幂等）+ 删 DB
-    _delete_local_artifacts(document_id)
-    _invalidate_entity_cache()
-    await delete_document_record(document_id)
-    return "deleted"
+    return await document_cleanup.repair_delete_document(
+        document_id,
+        get_document=get_document,
+        delete_document_record=delete_document_record,
+        delete_from_milvus=_sync_delete_from_milvus,
+        delete_local_artifacts=_delete_local_artifacts,
+        invalidate_entity_cache=_invalidate_entity_cache,
+    )
 
 
 def _delete_local_artifacts(document_id: str):
