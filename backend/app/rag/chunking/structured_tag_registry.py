@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 import sqlite3
@@ -144,8 +144,11 @@ def invalidate_structured_tag_overrides() -> None:
         _OVERRIDE_CACHE = None
 
 
-def _apply_override(definition: StructuredTagDefinition) -> StructuredTagDefinition:
-    override = _structured_tag_overrides().get(definition.tag_key)
+def apply_structured_tag_override(
+    definition: StructuredTagDefinition,
+    override: Mapping[str, object] | None,
+) -> StructuredTagDefinition:
+    """Return an effective definition using values from an override row."""
     if not override:
         return definition
     values = {}
@@ -158,6 +161,10 @@ def _apply_override(definition: StructuredTagDefinition) -> StructuredTagDefinit
         if value is not None:
             values[field] = bool(value)
     return replace(definition, **values)
+
+
+def _apply_override(definition: StructuredTagDefinition) -> StructuredTagDefinition:
+    return apply_structured_tag_override(definition, _structured_tag_overrides().get(definition.tag_key))
 
 
 def _structured_tag_overrides() -> dict[str, dict[str, object]]:

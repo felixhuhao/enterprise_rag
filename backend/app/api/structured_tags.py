@@ -18,6 +18,7 @@ from app.rag.chunking.enrichment import MAX_KEYWORDS, build_search_text, extract
 from app.rag.chunking.structured_tag_registry import (
     BUILTIN_STRUCTURED_TAGS,
     StructuredTagDefinition,
+    apply_structured_tag_override,
     get_builtin_structured_tag_definition,
     get_structured_tag_definition,
     invalidate_structured_tag_overrides,
@@ -72,7 +73,7 @@ def _definition_or_404(tag_key: str) -> StructuredTagDefinition:
 
 def _tag_record(definition: StructuredTagDefinition, override: dict | None) -> dict:
     row = override or {}
-    effective = get_structured_tag_definition(definition.tag_key) or definition
+    effective = apply_structured_tag_override(definition, row)
     return {
         "tag_key": definition.tag_key,
         "label": effective.label,

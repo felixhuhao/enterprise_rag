@@ -1,6 +1,7 @@
 from app.rag.chunking.enrichment import build_search_text
 from app.rag.chunking.structured_tag_registry import (
     MAX_STRUCTURED_TAGS,
+    apply_structured_tag_override,
     get_structured_tag_definition,
     normalize_structured_tags,
     structured_tag_label,
@@ -16,6 +17,26 @@ def test_registry_exposes_builtin_label_and_metadata():
     assert definition.scope == "chunk"
     assert definition.profile == "enterprise_policy"
     assert structured_tag_label("approval_rule") == "审批规则"
+
+
+def test_apply_structured_tag_override_uses_only_provided_values():
+    definition = get_structured_tag_definition("approval_rule")
+    assert definition is not None
+
+    effective = apply_structured_tag_override(
+        definition,
+        {
+            "label": "审批要求",
+            "description": None,
+            "enabled": 0,
+            "ui_visible": 1,
+        },
+    )
+
+    assert effective.label == "审批要求"
+    assert effective.description == definition.description
+    assert effective.enabled is False
+    assert effective.ui_visible is True
 
 
 def test_normalize_structured_tags_filters_unknown_and_dedupes():

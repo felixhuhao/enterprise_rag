@@ -78,6 +78,30 @@ def test_list_structured_tags_merges_overrides(tag_db, users):
     assert records["approval_rule"]["overridden"] is True
 
 
+def test_list_structured_tags_applies_rows_read_by_api_even_if_registry_cache_is_stale(tag_db, users):
+    cached = registry.get_structured_tag_definition("approval_rule")
+    assert cached is not None
+    assert cached.label == "审批规则"
+
+    with sqlite3.connect(tag_db) as conn:
+        conn.execute(
+            """INSERT INTO structured_tag_overrides
+               (tag_key, label, description, enabled, ui_visible)
+               VALUES (?, ?, ?, ?, ?)""",
+            ("approval_rule", "审批要求", "覆盖说明", 0, 0),
+        )
+        conn.commit()
+
+    result = run(api.list_structured_tags(users["admin"]))
+    records = {row["tag_key"]: row for row in result["records"]}
+
+    assert records["approval_rule"]["label"] == "审批要求"
+    assert records["approval_rule"]["description"] == "覆盖说明"
+    assert records["approval_rule"]["enabled"] is False
+    assert records["approval_rule"]["ui_visible"] is False
+    assert records["approval_rule"]["overridden"] is True
+
+
 def test_non_admin_is_forbidden(tag_db, users):
     with pytest.raises(HTTPException) as exc:
         run(api.list_structured_tags(users["user"]))
