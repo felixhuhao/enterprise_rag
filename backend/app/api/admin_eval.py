@@ -230,6 +230,60 @@ def _eval_result_preview(row: dict, index: int | None = None, total: int | None 
     }
 
 
+def _eval_result_detail_row(row: dict) -> dict:
+    detail = dict(row)
+    detail.setdefault("id", "")
+    detail.setdefault("question", "")
+    detail.setdefault("eval_mode", "")
+    detail.setdefault("eval_type", "")
+    detail.setdefault("expected_points", [])
+    detail.setdefault("expected_docs", detail.get("expected_documents", []))
+    detail.setdefault("expected_documents", detail.get("expected_docs", []))
+    detail.setdefault("expected_chunk_keys", [])
+    detail.setdefault("actual_answer", "")
+    detail.setdefault("actual_citations", [])
+    detail.setdefault("rerank_results", [])
+    detail.setdefault("retrieval_step", {})
+    detail.setdefault("trace", {})
+    detail.setdefault("failure_categories", [])
+    detail.setdefault("failure_category", "")
+    detail.setdefault("judge", {})
+    detail.setdefault("groundedness", {})
+    return detail
+
+
+def _load_eval_result_row(path: Path, case_id: str) -> dict:
+    if not path.is_file():
+        raise FileNotFoundError(f"评测结果文件不存在: {path}")
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"评测结果文件第 {lineno} 行不是有效 JSON") from exc
+        if isinstance(row, dict) and str(row.get("id", "")) == case_id:
+            return _eval_result_detail_row(row)
+    raise KeyError(case_id)
+
+
+def _current_eval_result_path() -> Path:
+    with _lock:
+        raw_path = str(_state.get("result_path") or "")
+    if not raw_path:
+        raise FileNotFoundError("暂无评测结果")
+    path = Path(raw_path)
+    if not path.is_absolute():
+        path = RESULT_DIR / path
+    resolved = path.resolve()
+    result_dir = RESULT_DIR.resolve()
+    try:
+        resolved.relative_to(result_dir)
+    except ValueError as exc:
+        raise ValueError("评测结果路径无效") from exc
+    return resolved
+
+
 def _upsert_result_preview(preview: list[dict], item: dict) -> list[dict]:
     item_id = item.get("id")
     for idx, existing in enumerate(preview):
@@ -275,6 +329,27 @@ async def get_eval_status(current_user: CurrentUser = Depends(verify_token)):
         raise HTTPException(status_code=403, detail="仅管理员")
     with _lock:
         return dict(_state)
+
+
+@router.get("/admin/eval/result/{case_id}")
+async def get_eval_result_case(case_id: str, current_user: CurrentUser = Depends(verify_token)):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员")
+    try:
+        path = _current_eval_result_path()
+        row = _load_eval_result_row(path, case_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="评测用例结果不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "case_id": case_id,
+        "result_path": str(path),
+        "preview": _eval_result_preview(row),
+        "row": row,
+    }
 
 
 @router.get("/admin/eval/golden-set")

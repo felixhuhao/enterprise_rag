@@ -135,6 +135,34 @@ export interface EvalCaseResult {
   judge_cache_usage?: string
 }
 
+export type EvalCaseDetailRow = Record<string, unknown> & {
+  id?: string
+  question?: string
+  eval_mode?: string
+  eval_type?: string
+  expected_answer?: string
+  expected_points?: string[]
+  expected_docs?: string[]
+  expected_documents?: string[]
+  expected_chunk_keys?: string[]
+  actual_answer?: string
+  actual_citations?: unknown[]
+  rerank_results?: unknown[]
+  retrieval_step?: Record<string, unknown>
+  trace?: Record<string, unknown>
+  failure_category?: string
+  failure_categories?: string[]
+  judge?: Record<string, unknown>
+  groundedness?: Record<string, unknown>
+}
+
+export interface EvalCaseDetailResponse {
+  case_id: string
+  result_path: string
+  preview: EvalCaseResult
+  row: EvalCaseDetailRow
+}
+
 export interface GoldenSetCase {
   id: string
   question: string
@@ -177,6 +205,11 @@ export interface GoldenSetResponse {
 
 export async function getEvalStatus(): Promise<EvalStatus> {
   const res = await apiClient.get('/admin/eval/status')
+  return res.data
+}
+
+export async function getEvalCaseResult(caseId: string): Promise<EvalCaseDetailResponse> {
+  const res = await apiClient.get(`/admin/eval/result/${encodeURIComponent(caseId)}`)
   return res.data
 }
 

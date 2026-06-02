@@ -5,8 +5,10 @@ import pytest
 from app.api.admin_eval import (
     GoldenCaseUpdate,
     RunRequest,
+    _eval_result_detail_row,
     _eval_result_preview,
     _filter_cases_for_run,
+    _load_eval_result_row,
     _load_golden_cases,
     _normalize_golden_case_update,
     _normalize_eval_mode,
@@ -89,6 +91,64 @@ def test_eval_result_preview_statuses():
     })
     assert preview["failure_category"] == "retrieval_miss"
     assert preview["failure_categories"] == ["retrieval_miss", "answer_incomplete"]
+
+
+def test_eval_result_detail_row_fills_safe_defaults():
+    detail = _eval_result_detail_row({
+        "id": "case_1",
+        "question": "q",
+        "expected_documents": ["policy.md"],
+    })
+
+    assert detail["expected_docs"] == ["policy.md"]
+    assert detail["expected_documents"] == ["policy.md"]
+    assert detail["actual_answer"] == ""
+    assert detail["actual_citations"] == []
+    assert detail["rerank_results"] == []
+    assert detail["retrieval_step"] == {}
+    assert detail["trace"] == {}
+    assert detail["failure_categories"] == []
+    assert detail["judge"] == {}
+    assert detail["groundedness"] == {}
+
+
+def test_load_eval_result_row_reads_matching_case(tmp_path):
+    path = tmp_path / "results.jsonl"
+    path.write_text(
+        json.dumps({"id": "case_1", "question": "q1"}, ensure_ascii=False) + "\n"
+        + json.dumps({
+            "id": "case_2",
+            "question": "q2",
+            "actual_answer": "answer",
+            "expected_docs": ["policy.md"],
+            "failure_categories": ["citation_missing"],
+        }, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    row = _load_eval_result_row(path, "case_2")
+
+    assert row["id"] == "case_2"
+    assert row["actual_answer"] == "answer"
+    assert row["expected_docs"] == ["policy.md"]
+    assert row["expected_documents"] == ["policy.md"]
+    assert row["failure_categories"] == ["citation_missing"]
+
+
+def test_load_eval_result_row_reports_missing_case(tmp_path):
+    path = tmp_path / "results.jsonl"
+    path.write_text(json.dumps({"id": "case_1"}, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    with pytest.raises(KeyError):
+        _load_eval_result_row(path, "missing")
+
+
+def test_load_eval_result_row_reports_invalid_json(tmp_path):
+    path = tmp_path / "results.jsonl"
+    path.write_text('{"id": "case_1"}\nnot-json\n', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="有效 JSON"):
+        _load_eval_result_row(path, "case_2")
 
 
 def test_normalize_golden_case_update_preserves_basic_fields():
