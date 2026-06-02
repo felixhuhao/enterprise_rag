@@ -66,6 +66,8 @@ docs/*
 !docs/architecture.md
 !docs/evaluation.md
 !docs/DEVELOPMENT_CONTEXT.md
+!docs/phase11_eval_loop.md
+!docs/phase12_observability.md
 !docs/query_flavor_roadmap.md
 !docs/smoke_test.md
 !docs/images/
