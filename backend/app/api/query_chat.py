@@ -14,6 +14,12 @@ from sse_starlette.sse import EventSourceResponse
 from app.core.auth import CurrentUser, get_allowed_document_ids
 from app.deps import verify_token
 from app.services.chat_history import load_history, save_message
+from app.services.query_observability import build_query_observability_payload
+from app.utils.llm_usage import (
+    extract_llm_token_usage,
+    llm_model_name,
+    merge_token_usage,
+)
 from app.utils.sse import sse_event
 from app.utils.time import tick_ms
 
@@ -70,60 +76,24 @@ def _retrieval_path(row: dict) -> str:
 
 
 def _llm_model_name(llm: Any) -> str:
-    for attr in ("model_name", "model", "model_id", "deployment_name"):
-        value = getattr(llm, attr, None)
-        if value:
-            return str(value)
-    return ""
+    return llm_model_name(llm)
 
 
 def _extract_llm_chunk_token_usage(chunk: Any, model_name: str = "") -> dict:
     """Extract token usage from LangChain chat chunks when providers expose it."""
-    usage: dict[str, Any] = {"model": model_name} if model_name else {}
-    _merge_usage_fields(usage, getattr(chunk, "usage_metadata", None))
-
-    response_metadata = getattr(chunk, "response_metadata", None)
-    if isinstance(response_metadata, dict):
-        if not usage.get("model"):
-            usage["model"] = response_metadata.get("model_name") or response_metadata.get("model") or ""
-        nested = (
-            response_metadata.get("token_usage")
-            or response_metadata.get("usage")
-            or response_metadata.get("usage_metadata")
-        )
-        _merge_usage_fields(usage, nested)
-        _merge_usage_fields(usage, response_metadata)
-
-    return {k: v for k, v in usage.items() if v not in (None, "")}
+    return extract_llm_token_usage(chunk, model_name)
 
 
 def _merge_token_usage(existing: dict, update: dict) -> dict:
-    merged = dict(existing or {})
-    if update.get("model"):
-        merged["model"] = update["model"]
-    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
-        value = update.get(key)
-        if value is not None:
-            merged[key] = value
-    return merged
+    return merge_token_usage(existing, update)
 
 
-def _merge_usage_fields(target: dict, source: Any) -> None:
-    if not isinstance(source, dict):
-        return
-    mappings = {
-        "prompt_tokens": ("prompt_tokens", "input_tokens", "prompt_token_count", "input_token_count"),
-        "completion_tokens": (
-            "completion_tokens", "output_tokens", "completion_token_count", "output_token_count"
-        ),
-        "total_tokens": ("total_tokens", "total_token_count"),
-    }
-    for dest, names in mappings.items():
-        for name in names:
-            value = source.get(name)
-            if value is not None:
-                target[dest] = value
-                break
+def _query_status_from_error_code(code: str) -> str:
+    if code == "LLM_ERROR":
+        return "llm_failed"
+    if code in {"MILVUS_ERROR", "EMBEDDING_ERROR", "NO_CONTEXT_FOUND"}:
+        return "search_failed"
+    return "query_failed"
 
 
 class QueryChatRequest(BaseModel):
@@ -170,8 +140,17 @@ async def query_chat(req: QueryChatRequest, current_user: CurrentUser = Depends(
     except Exception as exc:
         logger.exception("非流式查询失败: %s", exc)
         code = classify_error(exc).value
+        status = _query_status_from_error_code(code)
         if not is_eval:
             try:
+                total_ms = tick_ms(t0)
+                observability = build_query_observability_payload(
+                    endpoint="query_chat",
+                    status=status,
+                    error_code=code,
+                    trace={"total_ms": total_ms},
+                    query_config=query_config,
+                )
                 await query_stats_service.save(
                     session_id,
                     req.query,
@@ -180,16 +159,21 @@ async def query_chat(req: QueryChatRequest, current_user: CurrentUser = Depends(
                     0,
                     0,
                     0,
-                    total_ms=tick_ms(t0),
-                    status="query_failed",
+                    total_ms=total_ms,
+                    status=status,
                     error_code=code,
                     user_id=current_user.user_id,
                     retrieval_flavor=query_config.retrieval_flavor,
                     strict_evidence=query_config.strict_evidence,
+                    observability=observability,
                 )
             except Exception:
                 logger.warning("保存非流式失败统计失败", exc_info=True)
         raise HTTPException(status_code=500, detail={"code": code, "message": str(exc)[:500]}) from exc
+
+    obs_state = result.get("_observability_state") if isinstance(result.get("_observability_state"), dict) else {}
+    obs_trace = result.get("_observability_trace") if isinstance(result.get("_observability_trace"), dict) else {}
+    token_usage = result.get("_token_usage") if isinstance(result.get("_token_usage"), dict) else {}
 
     # 保存聊天历史
     if not is_eval:
@@ -202,27 +186,51 @@ async def query_chat(req: QueryChatRequest, current_user: CurrentUser = Depends(
             fallback_info = result.get("fallback_info")
             if not isinstance(fallback_info, dict):
                 fallback_info = state_fallback_info({})
+            _rd = obs_state.get("rerank_debug", [])
+            rerank_avg = (
+                sum(r["final_score"] for r in _rd) / len(_rd)
+                if _rd else 0
+            )
+            rerank_top = _rd[0]["final_score"] if _rd else 0
+            search_results = obs_state.get("search_results", [])
+            observability = build_query_observability_payload(
+                endpoint="query_chat",
+                status="success",
+                error_code="",
+                state=obs_state,
+                trace=obs_trace,
+                query_config=query_config,
+                citations=result.get("citations", []),
+                fallback_info=fallback_info,
+                token_usage=token_usage,
+            )
             await query_stats_service.save(
                 session_id,
                 req.query,
                 result.get("search_mode", ""),
                 result.get("search_mode_hyde", ""),
                 int(result.get("results_count", 0) or 0),
-                0,
-                0,
-                total_ms=tick_ms(t0),
+                rerank_avg,
+                rerank_top,
+                retrieval_wall_ms=obs_trace.get("retrieval_wall_ms", 0),
+                generate_ms=obs_trace.get("generate_ms", 0),
+                total_ms=obs_trace.get("total_ms", tick_ms(t0)),
                 status="success",
-                retrieved_chunks="[]",
+                retrieved_chunks=_build_retrieved_chunks(search_results),
                 groundedness_score=(result.get("groundedness") or {}).get("groundedness_score"),
                 user_id=current_user.user_id,
                 retrieval_flavor=result.get("retrieval_flavor", query_config.retrieval_flavor),
                 strict_evidence=bool(result.get("strict_evidence", query_config.strict_evidence)),
                 citations=result.get("citations", []),
                 fallback_used=bool(fallback_info.get("used")),
+                observability=observability,
             )
         except Exception:
             logger.warning("保存非流式检索统计失败", exc_info=True)
 
+    result.pop("_observability_state", None)
+    result.pop("_observability_trace", None)
+    result.pop("_token_usage", None)
     result["session_id"] = session_id
     return result
 
@@ -254,7 +262,6 @@ async def _stream_generator(
     from app.rag.query.generate import _chat_llm
     from app.rag.query.search_pipeline import run_search_pipeline
     from app.rag.query.validate_citations import validate_citations_node
-    from app.services.query_observability import build_query_observability_payload
     from app.errors import classify_error
     from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
     import threading

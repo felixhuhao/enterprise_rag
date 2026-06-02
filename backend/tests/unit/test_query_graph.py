@@ -7,9 +7,11 @@ from app.rag.query.config import QueryConfig
 def test_run_query_graph_delegates_retrieval_to_shared_pipeline(monkeypatch):
     seen: dict = {}
 
-    def fake_search_pipeline(query: str, config: dict) -> dict:
+    def fake_search_pipeline(query: str, config: dict, trace: dict | None = None) -> dict:
         seen["query"] = query
         seen["config"] = config
+        if trace is not None:
+            trace["rewrite_ms"] = 3
         return {
             "query": query,
             "rewritten_query": "rewritten query",
@@ -21,7 +23,8 @@ def test_run_query_graph_delegates_retrieval_to_shared_pipeline(monkeypatch):
             "query_expansion_trace": [],
             "query_plan": {"retrieval_flavor": "balanced", "strict_evidence": False},
             "fallback_info": {"used": False},
-            "search_results": [{"chunk_id": 1, "content": "evidence"}],
+            "search_results": [{"chunk_id": 1, "document_id": "doc-1", "content": "evidence"}],
+            "rerank_debug": [{"final_score": 0.8}],
         }
 
     monkeypatch.setattr(graph, "run_search_pipeline", fake_search_pipeline)
@@ -42,3 +45,7 @@ def test_run_query_graph_delegates_retrieval_to_shared_pipeline(monkeypatch):
     assert out["entity"] == "实体A"
     assert out["citations"] == [{"id": "C1"}]
     assert out["groundedness"] == {"status": "disabled"}
+    assert out["_observability_trace"]["rewrite_ms"] == 3
+    assert "generate_ms" in out["_observability_trace"]
+    assert out["_observability_state"]["search_results"][0]["document_id"] == "doc-1"
+    assert out["_observability_state"]["rerank_debug"][0]["final_score"] == 0.8

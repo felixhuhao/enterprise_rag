@@ -7,6 +7,7 @@ from app.api.query_chat import (
     _build_retrieved_chunks,
     _extract_llm_chunk_token_usage,
     _merge_token_usage,
+    _query_status_from_error_code,
 )
 
 
@@ -87,3 +88,10 @@ def test_merge_token_usage_last_metadata_wins_without_summing_chunks():
         "completion_tokens": 20,
         "total_tokens": 30,
     }
+
+
+def test_query_status_from_error_code_groups_common_query_failures():
+    assert _query_status_from_error_code("LLM_ERROR") == "llm_failed"
+    assert _query_status_from_error_code("MILVUS_ERROR") == "search_failed"
+    assert _query_status_from_error_code("EMBEDDING_ERROR") == "search_failed"
+    assert _query_status_from_error_code("UNKNOWN_ERROR") == "query_failed"

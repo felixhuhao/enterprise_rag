@@ -7,6 +7,7 @@ from langchain_openai import ChatOpenAI
 
 from app.config import settings
 from app.rag.query.state import QueryState
+from app.utils.llm_usage import extract_llm_token_usage, llm_model_name
 
 _chat_llm = ChatOpenAI(
     model=settings.CHAT_MODEL,
@@ -24,4 +25,7 @@ def generate_answer_node(state: QueryState) -> dict:
         HumanMessage(content=state["query"]),
     ]
     response = _chat_llm.invoke(messages)
-    return {"answer": response.content}
+    return {
+        "answer": response.content,
+        "token_usage": extract_llm_token_usage(response, llm_model_name(_chat_llm)),
+    }

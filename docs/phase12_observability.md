@@ -416,6 +416,8 @@ Exit criteria:
 
 ### Iteration 3: Non-Streaming And Error Paths
 
+Status: implemented on 2026-06-02.
+
 Purpose: remove observability blind spots.
 
 Work:
