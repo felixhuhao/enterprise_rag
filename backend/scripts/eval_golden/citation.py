@@ -104,8 +104,8 @@ def compute_chunk_hit_at_k(rerank_results: list[dict], expected_chunk_keys: list
 
 
 def is_hit_metric_applicable(item: dict) -> bool:
-    """Hit@K applies only to answerable cases with explicit expected docs."""
-    return bool(_expected_documents(item) or _expected_chunk_keys(item)) and _expected_behavior(item) == "answer"
+    """Hit@K applies to any case with explicit expected evidence targets."""
+    return bool(_expected_documents(item) or _expected_chunk_keys(item))
 
 
 def _expected_documents(item: dict) -> list[str]:

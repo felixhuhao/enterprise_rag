@@ -61,7 +61,7 @@ def main():
     token = token or ""
 
     # --- Load ---
-    golden_set = load_golden_set(args.golden_set, include_disabled=mode == "quick")
+    golden_set = load_golden_set(args.golden_set)
     types = Counter(_get_eval_type(item) for item in golden_set)
     print(f"Loaded {len(golden_set)} questions from {args.golden_set}")
     print(f"  Types: {dict(types)}")

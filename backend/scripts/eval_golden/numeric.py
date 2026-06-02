@@ -196,8 +196,18 @@ def _keyword_variants(keyword: str) -> set[str]:
     return variants
 
 
+def _compact_keyword_text(text: str) -> str:
+    return re.sub(r"\s+", "", str(text or "")).lower()
+
+
 def _keyword_in_answer(keyword: str, answer: str) -> bool:
-    return any(variant in answer for variant in _keyword_variants(keyword))
+    if not keyword:
+        return False
+    compact_answer = _compact_keyword_text(answer)
+    return any(
+        variant in answer or _compact_keyword_text(variant) in compact_answer
+        for variant in _keyword_variants(keyword)
+    )
 
 
 def score_numeric(answer: str, numeric_expectations: list[dict]) -> dict:

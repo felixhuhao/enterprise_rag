@@ -6,6 +6,42 @@ from .common import _compose_final_score, _verdict
 from .citation import _citation_output_fields, _expected_documents, score_citation
 from .numeric import FINANCIAL_UNIT_PATTERN, _has_refusal_signal, _keyword_in_answer, score_numeric
 
+_CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
+_POINT_STOP_CHARS = set("的了和与及在上为是有无中内外")
+
+
+def _compact_text(text: str) -> str:
+    return re.sub(r"[\W_]+", "", text.lower())
+
+
+def _informative_cjk_chars(text: str) -> set[str]:
+    return {
+        ch
+        for ch in _compact_text(text)
+        if _CJK_RE.fullmatch(ch) and ch not in _POINT_STOP_CHARS
+    }
+
+
+def _expected_point_in_answer(point: str, answer: str) -> bool:
+    if _keyword_in_answer(point, answer):
+        return True
+
+    compact_point = _compact_text(point)
+    compact_answer = _compact_text(answer)
+    if compact_point and compact_point in compact_answer:
+        return True
+
+    numbers = _NUMBER_RE.findall(compact_point)
+    if numbers and not all(number in compact_answer for number in numbers):
+        return False
+
+    chars = _informative_cjk_chars(point)
+    if len(chars) < 4:
+        return False
+    coverage = sum(1 for ch in chars if ch in compact_answer) / len(chars)
+    return coverage >= 0.9
+
 
 def score_rule(answer: str, citations: list, item: dict) -> dict:
     """Score rule-based questions: numeric + keyword + citation.
@@ -86,13 +122,14 @@ def score_answer_lite(answer: str, citations: list, item: dict) -> dict:
     """Score LLM-judge cases without calling a judge.
 
     This is intentionally conservative: only deterministic expected-point
-    substring hits and citation targets contribute to the score.
+    matches and citation targets contribute to the score. Expected-point
+    matching allows light Chinese paraphrase, but never calls a judge.
     """
     expected_points = [p for p in item.get("expected_points", []) if isinstance(p, str) and p.strip()]
     expected_docs = _expected_documents(item)
     cite = score_citation(citations, expected_docs, item.get("min_expected_citations", 1), item=item)
 
-    point_hits = [point for point in expected_points if _keyword_in_answer(point, answer)]
+    point_hits = [point for point in expected_points if _expected_point_in_answer(point, answer)]
     point_miss = [point for point in expected_points if point not in point_hits]
     answer_score = round(len(point_hits) / len(expected_points), 4) if expected_points else None
 

@@ -52,11 +52,17 @@ def load_jsonl(path: Path, *, skip_invalid: bool = False) -> list[dict]:
     return items
 
 
+def _backup_jsonl(path: Path) -> None:
+    if not path.exists():
+        return
+    backup = path.with_name(f"{path.name}.bak_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}")
+    # copyfile avoids copystat/utime failures on Docker/WSL bind mounts.
+    shutil.copyfile(path, backup)
+
+
 def write_jsonl_with_backup(path: Path, items: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
-        backup = path.with_name(f"{path.name}.bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-        shutil.copy2(path, backup)
+    _backup_jsonl(path)
     with open(path, "w", encoding="utf-8") as f:
         for item in items:
             f.write(json.dumps(item, ensure_ascii=False) + "\n")
@@ -64,9 +70,7 @@ def write_jsonl_with_backup(path: Path, items: list[dict]) -> None:
 
 def append_jsonl_with_backup(path: Path, item: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    if path.exists():
-        backup = path.with_name(f"{path.name}.bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
-        shutil.copy2(path, backup)
+    _backup_jsonl(path)
     needs_newline = path.exists() and path.stat().st_size > 0
     if needs_newline:
         with open(path, "rb") as existing:

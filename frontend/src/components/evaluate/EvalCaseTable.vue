@@ -42,7 +42,7 @@
             <td class="col-id" :title="item.id">{{ item.id }}</td>
             <td class="col-status">
               <span class="status-pill" :class="'status-' + item.status">
-                {{ evalResultStatusLabel(item.status) }}
+                {{ item.label || evalResultStatusLabel(item.status) }}
               </span>
             </td>
             <td class="col-question">
@@ -54,13 +54,15 @@
             </td>
             <td class="col-flavor">{{ caseFlavorLabel(item) }}</td>
             <td class="col-reason">
-              <span
-                v-for="category in caseCategories(item)"
-                :key="category"
-                class="reason-pill"
-              >
-                {{ failureCategoryLabel(category) }}
-              </span>
+              <div v-if="caseCategories(item).length" class="reason-list">
+                <span
+                  v-for="category in caseCategories(item)"
+                  :key="category"
+                  class="reason-pill"
+                >
+                  {{ failureCategoryLabel(category) }}
+                </span>
+              </div>
               <span v-if="!caseCategories(item).length" class="reason-empty">-</span>
             </td>
             <td class="col-score">{{ formatEvalScore(item.score) || '-' }}</td>
@@ -194,14 +196,14 @@ function judgeCacheShortLabel(value: string): string {
 }
 
 .case-table-filters {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, 140px);
   gap: 8px;
   justify-content: flex-end;
 }
 
 .case-filter-select {
-  width: 120px;
+  width: 140px;
 }
 
 .case-table-empty {
@@ -315,10 +317,15 @@ tbody tr:last-child td {
 }
 
 .reason-pill {
-  margin: 0 4px 4px 0;
   background: #fbfdff;
   border: 1px solid var(--border);
   color: var(--text-secondary);
+}
+
+.reason-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .reason-empty {
@@ -332,7 +339,12 @@ tbody tr:last-child td {
   }
 
   .case-table-filters {
+    grid-template-columns: minmax(0, 1fr);
     justify-content: flex-start;
+    width: 100%;
+  }
+
+  .case-filter-select {
     width: 100%;
   }
 }

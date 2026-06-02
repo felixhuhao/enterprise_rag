@@ -10,6 +10,7 @@ from scripts.eval_golden import (
     query_rag,
     run_eval,
     run_retrieval_only_case,
+    score_answer_lite,
     score_citation,
     score_rule,
 )
@@ -349,6 +350,35 @@ def test_retrieval_only_summary_marks_answer_metrics_not_applicable():
     assert summary["unscored"] == 0
 
 
+def test_retrieval_only_scores_no_answer_cases_with_expected_docs(monkeypatch):
+    def fake_query_retrieval_only(*_args, **_kwargs):
+        return {
+            "results": [{"file_title": "05_产品技术文档_API接口规范", "chunk_key": "api_1"}],
+            "trace": {"retrieval_wall_ms": 10},
+            "strategy": {"search_mode": "hybrid"},
+            "retrieval_flavor": "balanced",
+            "strict_evidence": True,
+        }
+
+    monkeypatch.setattr(runner, "query_retrieval_only", fake_query_retrieval_only)
+
+    row = run_retrieval_only_case({
+        "id": "strict",
+        "question": "星辰科技的API日调用量上限是多少？",
+        "eval_type": "llm_judge",
+        "expected_behavior": "no_answer",
+        "expected_documents": ["05_产品技术文档_API接口规范"],
+        "strict_evidence": True,
+    }, index=0, total=1)
+
+    assert row["hit_metric_applicable"] is True
+    assert row["doc_hit_at_10"] is True
+    assert row["hit_at_10"] is True
+    assert row["final_score"] == 1.0
+    assert row["failure_category"] == "none"
+    assert row["failure_categories"] == []
+
+
 def test_query_rag_marks_request_as_eval(monkeypatch):
     captured = {}
 
@@ -473,6 +503,28 @@ def test_score_rule_matches_chinese_number_variants():
     assert result["numeric_score"] == 1.0
     assert result["must_miss"] == []
     assert result["final_score"] >= 0.8
+
+
+def test_score_rule_matches_keyword_with_numeric_unit_spacing():
+    result = score_rule(
+        answer="根据上下文，密码的强制更换周期为 **90 天**。",
+        citations=[{
+            "file_title": "03_信息安全策略.md",
+            "section_title": "星辰科技信息安全策略 > 第二章 密码管理策略 > 2.1 密码复杂度要求",
+        }],
+        item={
+            "numeric_expectations": [{"value": 90, "unit": "天", "tolerance": 0}],
+            "must_have": ["90天", "更换"],
+            "nice_to_have": ["密码", "强制"],
+            "expected_documents": ["03_信息安全策略"],
+            "expected_sections": ["密码策略"],
+            "min_expected_citations": 1,
+        },
+    )
+
+    assert result["numeric_hits"] == ["90天"]
+    assert result["must_miss"] == []
+    assert result["final_score"] == 1.0
 
 
 def test_score_rule_matches_wan_yuan_amount_variants():
@@ -738,6 +790,35 @@ def test_answer_lite_scores_llm_cases_without_judge(monkeypatch, tmp_path):
     assert "judge" not in results[0]
 
 
+def test_answer_lite_matches_light_chinese_paraphrase_without_judge():
+    answer = """
+    星辰科技的信息安全培训考核仅要求签到，无需通过在线考试或达到特定分数 [C1]。
+    远景能源的信息安全与数据保护课程为必修课，考核方式为在线考试，要求80分及格 [C2]。
+    """
+    item = {
+        "expected_points": [
+            "远景能源要求信息安全培训在线考试80分及格",
+            "星辰科技安全培训仅需签到",
+            "远景能源的培训考核要求更严格",
+        ],
+        "expected_documents": ["12_年度培训计划", "远景能源_03"],
+        "min_expected_citations": 2,
+    }
+    citations = [
+        {"file_title": "12_年度培训计划_2026.md"},
+        {"file_title": "远景能源_03_年度培训计划.md"},
+    ]
+
+    result = score_answer_lite(answer, citations, item)
+
+    assert result["expected_point_hits"] == item["expected_points"][:2]
+    assert result["expected_point_miss"] == item["expected_points"][2:]
+    assert result["answer_score"] == 0.6667
+    assert result["citation_score"] == 1.0
+    assert result["final_score"] == 0.75
+    assert result["verdict"] == "warn"
+
+
 def test_answer_lite_unscored_cases_are_visible_in_summary(monkeypatch):
     def fake_query_rag(*_args, **_kwargs):
         return {
@@ -775,7 +856,43 @@ def test_answer_lite_unscored_cases_are_visible_in_summary(monkeypatch):
     assert summary["failure_categories"] == {"unknown": 1}
 
 
-def test_case_error_row_uses_false_hit_only_when_hit_metric_applies():
+def test_pending_llm_judge_is_classified_explicitly(monkeypatch):
+    def fake_query_rag(*_args, **_kwargs):
+        return {
+            "answer": "needs judge",
+            "citations": [],
+            "trace": {},
+            "retrieval_step": {},
+            "rerank_results": [],
+            "search_mode": "",
+            "retrieval_flavor": "balanced",
+            "strict_evidence": True,
+            "error": None,
+        }
+
+    monkeypatch.setattr(client, "query_rag", fake_query_rag)
+
+    results = run_eval(
+        [{
+            "id": "pending-judge",
+            "question": "needs judge",
+            "eval_type": "llm_judge",
+            "expected_points": ["point"],
+        }],
+        "http://test/api",
+        "token",
+        delay=0,
+        mode="full",
+    )
+    summary = build_summary(results, mode="full")
+
+    assert results[0]["final_score"] is None
+    assert results[0]["failure_category"] == "pending_judge"
+    assert results[0]["failure_categories"] == ["pending_judge"]
+    assert summary["failure_categories"] == {"pending_judge": 1}
+
+
+def test_case_error_row_marks_expected_evidence_miss_even_for_no_answer_cases():
     row = runner._case_error_row({
         "id": "miss",
         "question": "q",
@@ -791,9 +908,9 @@ def test_case_error_row_uses_false_hit_only_when_hit_metric_applies():
     assert row["hit_metric_applicable"] is True
     assert row["hit_at_5"] is False
     assert row["doc_hit_at_5"] is False
-    assert no_hit_row["hit_metric_applicable"] is False
-    assert no_hit_row["hit_at_5"] is None
-    assert no_hit_row["doc_hit_at_5"] is None
+    assert no_hit_row["hit_metric_applicable"] is True
+    assert no_hit_row["hit_at_5"] is False
+    assert no_hit_row["doc_hit_at_5"] is False
 
 
 def test_case_error_row_marks_timeout_category():

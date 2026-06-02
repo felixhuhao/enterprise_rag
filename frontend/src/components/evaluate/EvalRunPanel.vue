@@ -10,76 +10,96 @@
       </div>
 
       <div class="eval-actions">
-        <template v-if="status !== 'running'">
-          <a-select v-model="runMode" size="small" class="run-mode-select">
-            <a-option value="full">完整</a-option>
-            <a-option value="quick">快速</a-option>
-            <a-option value="retrieval_only">仅检索</a-option>
-            <a-option value="answer_lite">轻答案</a-option>
-          </a-select>
-          <a-select v-model="runScope" size="small" class="run-scope-select">
-            <a-option value="all">全部启用</a-option>
-            <a-option value="failed">失败重跑</a-option>
-            <a-option value="flavor">按策略</a-option>
-            <a-option value="first_n">前 N 条</a-option>
-          </a-select>
-          <a-select
-            v-if="runScope === 'flavor'"
-            v-model="runFlavor"
-            size="small"
-            class="run-flavor-select"
-          >
+        <a-button
+          :type="status === 'running' ? 'secondary' : 'primary'"
+          :loading="status === 'running'"
+          :disabled="status === 'running' || estimatedRunCount <= 0"
+          size="small"
+          @click="onRun"
+        >
+          {{ buttonLabel }}
+        </a-button>
+      </div>
+    </div>
+    <div v-if="status !== 'running'" class="eval-run-config">
+      <div class="option-grid option-grid-modes" role="radiogroup" aria-label="评测模式">
+        <button
+          v-for="option in RUN_MODE_OPTIONS"
+          :key="option.value"
+          type="button"
+          class="option-card"
+          :class="{ active: runMode === option.value }"
+          @click="runMode = option.value"
+        >
+          <span>{{ option.title }}</span>
+          <small>{{ option.desc }}</small>
+        </button>
+      </div>
+      <div class="option-grid option-grid-scopes" role="radiogroup" aria-label="运行范围">
+        <button
+          v-for="option in RUN_SCOPE_OPTIONS"
+          :key="option.value"
+          type="button"
+          class="option-card"
+          :class="{ active: runScope === option.value }"
+          :disabled="option.value === 'failed' && !hasFailedResults"
+          @click="runScope = option.value"
+        >
+          <span>{{ option.title }}</span>
+          <small>{{ option.desc }}</small>
+        </button>
+      </div>
+      <div class="run-settings">
+        <label v-if="runScope === 'flavor'" class="run-setting run-setting-select">
+          <span>策略</span>
+          <a-select v-model="runFlavor" size="small" class="run-flavor-select">
             <a-option v-for="mode in FLAVOR_KEYS" :key="mode" :value="mode">
               {{ flavorLabel(mode) }}
             </a-option>
           </a-select>
+        </label>
+        <label v-if="runScope === 'first_n'" class="run-setting">
+          <span>数量</span>
           <a-input-number
-            v-if="runScope === 'first_n'"
             v-model="runLimit"
             size="small"
             :min="1"
             :max="enabledCount || 30"
             class="run-number-input"
           />
-          <label class="run-timeout">
-            <span>单题超时</span>
-            <a-input-number
-              v-model="caseTimeoutSec"
-              size="small"
-              :min="30"
-              :max="600"
-              :step="30"
-              class="run-timeout-input"
-            />
-          </label>
-          <label class="run-timeout">
-            <span>并发</span>
-            <a-input-number
-              v-model="runConcurrency"
-              size="small"
-              :min="0"
-              :max="16"
-              class="run-concurrency-input"
-            />
-          </label>
-          <label v-if="runMode === 'quick'" class="run-judge">
-            <input v-model="quickJudge" type="checkbox" />
-            <span>Judge</span>
-          </label>
-          <label class="run-judge">
-            <input v-model="acceptBaseline" type="checkbox" />
-            <span>设为基线</span>
-          </label>
-        </template>
-        <a-button
-          :type="status === 'running' ? 'secondary' : 'primary'"
-          :loading="status === 'running'"
-          :disabled="status === 'running'"
-          size="small"
-          @click="onRun"
+        </label>
+        <label class="run-setting">
+          <span>单题超时</span>
+          <a-input-number
+            v-model="caseTimeoutSec"
+            size="small"
+            :min="30"
+            :max="600"
+            :step="30"
+            class="run-timeout-input"
+          />
+        </label>
+        <label class="run-setting">
+          <span>并发</span>
+          <a-input-number
+            v-model="runConcurrency"
+            size="small"
+            :min="0"
+            :max="16"
+            class="run-concurrency-input"
+          />
+        </label>
+        <span
+          class="run-estimate"
+          :class="{ empty: estimatedRunCount <= 0, narrow: estimatedRunCount === 1 }"
+          :title="estimatedRunCaseTitle"
         >
-          {{ buttonLabel }}
-        </a-button>
+          预计 {{ estimatedRunCount }} 题
+        </span>
+        <label class="run-check">
+          <input v-model="acceptBaseline" type="checkbox" />
+          <span>设为基线</span>
+        </label>
       </div>
     </div>
     <div v-if="status === 'running' && evalTotal" class="eval-progress-bar">
@@ -98,6 +118,8 @@
         <span class="sum-item">失败 {{ summary.failed ?? '-' }}</span>
         <span class="sum-item">均分 {{ percent(summary.overall.avg_score) }}</span>
         <span class="sum-item">评分通过 {{ percent(summary.overall.pass_rate) }}</span>
+      </div>
+      <div class="sum-row sum-row-secondary">
         <span class="sum-item">答案通过 {{ percent(summary.answer_pass_rate) }}</span>
         <span class="sum-item">Hit@5 {{ percent(summary.hit_at_5 ?? summary.overall.hit_at_5_rate) }}</span>
         <span class="sum-item">Hit@10 {{ percent(summary.hit_at_10 ?? summary.overall.hit_at_10_rate) }}</span>
@@ -175,6 +197,7 @@
             <col :style="columnStyle('result')" />
             <col :style="columnStyle('question')" />
             <col :style="columnStyle('flavor')" />
+            <col :style="columnStyle('set')" />
             <col :style="columnStyle('strict')" />
             <col :style="columnStyle('rule')" />
             <col :style="columnStyle('points')" />
@@ -188,6 +211,7 @@
               <th class="col-result resizable-th">结果<span class="resize-handle" @mousedown="goldenColumns.startResize('result', $event)" /></th>
               <th class="col-question resizable-th">问题<span class="resize-handle" @mousedown="goldenColumns.startResize('question', $event)" /></th>
               <th class="col-flavor resizable-th">策略<span class="resize-handle" @mousedown="goldenColumns.startResize('flavor', $event)" /></th>
+              <th class="col-set resizable-th">集合<span class="resize-handle" @mousedown="goldenColumns.startResize('set', $event)" /></th>
               <th class="col-strict resizable-th">仅资料<span class="resize-handle" @mousedown="goldenColumns.startResize('strict', $event)" /></th>
               <th class="col-rule resizable-th">评测<span class="resize-handle" @mousedown="goldenColumns.startResize('rule', $event)" /></th>
               <th class="col-count resizable-th">验收点<span class="resize-handle" @mousedown="goldenColumns.startResize('points', $event)" /></th>
@@ -218,6 +242,10 @@
               </td>
               <td class="question-cell">{{ item.question }}</td>
               <td class="col-flavor">{{ flavorLabel(item.preferred_flavor) }}</td>
+              <td class="col-set">
+                <span v-if="item.quick" class="smoke-badge">冒烟</span>
+                <span v-else class="muted-cell">-</span>
+              </td>
               <td class="col-strict">{{ item.strict_evidence ? '是' : '否' }}</td>
               <td class="col-rule">{{ evalTypeLabel(item.eval_type) }}</td>
               <td class="col-count">{{ item.expected_points_count }}</td>
@@ -441,13 +469,13 @@ const caseDetailOpen = ref(false)
 const caseDetailLoading = ref(false)
 const caseDetailError = ref('')
 const caseDetail = ref<EvalCaseDetailResponse | null>(null)
-type EvalRunMode = 'full' | 'quick' | 'retrieval_only' | 'answer_lite'
+type EvalRunMode = 'full' | 'retrieval_only' | 'answer_lite'
+type EvalRunScope = 'all' | 'smoke' | 'failed' | 'flavor' | 'first_n'
 
 const runMode = ref<EvalRunMode>('full')
-const runScope = ref<'all' | 'failed' | 'flavor' | 'first_n'>('all')
+const runScope = ref<EvalRunScope>('all')
 const runFlavor = ref('balanced')
 const runLimit = ref(5)
-const quickJudge = ref(false)
 const caseTimeoutSec = ref(180)
 const runConcurrency = ref(0)
 const acceptBaseline = ref(false)
@@ -462,6 +490,7 @@ const goldenColumns = useAutoFitColumns('enterprise-rag:eval-golden-set:auto-v2'
   result: { width: 63, minWidth: 56, maxWidth: 90 },
   question: { width: 360, minWidth: 260, flex: true },
   flavor: { width: 70, minWidth: 60, maxWidth: 100 },
+  set: { width: 58, minWidth: 52, maxWidth: 80 },
   strict: { width: 60, minWidth: 52, maxWidth: 80 },
   rule: { width: 60, minWidth: 52, maxWidth: 80 },
   points: { width: 60, minWidth: 52, maxWidth: 80 },
@@ -491,6 +520,20 @@ const EVAL_TYPE_OPTIONS = [
   { value: 'rule', label: '规则' },
   { value: 'no_answer', label: '拒答' },
 ] as const
+
+const RUN_MODE_OPTIONS: Array<{ value: EvalRunMode; title: string; desc: string }> = [
+  { value: 'retrieval_only', title: '仅检索', desc: '只测召回与 Hit@K' },
+  { value: 'answer_lite', title: '轻答案', desc: '生成答案，轻量评分' },
+  { value: 'full', title: '完整', desc: '完整链路，Judge评分' },
+]
+
+const RUN_SCOPE_OPTIONS: Array<{ value: EvalRunScope; title: string; desc: string }> = [
+  { value: 'all', title: '全部启用', desc: '运行当前启用用例' },
+  { value: 'smoke', title: '冒烟集', desc: '只跑精选用例' },
+  { value: 'failed', title: '失败重跑', desc: '只重跑上次失败' },
+  { value: 'flavor', title: '按策略', desc: '限定检索策略' },
+  { value: 'first_n', title: '前 N 条', desc: '跑前几个用例' },
+]
 
 const statusLabel = computed(() => STATUS_LABELS[status.value] ?? status.value)
 const buttonLabel = computed(() => BUTTON_LABELS[status.value] ?? '运行')
@@ -522,6 +565,30 @@ const currentResultPath = computed(() => summary.value?.output_path || resultPat
 const currentSummaryPath = computed(() => summary.value?.summary_path || summaryPath.value)
 const showCaseDiagnostics = computed(() => {
   return evalResults.value.some((item) => item.status === 'failed' || item.status === 'warning')
+})
+const hasFailedResults = computed(() => evalResults.value.some((item) => item.status === 'failed'))
+const estimatedRunCases = computed(() => {
+  let selected = goldenCases.value.filter(caseEnabled)
+  if (runScope.value === 'smoke') {
+    selected = selected.filter((item) => item.quick)
+  } else if (runScope.value === 'failed') {
+    const failedIds = new Set(evalResults.value
+      .filter((item) => item.status === 'failed')
+      .map((item) => item.id)
+      .filter(Boolean))
+    selected = selected.filter((item) => failedIds.has(item.id))
+  } else if (runScope.value === 'flavor') {
+    selected = selected.filter((item) => item.preferred_flavor === runFlavor.value)
+  }
+  if (runScope.value === 'first_n') {
+    selected = selected.slice(0, Math.max(0, runLimit.value || 0))
+  }
+  return selected
+})
+const estimatedRunCount = computed(() => estimatedRunCases.value.length)
+const estimatedRunCaseTitle = computed(() => {
+  const ids = estimatedRunCases.value.map((item) => item.id).filter(Boolean)
+  return ids.length ? ids.join(', ') : '无匹配用例'
 })
 
 function emptyDraftForm(): GoldenDraftUpdate {
@@ -618,7 +685,10 @@ async function refresh(): Promise<boolean> {
     evalCurrent.value = s.current ?? 0
     evalCurrentId.value = s.current_id ?? ''
     evalResults.value = s.results_preview ?? []
-    if (s.mode === 'full' || s.mode === 'quick' || s.mode === 'retrieval_only' || s.mode === 'answer_lite') {
+    if (s.mode === 'quick') {
+      runMode.value = 'full'
+      runScope.value = 'smoke'
+    } else if (s.mode === 'full' || s.mode === 'retrieval_only' || s.mode === 'answer_lite') {
       runMode.value = s.mode
     }
     pollFailCount = 0
@@ -678,14 +748,20 @@ async function openEvalCaseDetail(item: EvalCaseResult) {
 }
 
 function buildRunOptions(): EvalRunOptions | null {
+  if (estimatedRunCount.value <= 0) {
+    Message.warning('当前选择没有可运行用例')
+    return null
+  }
   const options: EvalRunOptions = {
     mode: runMode.value,
-    judge: runMode.value === 'full' || (runMode.value === 'quick' && quickJudge.value),
+    judge: runMode.value === 'full',
     case_timeout_sec: caseTimeoutSec.value,
     concurrency: runConcurrency.value,
     accept_baseline: acceptBaseline.value,
   }
-  if (runScope.value === 'failed') {
+  if (runScope.value === 'smoke') {
+    options.case_ids = estimatedRunCases.value.map((item) => item.id).filter(Boolean)
+  } else if (runScope.value === 'failed') {
     const failedIds = evalResults.value
       .filter((item) => item.status === 'failed')
       .map((item) => item.id)
@@ -990,16 +1066,98 @@ onUnmounted(clearPoll)
   display: flex;
   align-items: center;
   justify-content: flex-end;
+}
+
+.eval-run-config {
+  display: grid;
   gap: 8px;
+  margin-bottom: 10px;
+}
+
+.option-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.option-grid-modes {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.option-grid-scopes {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.option-card {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  min-height: 52px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: #fff;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.option-card:hover:not(:disabled) {
+  border-color: #93c5fd;
+  background: #f8fbff;
+}
+
+.option-card.active {
+  border-color: var(--accent);
+  background: #eff6ff;
+  color: var(--accent);
+}
+
+.option-card:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.option-card span {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.option-card small {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-settings {
+  display: flex;
+  align-items: center;
   flex-wrap: wrap;
+  gap: 8px 12px;
+  min-height: 30px;
+  padding-top: 2px;
 }
 
-.run-mode-select {
-  width: 88px;
+.run-setting,
+.run-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
-.run-scope-select {
-  width: 108px;
+.run-setting-select {
+  min-width: 156px;
 }
 
 .run-flavor-select {
@@ -1010,15 +1168,6 @@ onUnmounted(clearPoll)
   width: 76px;
 }
 
-.run-timeout {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-muted);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
 .run-timeout-input {
   width: 84px;
 }
@@ -1027,17 +1176,35 @@ onUnmounted(clearPoll)
   width: 72px;
 }
 
-.run-judge {
+.run-check input {
+  margin: 0;
+}
+
+.run-estimate {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  color: var(--text-muted);
+  min-height: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 8px;
+  background: #fbfdff;
+  color: var(--text-secondary);
   font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.run-judge input {
-  margin: 0;
+.run-estimate.narrow {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.run-estimate.empty {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
 }
 
 .status-idle { color: var(--text-muted); background: var(--bg-hover); }
@@ -1052,7 +1219,11 @@ onUnmounted(clearPoll)
 .sum-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 7px 12px;
+}
+
+.sum-row-secondary {
+  margin-top: 6px;
 }
 
 .sum-item {
@@ -1060,6 +1231,10 @@ onUnmounted(clearPoll)
   color: var(--text-secondary);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+.sum-row-secondary .sum-item {
+  color: var(--text-muted);
 }
 
 .eval-output-paths {
@@ -1304,6 +1479,11 @@ onUnmounted(clearPoll)
   white-space: nowrap;
 }
 
+.col-set {
+  text-align: center;
+  white-space: nowrap;
+}
+
 .col-result {
   text-align: center;
   white-space: nowrap;
@@ -1370,6 +1550,22 @@ onUnmounted(clearPoll)
 .col-result .result-cache-tag {
   color: #2563eb;
   font-weight: 600;
+}
+
+.smoke-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 2px 6px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.muted-cell {
+  color: var(--text-muted);
 }
 
 .result-queued {
@@ -1536,5 +1732,34 @@ onUnmounted(clearPoll)
 
 .golden-empty.error {
   color: var(--error);
+}
+
+@media (max-width: 900px) {
+  .option-grid-modes,
+  .option-grid-scopes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .eval-top {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .eval-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .option-grid-modes,
+  .option-grid-scopes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .run-settings {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 </style>

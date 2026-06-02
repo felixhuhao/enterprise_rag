@@ -10,6 +10,7 @@ FAILURE_CATEGORIES = (
     "answer_unsupported",
     "no_answer_wrong",
     "judge_uncertain",
+    "pending_judge",
     "timeout",
     "unknown",
 )

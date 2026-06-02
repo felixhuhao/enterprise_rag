@@ -141,7 +141,9 @@ class TestBuildPromptNode:
 
         result = build_prompt_node(state, config)
 
-        assert "先列出已被资料直接支持的相关事实" in result["context_text"]
+        assert "先列出已被资料直接支持的具体相关事实" in result["context_text"]
+        assert "每条事实句末都必须标注来源编号" in result["context_text"]
+        assert "不要笼统写“相关文档仅涉及”" in result["context_text"]
         assert "不要根据比例、时间单位或常识推断缺失数值" in result["context_text"]
 
     def test_synthesis_query_adds_comparison_instruction(self):

@@ -115,7 +115,7 @@ def _case_quick(case: dict) -> bool:
 
 def _filter_cases_for_run(cases: list[dict], req: RunRequest) -> list[dict]:
     mode = _normalize_eval_mode(req.mode)
-    selected = list(cases)
+    selected = [case for case in cases if _case_enabled(case)]
     if req.case_ids:
         allowed = set(req.case_ids)
         selected = [case for case in selected if case.get("id") in allowed]
@@ -272,6 +272,31 @@ def _load_eval_result_row(path: Path, case_id: str) -> dict:
     raise KeyError(case_id)
 
 
+def _latest_eval_result_paths() -> list[Path]:
+    if not RESULT_DIR.is_dir():
+        return []
+    return sorted(
+        RESULT_DIR.glob("*_results.jsonl"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+
+
+def _find_latest_eval_result_row(case_id: str) -> tuple[Path, dict]:
+    last_error: ValueError | None = None
+    for path in _latest_eval_result_paths():
+        try:
+            return path, _load_eval_result_row(path, case_id)
+        except KeyError:
+            continue
+        except ValueError as exc:
+            last_error = exc
+            continue
+    if last_error:
+        raise last_error
+    raise FileNotFoundError("暂无评测结果")
+
+
 def _current_eval_result_path() -> Path:
     with _lock:
         raw_path = str(_state.get("result_path") or "")
@@ -287,6 +312,18 @@ def _current_eval_result_path() -> Path:
     except ValueError as exc:
         raise ValueError("评测结果路径无效") from exc
     return resolved
+
+
+def _load_eval_result_row_for_case(case_id: str) -> tuple[Path, dict]:
+    try:
+        path = _current_eval_result_path()
+    except FileNotFoundError:
+        return _find_latest_eval_result_row(case_id)
+
+    try:
+        return path, _load_eval_result_row(path, case_id)
+    except KeyError:
+        return _find_latest_eval_result_row(case_id)
 
 
 def _upsert_result_preview(preview: list[dict], item: dict) -> list[dict]:
@@ -341,8 +378,7 @@ async def get_eval_result_case(case_id: str, current_user: CurrentUser = Depends
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="仅管理员")
     try:
-        path = _current_eval_result_path()
-        row = _load_eval_result_row(path, case_id)
+        path, row = _load_eval_result_row_for_case(case_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except KeyError as exc:
@@ -470,7 +506,7 @@ def _runner(token: str, req: RunRequest):
         golden_set_path = _active_golden_set_path()
         mode = _normalize_eval_mode(req.mode)
 
-        golden = _filter_cases_for_run(load_golden_set(str(golden_set_path), include_disabled=mode == "quick"), req)
+        golden = _filter_cases_for_run(load_golden_set(str(golden_set_path)), req)
         if not golden:
             raise ValueError("未选择基准测试用例")
         with _lock:

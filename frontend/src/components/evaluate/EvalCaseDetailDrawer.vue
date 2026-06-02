@@ -17,7 +17,7 @@
           </div>
           <div class="detail-status">
             <span class="status-pill" :class="'status-' + previewStatus">
-              {{ evalResultStatusLabel(previewStatus) }}
+              {{ previewLabel }}
             </span>
             <strong>{{ formatEvalScore(row.final_score) || '-' }}</strong>
           </div>
@@ -44,6 +44,20 @@
         <div v-if="row.error" class="detail-error">{{ row.error }}</div>
 
         <section class="detail-section">
+          <div class="section-title">评分拆解</div>
+          <div class="score-breakdown">
+            <div v-for="item in scoreCards" :key="item.key" class="score-card">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </div>
+          </div>
+          <div v-if="formulaText" class="score-formula">{{ formulaText }}</div>
+          <div v-if="gapNotes.length" class="gap-list">
+            <div v-for="item in gapNotes" :key="item" class="gap-note">{{ item }}</div>
+          </div>
+        </section>
+
+        <section class="detail-section">
           <div class="section-title">期望</div>
           <div class="expect-grid">
             <div>
@@ -66,6 +80,25 @@
                 <span v-for="item in expectedChunks" :key="item">{{ item }}</span>
               </div>
               <small v-else>-</small>
+            </div>
+          </div>
+        </section>
+
+        <section v-if="hitDetailGroups.length" class="detail-section">
+          <div class="section-title">命中/缺失明细</div>
+          <div class="hit-detail-grid">
+            <div v-for="group in hitDetailGroups" :key="group.key" class="hit-detail-card">
+              <header>{{ group.label }}</header>
+              <div v-if="group.hits.length" class="hit-list">
+                <span v-for="item in group.hits" :key="'hit-' + item" class="hit-pill">{{ item }}</span>
+              </div>
+              <small v-else>无命中</small>
+              <template v-if="group.misses.length">
+                <header class="miss-title">缺失</header>
+                <div class="hit-list">
+                  <span v-for="item in group.misses" :key="'miss-' + item" class="miss-pill">{{ item }}</span>
+                </div>
+              </template>
             </div>
           </div>
         </section>
@@ -166,6 +199,7 @@ const emit = defineEmits<{
 
 const row = computed(() => props.detail?.row ?? null)
 const previewStatus = computed(() => props.detail?.preview?.status || (row.value?.error ? 'failed' : 'warning'))
+const previewLabel = computed(() => props.detail?.preview?.label || evalResultStatusLabel(previewStatus.value))
 const expectedPoints = computed(() => listValue(row.value?.expected_points))
 const expectedDocs = computed(() => listValue(row.value?.expected_docs?.length ? row.value.expected_docs : row.value?.expected_documents))
 const expectedChunks = computed(() => listValue(row.value?.expected_chunk_keys))
@@ -199,10 +233,108 @@ const judgeRows = computed(() => {
     { key: 'verdict', label: '结论', value: stringValue(judge.verdict || row.value?.verdict) },
     { key: 'judge_score', label: 'Judge分', value: scoreValue(judge.score ?? row.value?.judge_score) },
     { key: 'reason', label: '原因', value: stringValue(judge.reason) },
+    { key: 'missing', label: '缺失验收点', value: joinValue(judge.missing_points) },
     { key: 'unsupported', label: '无依据声明', value: joinValue(judge.unsupported_claims) },
     { key: 'parse_warning', label: '解析警告', value: stringValue(judge.parse_warning) },
+    { key: 'cache', label: 'Judge缓存', value: row.value?.judge_cache_status ? judgeCacheLabel(String(row.value.judge_cache_status)) : '' },
   ].filter((item) => item.value)
   return rows
+})
+const scoreCards = computed(() => {
+  const r = row.value
+  if (!r) return []
+  const cards = [
+    { key: 'final', label: '最终分', value: formatEvalScore(r.final_score) || '-' },
+  ]
+  if (r.eval_mode !== 'retrieval_only') {
+    cards.push({ key: 'answer', label: '答案分', value: formatEvalScore(r.answer_score) || '-' })
+    cards.push({ key: 'citation', label: '引用分', value: formatEvalScore(r.citation_score) || '-' })
+    cards.push({ key: 'citations', label: '实际引用', value: String(citationRows.value.length) })
+  }
+  cards.push({ key: 'hit10', label: 'Hit@10', value: flagLabel(r.hit_at_10) })
+  cards.push({ key: 'doc10', label: 'Doc@10', value: flagLabel(r.doc_hit_at_10) })
+  cards.push({ key: 'chunk10', label: 'Chunk@10', value: flagLabel(r.chunk_hit_at_10) })
+  if (typeof r.retrieval_latency_ms === 'number') {
+    cards.push({ key: 'retrieval_latency', label: '检索耗时', value: formatEvalMs(r.retrieval_latency_ms) })
+  }
+  return cards
+})
+const formulaText = computed(() => {
+  const r = row.value
+  if (!r || r.eval_mode === 'retrieval_only' || r.eval_type === 'no_answer') return ''
+  if (typeof r.answer_score !== 'number' || typeof r.citation_score !== 'number' || typeof r.final_score !== 'number') return ''
+  return `评分公式：0.75 × 答案分 ${formatEvalScore(r.answer_score)} + 0.25 × 引用分 ${formatEvalScore(r.citation_score)} = ${formatEvalScore(r.final_score)}`
+})
+const gapNotes = computed(() => {
+  const r = row.value
+  if (!r) return []
+  const notes: string[] = []
+  if (r.eval_mode === 'retrieval_only') {
+    if (r.hit_at_10 === true) notes.push('检索已在 Top10 内命中期望证据。')
+    if (r.hit_at_10 === false) notes.push('检索 Top10 未命中期望文档或期望 chunk。')
+    return notes
+  }
+  if (r.hit_at_10 === true && typeof r.citation_score === 'number' && r.citation_score < 1) {
+    notes.push('检索已命中期望证据，但答案没有标注匹配期望文档的有效引用。')
+  }
+  if (citationRows.value.length === 0 && typeof r.citation_score === 'number' && r.citation_score < 1) {
+    notes.push('回答中没有可识别的 [C#] 引用，因此引用分被扣。')
+  }
+  if (typeof r.answer_score === 'number' && r.answer_score < 0.8) {
+    notes.push('答案内容未完全覆盖数值、关键词或验收点。')
+  }
+  if (r.eval_mode === 'full' && r.eval_type === 'llm_judge' && !objectValue(r.judge).verdict && r.final_score === null) {
+    notes.push('完整模式未产生 Judge 评分，当前结果处于待评测状态。')
+  }
+  return notes
+})
+const hitDetailGroups = computed(() => {
+  const r = row.value
+  if (!r) return []
+  return [
+    {
+      key: 'numeric',
+      label: '数值',
+      hits: listValue(r.numeric_hits),
+      misses: listValue(r.numeric_misses),
+    },
+    {
+      key: 'must',
+      label: '必须命中',
+      hits: listValue(r.must_hits),
+      misses: listValue(r.must_miss),
+    },
+    {
+      key: 'nice',
+      label: '加分项',
+      hits: listValue(r.nice_hits),
+      misses: listValue(r.nice_miss),
+    },
+    {
+      key: 'points',
+      label: '验收点',
+      hits: listValue(r.expected_point_hits),
+      misses: listValue(r.expected_point_miss),
+    },
+    {
+      key: 'citation',
+      label: '引用文档',
+      hits: listValue(r.citation_matched),
+      misses: expectedDocs.value.filter((item) => !listValue(r.citation_matched).includes(item)),
+    },
+    {
+      key: 'sections',
+      label: '引用章节',
+      hits: listValue(r.citation_section_matched),
+      misses: listValue(r.citation_section_missed),
+    },
+    {
+      key: 'forbidden',
+      label: '拒答违规',
+      hits: [],
+      misses: listValue(r.forbidden_hits).concat(listValue(r.forbidden_phrase_hits)),
+    },
+  ].filter((group) => group.hits.length || group.misses.length)
 })
 const traceRows = computed(() => {
   const trace = objectValue(row.value?.trace)
@@ -375,6 +507,58 @@ function normalizeResultRow(item: ObjectRow, index: number) {
   padding-top: 12px;
 }
 
+.score-breakdown {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.score-card {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: #fbfdff;
+}
+
+.score-card span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.score-card strong {
+  color: var(--text-primary);
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.score-formula {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: var(--bg-soft);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.gap-list {
+  display: grid;
+  gap: 6px;
+}
+
+.gap-note {
+  border-left: 3px solid #f59e0b;
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .section-title {
   color: var(--text-primary);
   font-size: 13px;
@@ -430,6 +614,62 @@ function normalizeResultRow(item: ObjectRow, index: number) {
   font-size: 11px;
   max-width: 100%;
   overflow-wrap: anywhere;
+}
+
+.hit-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.hit-detail-card {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: #fbfdff;
+}
+
+.hit-detail-card header {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.hit-detail-card small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.miss-title {
+  margin-top: 2px;
+}
+
+.hit-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.hit-pill,
+.miss-pill {
+  max-width: 100%;
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.hit-pill {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.miss-pill {
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 .answer-block {

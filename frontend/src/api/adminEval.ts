@@ -158,6 +158,20 @@ export type EvalCaseDetailRow = Record<string, unknown> & {
   final_score?: number | null
   answer_score?: number | null
   citation_score?: number | null
+  retrieval_latency_ms?: number | null
+  numeric_hits?: string[]
+  numeric_misses?: string[]
+  must_hits?: string[]
+  must_miss?: string[]
+  nice_hits?: string[]
+  nice_miss?: string[]
+  expected_point_hits?: string[]
+  expected_point_miss?: string[]
+  citation_matched?: string[]
+  citation_section_matched?: string[]
+  citation_section_missed?: string[]
+  forbidden_hits?: string[]
+  forbidden_phrase_hits?: string[]
   doc_hit_at_5?: boolean | null
   doc_hit_at_10?: boolean | null
   chunk_hit_at_5?: boolean | null

@@ -520,6 +520,12 @@ def _derive_failure_categories(row: dict) -> list[str]:
         return ["timeout"] if "timed out" in error.lower() else ["unknown"]
 
     score = row.get("final_score")
+    if (
+        score is None
+        and row.get("eval_mode") in {"full", "quick"}
+        and row.get("eval_type") == "llm_judge"
+    ):
+        return ["pending_judge"]
     if score is not None and score >= 0.8:
         return []
 

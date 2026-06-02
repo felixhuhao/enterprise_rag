@@ -9,7 +9,8 @@ services:
       ETCD_USE_EMBED: "true"
       COMMON_STORAGETYPE: local
     volumes:
-      - ./data/milvus:/var/lib/milvus
+      - milvus-data:/var/lib/milvus
+      - milvus-etcd:/milvus/default.etcd
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:9091/healthz"]
       interval: 10s
@@ -46,3 +47,7 @@ services:
         condition: service_healthy
     environment:
       VITE_API_TARGET: http://backend:8010
+
+volumes:
+  milvus-data:
+  milvus-etcd:

@@ -1,7 +1,9 @@
 import json
+import shutil
 
 import pytest
 
+from app.api import admin_eval
 from app.api.admin_eval import (
     GoldenCaseUpdate,
     RunRequest,
@@ -14,6 +16,7 @@ from app.api.admin_eval import (
     _normalize_eval_mode,
     _summarize_golden_case,
 )
+from app.api.golden_set_utils import write_jsonl_with_backup
 
 
 def test_load_golden_cases_reads_jsonl(tmp_path):
@@ -27,6 +30,24 @@ def test_load_golden_cases_reads_jsonl(tmp_path):
     cases = _load_golden_cases(path)
 
     assert [case["id"] for case in cases] == ["g1", "g2"]
+
+
+def test_write_jsonl_backup_does_not_copy_metadata(tmp_path, monkeypatch):
+    path = tmp_path / "golden.jsonl"
+    old_text = json.dumps({"id": "old"}, ensure_ascii=False) + "\n"
+    path.write_text(old_text, encoding="utf-8")
+
+    def fail_copystat(*args, **kwargs):
+        raise PermissionError("metadata copy denied")
+
+    monkeypatch.setattr(shutil, "copystat", fail_copystat)
+
+    write_jsonl_with_backup(path, [{"id": "new"}])
+
+    backups = list(tmp_path.glob("golden.jsonl.bak_*"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == old_text
+    assert json.loads(path.read_text(encoding="utf-8")) == {"id": "new"}
 
 
 def test_summarize_golden_case_exposes_config_and_counts():
@@ -64,10 +85,22 @@ def test_filter_cases_for_run_supports_quick_mode():
         {"id": "a", "quick": True, "preferred_flavor": "balanced"},
         {"id": "b", "quick": False, "preferred_flavor": "balanced"},
         {"id": "c", "quick": "true", "preferred_flavor": "recall"},
+        {"id": "d", "quick": True, "preferred_flavor": "balanced", "status": "disabled"},
     ]
 
     assert [case["id"] for case in _filter_cases_for_run(cases, RunRequest(mode="quick"))] == ["a", "c"]
     assert [case["id"] for case in _filter_cases_for_run(cases, RunRequest(mode="quick", flavor="recall"))] == ["c"]
+
+
+def test_filter_cases_for_run_excludes_disabled_explicit_case_ids():
+    cases = [
+        {"id": "a", "quick": True, "preferred_flavor": "balanced"},
+        {"id": "b", "quick": True, "preferred_flavor": "balanced", "status": "disabled"},
+    ]
+
+    selected = _filter_cases_for_run(cases, RunRequest(mode="quick", case_ids=["a", "b"]))
+
+    assert [case["id"] for case in selected] == ["a"]
 
 
 def test_normalize_eval_mode_rejects_unknown_mode():
@@ -81,7 +114,9 @@ def test_eval_result_preview_statuses():
     assert _eval_result_preview({"id": "a", "final_score": 0.9})["status"] == "passed"
     assert _eval_result_preview({"id": "b", "final_score": 0.6})["status"] == "warning"
     assert _eval_result_preview({"id": "c", "final_score": 0.2})["status"] == "failed"
-    assert _eval_result_preview({"id": "d", "final_score": None})["label"] == "待评测"
+    pending = _eval_result_preview({"id": "d", "final_score": None})
+    assert pending["status"] == "warning"
+    assert pending["label"] == "待评测"
     assert _eval_result_preview({"id": "e", "error": "boom"})["status"] == "failed"
     preview = _eval_result_preview({
         "id": "f",
@@ -159,6 +194,37 @@ def test_load_eval_result_row_reports_invalid_json(tmp_path):
 
     with pytest.raises(ValueError, match="有效 JSON"):
         _load_eval_result_row(path, "case_2")
+
+
+def test_find_latest_eval_result_row_scans_recent_files(tmp_path, monkeypatch):
+    older = tmp_path / "eval_20260101_000000_results.jsonl"
+    newer = tmp_path / "eval_20260101_000001_results.jsonl"
+    older.write_text(json.dumps({"id": "case_1", "final_score": 0.5}, ensure_ascii=False) + "\n", encoding="utf-8")
+    newer.write_text(json.dumps({"id": "case_2", "final_score": 1.0}, ensure_ascii=False) + "\n", encoding="utf-8")
+    monkeypatch.setattr(admin_eval, "RESULT_DIR", tmp_path)
+
+    path, row = admin_eval._find_latest_eval_result_row("case_1")
+
+    assert path == older
+    assert row["id"] == "case_1"
+
+
+def test_load_eval_result_row_for_case_falls_back_after_state_reset(tmp_path, monkeypatch):
+    result_path = tmp_path / "eval_20260101_000000_results.jsonl"
+    result_path.write_text(json.dumps({"id": "case_1", "question": "q"}, ensure_ascii=False) + "\n", encoding="utf-8")
+    monkeypatch.setattr(admin_eval, "RESULT_DIR", tmp_path)
+    with admin_eval._lock:
+        old_path = admin_eval._state.get("result_path", "")
+        admin_eval._state["result_path"] = ""
+
+    try:
+        path, row = admin_eval._load_eval_result_row_for_case("case_1")
+    finally:
+        with admin_eval._lock:
+            admin_eval._state["result_path"] = old_path
+
+    assert path == result_path
+    assert row["id"] == "case_1"
 
 
 def test_normalize_golden_case_update_preserves_basic_fields():

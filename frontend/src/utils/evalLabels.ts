@@ -1,5 +1,5 @@
 export function evalModeLabel(value: string): string {
-  if (value === 'quick') return '快速'
+  if (value === 'quick') return '快速(旧)'
   if (value === 'retrieval_only') return '仅检索'
   if (value === 'answer_lite') return '轻答案'
   return '完整'
@@ -15,12 +15,13 @@ export function evalTypeLabel(value: string): string {
 export function failureCategoryLabel(value: string): string {
   if (value === 'retrieval_miss') return '检索未命中'
   if (value === 'rerank_drop') return '重排丢失'
-  if (value === 'context_loss') return '上下文丢失'
+  if (value === 'context_loss') return '命中未引用'
   if (value === 'citation_miss') return '引用未命中'
   if (value === 'answer_incomplete') return '答案不完整'
   if (value === 'answer_unsupported') return '答案无依据'
   if (value === 'no_answer_wrong') return '拒答错误'
   if (value === 'judge_uncertain') return 'Judge不确定'
+  if (value === 'pending_judge') return '等待Judge'
   if (value === 'timeout') return '超时'
   if (value === 'unknown') return '未知'
   return value || '-'
