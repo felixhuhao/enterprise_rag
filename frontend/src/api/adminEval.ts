@@ -133,6 +133,11 @@ export interface EvalCaseResult {
   judge_cache_status?: string
   judge_cache_hit?: boolean | null
   judge_cache_usage?: string
+  eval_mode?: string
+  eval_type?: string
+  preferred_flavor?: string
+  actual_retrieval_flavor?: string | null
+  strict_evidence?: boolean | null
 }
 
 export type EvalCaseDetailRow = Record<string, unknown> & {
@@ -150,6 +155,26 @@ export type EvalCaseDetailRow = Record<string, unknown> & {
   rerank_results?: unknown[]
   retrieval_step?: Record<string, unknown>
   trace?: Record<string, unknown>
+  final_score?: number | null
+  answer_score?: number | null
+  citation_score?: number | null
+  doc_hit_at_5?: boolean | null
+  doc_hit_at_10?: boolean | null
+  chunk_hit_at_5?: boolean | null
+  chunk_hit_at_10?: boolean | null
+  hit_at_5?: boolean | null
+  hit_at_10?: boolean | null
+  hit_metric_applicable?: boolean | null
+  preferred_flavor?: string
+  actual_retrieval_flavor?: string | null
+  strict_evidence?: boolean | null
+  entity_mode?: string
+  fallback_info?: Record<string, unknown>
+  search_mode?: string
+  error?: string
+  judge_cache_status?: string
+  judge_cache_hit?: boolean | null
+  judge_cache_usage?: string
   failure_category?: string
   failure_categories?: string[]
   judge?: Record<string, unknown>

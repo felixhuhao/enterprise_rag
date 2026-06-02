@@ -147,6 +147,19 @@
 
     <div v-if="status === 'failed' && error" class="eval-error">{{ error }}</div>
 
+    <EvalCaseTable
+      v-if="showCaseDiagnostics"
+      :cases="evalResults"
+      @open="openEvalCaseDetail"
+    />
+    <EvalCaseDetailDrawer
+      :visible="caseDetailOpen"
+      :loading="caseDetailLoading"
+      :error="caseDetailError"
+      :detail="caseDetail"
+      @close="caseDetailOpen = false"
+    />
+
     <div class="golden-list">
       <div class="golden-list-head">
         <span>当前基准测试集</span>
@@ -360,12 +373,14 @@ import { computed, onMounted, onUnmounted, ref, type ComponentPublicInstance } f
 import { Message } from '@arco-design/web-vue'
 import { useAuthStore } from '../../stores/auth'
 import {
+  getEvalCaseResult,
   getEvalStatus,
   getGoldenSet,
   runEval,
   setGoldenCaseEnabled,
   updateGoldenCase,
   type EvalBaselineDelta,
+  type EvalCaseDetailResponse,
   type EvalCaseResult,
   type EvalMetricDelta,
   type GoldenCaseUpdate,
@@ -382,7 +397,17 @@ import {
   type GoldenDraftUpdate,
 } from '../../api/queryFeedback'
 import { useAutoFitColumns } from '../../composables/useAutoFitColumns'
+import {
+  evalModeLabel,
+  evalTypeLabel,
+  failureCategoryLabel,
+  formatEvalMs as ms,
+  formatEvalScore as formatScore,
+  judgeCacheLabel,
+} from '../../utils/evalLabels'
 import { FLAVOR_KEYS, flavorLabel } from '../../utils/labelMaps'
+import EvalCaseDetailDrawer from './EvalCaseDetailDrawer.vue'
+import EvalCaseTable from './EvalCaseTable.vue'
 
 const authStore = useAuthStore()
 const status = ref('idle')
@@ -412,6 +437,10 @@ const evalCurrentId = ref('')
 const evalResults = ref<EvalCaseResult[]>([])
 const resultPath = ref('')
 const summaryPath = ref('')
+const caseDetailOpen = ref(false)
+const caseDetailLoading = ref(false)
+const caseDetailError = ref('')
+const caseDetail = ref<EvalCaseDetailResponse | null>(null)
 type EvalRunMode = 'full' | 'quick' | 'retrieval_only' | 'answer_lite'
 
 const runMode = ref<EvalRunMode>('full')
@@ -491,6 +520,9 @@ const evalProgressPercent = computed(() => {
 })
 const currentResultPath = computed(() => summary.value?.output_path || resultPath.value)
 const currentSummaryPath = computed(() => summary.value?.summary_path || summaryPath.value)
+const showCaseDiagnostics = computed(() => {
+  return evalResults.value.some((item) => item.status === 'failed' || item.status === 'warning')
+})
 
 function emptyDraftForm(): GoldenDraftUpdate {
   return {
@@ -509,16 +541,6 @@ function emptyDraftForm(): GoldenDraftUpdate {
 function percent(value: number | null | undefined): string {
   if (value === null || value === undefined) return '-'
   return `${(value * 100).toFixed(1)}%`
-}
-
-function formatScore(value: number | null | undefined): string {
-  if (value === null || value === undefined) return ''
-  return value.toFixed(2)
-}
-
-function ms(value: number | null | undefined): string {
-  if (value === null || value === undefined) return '-'
-  return `${Math.round(value)}ms`
 }
 
 function columnStyle(key: string) {
@@ -543,42 +565,6 @@ function caseResult(id: string): EvalCaseResult {
 
 function caseEnabled(item: GoldenSetCase): boolean {
   return item.enabled !== false && item.status !== 'disabled'
-}
-
-function evalTypeLabel(value: string): string {
-  if (value === 'rule') return '规则'
-  if (value === 'llm_judge') return 'LLM'
-  if (value === 'no_answer') return '拒答'
-  return value || '-'
-}
-
-function evalModeLabel(value: string): string {
-  if (value === 'quick') return '快速'
-  if (value === 'retrieval_only') return '仅检索'
-  if (value === 'answer_lite') return '轻答案'
-  return '完整'
-}
-
-function failureCategoryLabel(value: string): string {
-  if (value === 'retrieval_miss') return '检索未命中'
-  if (value === 'rerank_drop') return '重排丢失'
-  if (value === 'context_loss') return '上下文丢失'
-  if (value === 'citation_miss') return '引用未命中'
-  if (value === 'answer_incomplete') return '答案不完整'
-  if (value === 'answer_unsupported') return '答案无依据'
-  if (value === 'no_answer_wrong') return '拒答错误'
-  if (value === 'judge_uncertain') return 'Judge不确定'
-  if (value === 'timeout') return '超时'
-  if (value === 'unknown') return '未知'
-  return value || '-'
-}
-
-function judgeCacheLabel(value: string): string {
-  if (value === 'cached') return 'Judge缓存命中'
-  if (value === 'fresh') return 'Judge新评分'
-  if (value === 'miss') return 'Judge缓存未命中'
-  if (value === 'error') return 'Judge错误'
-  return value || '-'
 }
 
 function judgeCacheSummary(cache: EvalSummary['judge_cache']): string {
@@ -659,6 +645,9 @@ async function onRun() {
   evalCurrent.value = 0
   evalCurrentId.value = ''
   evalResults.value = []
+  caseDetailOpen.value = false
+  caseDetail.value = null
+  caseDetailError.value = ''
   pollFailCount = 0
   try {
     await runEval(options)
@@ -668,6 +657,23 @@ async function onRun() {
     status.value = 'failed'
     error.value = e?.response?.data?.detail || '评估启动失败'
     Message.error(error.value)
+  }
+}
+
+async function openEvalCaseDetail(item: EvalCaseResult) {
+  if (!item.id) return
+  caseDetailOpen.value = true
+  caseDetailLoading.value = true
+  caseDetailError.value = ''
+  try {
+    caseDetail.value = await getEvalCaseResult(item.id)
+  } catch (e: any) {
+    const detail = e?.response?.data?.detail || '评测用例详情加载失败'
+    caseDetail.value = null
+    caseDetailError.value = detail
+    Message.error(detail)
+  } finally {
+    caseDetailLoading.value = false
   }
 }
 

@@ -227,6 +227,11 @@ def _eval_result_preview(row: dict, index: int | None = None, total: int | None 
         "judge_cache_status": row.get("judge_cache_status", ""),
         "judge_cache_hit": row.get("judge_cache_hit"),
         "judge_cache_usage": row.get("judge_cache_usage", ""),
+        "eval_mode": row.get("eval_mode", ""),
+        "eval_type": row.get("eval_type", ""),
+        "preferred_flavor": row.get("preferred_flavor", ""),
+        "actual_retrieval_flavor": row.get("actual_retrieval_flavor"),
+        "strict_evidence": row.get("strict_evidence"),
     }
 
 

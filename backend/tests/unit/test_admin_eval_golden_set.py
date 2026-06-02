@@ -86,11 +86,21 @@ def test_eval_result_preview_statuses():
     preview = _eval_result_preview({
         "id": "f",
         "final_score": 0.0,
+        "eval_mode": "answer_lite",
+        "eval_type": "llm_judge",
+        "preferred_flavor": "recall",
+        "actual_retrieval_flavor": "balanced",
+        "strict_evidence": True,
         "failure_category": "retrieval_miss",
         "failure_categories": ["retrieval_miss", "answer_incomplete"],
     })
     assert preview["failure_category"] == "retrieval_miss"
     assert preview["failure_categories"] == ["retrieval_miss", "answer_incomplete"]
+    assert preview["eval_mode"] == "answer_lite"
+    assert preview["eval_type"] == "llm_judge"
+    assert preview["preferred_flavor"] == "recall"
+    assert preview["actual_retrieval_flavor"] == "balanced"
+    assert preview["strict_evidence"] is True
 
 
 def test_eval_result_detail_row_fills_safe_defaults():
