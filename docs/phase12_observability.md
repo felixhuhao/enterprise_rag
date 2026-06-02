@@ -496,6 +496,10 @@ Exit criteria:
 
 ### Iteration 6: Validation And Phase Closeout
 
+Status: engineering validation completed on 2026-06-02. Live query/UI manual
+checks should be run after rebuilding the backend image, because the currently
+running backend container may still contain an older image.
+
 Purpose: verify the loop on real query patterns before moving to P2.
 
 Manual checks:
@@ -514,6 +518,28 @@ Closeout:
 - Confirm API summaries are stable with mixed old/new rows.
 - Confirm UI detail explains the query without backend logs.
 - Update this document with completed status and any deferred P2 findings.
+
+Engineering validation completed:
+
+- `python -m compileall backend/app/services/query_observability.py backend/app/services/query_stats_service.py backend/app/api/query_chat.py backend/app/api/query_stats.py`
+- `npm --prefix frontend run build`
+- `git diff --check`
+- Query stats service smoke with an in-memory SQLite database:
+  - old scalar-only row stays readable
+  - new structured observability row decodes timings/settings/result shape/fallback/token fields
+  - detail lookup applies user filtering
+  - latency breakdown groups by flavor/status/endpoint and stage timings
+
+Validation limits:
+
+- `pytest` is not installed in the local Python environment or the current backend container, so `test_query_stats.py` was not run through pytest.
+- The current backend container did not include `query_observability.py`, indicating it needs a rebuild before live API/UI validation.
+
+Deferred P2 findings:
+
+- Add a time range such as `days` or `since` to the latency breakdown API before query stats volume grows large.
+- Consider flattening nested `budget` and `fallback_policy` values in the query detail UI for easier scanning.
+- Replace the remaining raw JSON display for deeply nested settings with grouped rows once the data shape stabilizes.
 
 ## Acceptance Criteria
 
