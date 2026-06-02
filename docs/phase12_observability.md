@@ -443,6 +443,8 @@ Exit criteria:
 
 ### Iteration 4: Query Stats API
 
+Status: implemented on 2026-06-02.
+
 Purpose: expose the persisted observability data without forcing the UI to infer internals.
 
 Work:

@@ -44,6 +44,33 @@ export interface RetrievedChunkItem {
   content_preview?: string
 }
 
+export interface SlowestStage {
+  key?: string
+  ms?: number
+}
+
+export interface QueryObservability {
+  endpoint?: string
+  timings_ms?: Record<string, number>
+  resolved_settings?: Record<string, unknown>
+  result_shape?: Record<string, unknown>
+  fallback_info?: Record<string, unknown>
+  token_usage?: Record<string, unknown>
+}
+
+export interface LatencyMetric {
+  count: number
+  p50_ms: number
+  p95_ms: number
+}
+
+export interface QueryLatencyBreakdown {
+  by_flavor: Record<string, LatencyMetric>
+  by_status: Record<string, LatencyMetric>
+  by_endpoint: Record<string, LatencyMetric>
+  stages: Record<string, LatencyMetric>
+}
+
 export interface FlavorMetric {
   count: number
   success_count: number
@@ -80,8 +107,28 @@ export interface QueryStatsRecord {
   strict_evidence: number
   fallback_used: number
   groundedness_score?: number | null
+  endpoint?: string
+  timings_json?: string
+  settings_json?: string
+  result_shape_json?: string
+  fallback_json?: string
+  token_usage_json?: string
+  timings?: Record<string, number>
+  resolved_settings?: Record<string, unknown>
+  result_shape?: Record<string, unknown>
+  fallback_details?: Record<string, unknown>
+  token_usage?: Record<string, unknown>
+  slowest_stage?: SlowestStage
+  model?: string
+  total_tokens?: number | null
   user_id: string
   created_at: string
+}
+
+export interface QueryStatsRecordDetail extends QueryStatsRecord {
+  retrieved_chunks_list?: RetrievedChunkItem[]
+  citations_list?: Record<string, unknown>[]
+  observability?: QueryObservability
 }
 
 function userParams(filterUserId: string = ''): Record<string, string> {
@@ -108,6 +155,11 @@ export async function getQueryStatsByStrict(filterUserId: string = ''): Promise<
   return res.data
 }
 
+export async function getQueryStatsLatency(filterUserId: string = ''): Promise<QueryLatencyBreakdown> {
+  const res = await apiClient.get('/query/stats/latency', { params: userParams(filterUserId) })
+  return res.data
+}
+
 export async function getQueryStatsRecords(
   page: number = 1,
   pageSize: number = 20,
@@ -118,5 +170,15 @@ export async function getQueryStatsRecords(
   if (filterUserId) params.filter_user_id = filterUserId
   if (flavor) params.flavor = flavor
   const res = await apiClient.get('/query/stats/records', { params })
+  return res.data
+}
+
+export async function getQueryStatsRecordDetail(
+  recordId: number,
+  filterUserId: string = '',
+): Promise<QueryStatsRecordDetail> {
+  const res = await apiClient.get(`/query/stats/records/${recordId}`, {
+    params: userParams(filterUserId),
+  })
   return res.data
 }

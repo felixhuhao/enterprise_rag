@@ -11,6 +11,7 @@ from app.core.database import get_db
 from app.services.query_observability import json_dumps, observability_json_columns
 
 FLAVORS = ("balanced", "exact", "recall", "discovery")
+LATENCY_GROUP_FIELDS = {"retrieval_flavor", "status", "endpoint"}
 
 
 class QueryStatsService:
@@ -272,7 +273,7 @@ class QueryStatsService:
                 (*params, page_size, offset),
             ) as cursor:
                 rows = await cursor.fetchall()
-                records = [dict(row) for row in rows]
+                records = [_augment_record(dict(row)) for row in rows]
 
             count_sql = f"SELECT COUNT(*) as total FROM query_run_stats {where}"
             async with db.execute(count_sql, params) as cursor:
@@ -283,6 +284,47 @@ class QueryStatsService:
             "total": total,
             "page": page,
             "page_size": page_size,
+        }
+
+    async def get_record_detail(self, record_id: int, user_id: str | None = None) -> dict | None:
+        """Fetch one query run with decoded observability payloads."""
+        where, params = _where(user_id=user_id, extra="id = ?")
+        async with get_db() as db:
+            async with db.execute(
+                f"""SELECT id, session_id, query, search_mode, search_mode_hyde,
+                          result_count, rerank_avg_score, rerank_top_score,
+                          retrieval_wall_ms, first_token_ms, generate_ms, total_ms,
+                          status, error_code, retrieved_chunks, citations,
+                          retrieval_flavor, strict_evidence, fallback_used,
+                          groundedness_score, endpoint, timings_json, settings_json,
+                          result_shape_json, fallback_json, token_usage_json,
+                          user_id, created_at
+                   FROM query_run_stats {where}
+                   LIMIT 1""",
+                (*params, record_id),
+            ) as cursor:
+                row = await cursor.fetchone()
+        if row is None:
+            return None
+        return _detail_record(dict(row))
+
+    async def get_latency_breakdown(self, user_id: str | None = None) -> dict:
+        """Latency p50/p95 grouped by flavor/status/endpoint plus stage summaries."""
+        where, params = _where(user_id=user_id)
+        async with get_db() as db:
+            async with db.execute(
+                f"""SELECT retrieval_flavor, status, endpoint, total_ms, timings_json
+                   FROM query_run_stats {where}
+                   ORDER BY created_at DESC""",
+                params,
+            ) as cursor:
+                rows = [dict(row) for row in await cursor.fetchall()]
+
+        return {
+            "by_flavor": _latency_group(rows, "retrieval_flavor", default_keys=FLAVORS),
+            "by_status": _latency_group(rows, "status"),
+            "by_endpoint": _latency_group(rows, "endpoint"),
+            "stages": _stage_latency(rows),
         }
 
 
@@ -300,6 +342,120 @@ def _json_object_text(value: dict[str, Any] | str | None) -> str:
     if isinstance(value, str):
         return value
     return json_dumps(value)
+
+
+def _augment_record(row: dict) -> dict:
+    """Add compact decoded observability fields while preserving raw JSON strings."""
+    timings = _json_obj(row.get("timings_json"))
+    result_shape = _json_obj(row.get("result_shape_json"))
+    token_usage = _json_obj(row.get("token_usage_json"))
+    fallback = _json_obj(row.get("fallback_json"))
+    settings = _json_obj(row.get("settings_json"))
+    slowest = _slowest_stage(timings)
+    row.update({
+        "timings": timings,
+        "resolved_settings": settings,
+        "result_shape": result_shape,
+        "fallback_details": fallback,
+        "token_usage": token_usage,
+        "slowest_stage": slowest,
+        "model": token_usage.get("model", ""),
+        "total_tokens": token_usage.get("total_tokens"),
+    })
+    return row
+
+
+def _detail_record(row: dict) -> dict:
+    row = _augment_record(row)
+    row["retrieved_chunks_list"] = _json_list(row.get("retrieved_chunks"))
+    row["citations_list"] = _json_list(row.get("citations"))
+    row["observability"] = {
+        "endpoint": row.get("endpoint", ""),
+        "timings_ms": row["timings"],
+        "resolved_settings": row["resolved_settings"],
+        "result_shape": row["result_shape"],
+        "fallback_info": row["fallback_details"],
+        "token_usage": row["token_usage"],
+    }
+    return row
+
+
+def _json_obj(value: Any) -> dict:
+    if isinstance(value, dict):
+        return value
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _json_list(value: Any) -> list:
+    if isinstance(value, list):
+        return value
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def _slowest_stage(timings: dict) -> dict:
+    candidates = {
+        str(key): _int_value(value)
+        for key, value in timings.items()
+        if key not in {"total", "retrieval_wall"} and _int_value(value) is not None
+    }
+    if not candidates:
+        return {}
+    key, value = max(candidates.items(), key=lambda item: item[1])
+    return {"key": key, "ms": value}
+
+
+def _latency_group(rows: list[dict], field: str, default_keys: tuple[str, ...] = ()) -> dict:
+    if field not in LATENCY_GROUP_FIELDS:
+        raise ValueError(f"Unsupported latency group field: {field}")
+    grouped: dict[str, list[int]] = {key: [] for key in default_keys}
+    for row in rows:
+        value = str(row.get(field) or "unknown")
+        ms = _int_value(row.get("total_ms"))
+        if ms is None or ms <= 0:
+            continue
+        grouped.setdefault(value, []).append(ms)
+    return {key: _latency_metric(values) for key, values in grouped.items()}
+
+
+def _stage_latency(rows: list[dict]) -> dict:
+    grouped: dict[str, list[int]] = {}
+    for row in rows:
+        timings = _json_obj(row.get("timings_json"))
+        for key, value in timings.items():
+            ms = _int_value(value)
+            if ms is None or ms < 0:
+                continue
+            grouped.setdefault(str(key), []).append(ms)
+    return {key: _latency_metric(values) for key, values in sorted(grouped.items())}
+
+
+def _latency_metric(values: list[int]) -> dict:
+    return {
+        "count": len(values),
+        "p50_ms": _p50(values),
+        "p95_ms": _p95(values),
+    }
+
+
+def _int_value(value: Any) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        return int(round(float(value)))
+    except (TypeError, ValueError):
+        return None
 
 
 def _where(
@@ -355,8 +511,17 @@ def _metric_row(row: dict | None, p95_ms: int) -> dict:
 def _p95(values: list[int]) -> int:
     if not values:
         return 0
-    index = max(0, math.ceil(len(values) * 0.95) - 1)
-    return values[index]
+    ordered = sorted(values)
+    index = max(0, math.ceil(len(ordered) * 0.95) - 1)
+    return ordered[index]
+
+
+def _p50(values: list[int]) -> int:
+    if not values:
+        return 0
+    ordered = sorted(values)
+    index = max(0, math.ceil(len(ordered) * 0.50) - 1)
+    return ordered[index]
 
 
 query_stats_service = QueryStatsService()

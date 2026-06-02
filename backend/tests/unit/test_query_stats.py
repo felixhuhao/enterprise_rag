@@ -352,6 +352,92 @@ class TestRecords:
         assert result["total"] == 1
         assert result["records"][0]["retrieval_flavor"] == "recall"
 
+    def test_record_detail_decodes_observability_and_applies_user_filter(self, svc):
+        chunks_json = '[{"chunk_id": 123, "rank": 1, "document_id": "doc-1"}]'
+        payload = build_query_observability_payload(
+            endpoint="query_chat_stream",
+            status="success",
+            state={
+                "search_results": [{"document_id": "doc-1"}],
+                "query_plan": {"retrieval_flavor": "balanced"},
+            },
+            trace={"rerank_ms": 40, "generate_ms": 200, "total_ms": 240},
+            citations=[{"id": "C1", "document_id": "doc-1"}],
+            token_usage={"model": "qwen-plus", "total_tokens": 120},
+        )
+        run(svc.save(
+            "s1", "q1", "hybrid", "", 1, 0.8, 0.9,
+            total_ms=240,
+            retrieved_chunks=chunks_json,
+            citations=[{"id": "C1", "document_id": "doc-1"}],
+            user_id="u1",
+            observability=payload,
+        ))
+
+        detail = run(svc.get_record_detail(1, user_id="u1"))
+
+        assert detail["retrieved_chunks_list"][0]["chunk_id"] == 123
+        assert detail["citations_list"][0]["id"] == "C1"
+        assert detail["observability"]["endpoint"] == "query_chat_stream"
+        assert detail["observability"]["timings_ms"]["rerank"] == 40
+        assert detail["slowest_stage"] == {"key": "generate", "ms": 200}
+        assert detail["total_tokens"] == 120
+        assert run(svc.get_record_detail(1, user_id="u2")) is None
+
+    def test_records_include_compact_observability_fields(self, svc):
+        run(svc.save(
+            "s1", "q1", "hybrid", "", 1, 0.8, 0.9,
+            observability=build_query_observability_payload(
+                endpoint="query_chat",
+                trace={"rerank_ms": 10, "generate_ms": 30},
+                token_usage={"model": "qwen-plus", "total_tokens": 42},
+            ),
+        ))
+
+        record = run(svc.get_records(page=1, page_size=10))["records"][0]
+
+        assert record["endpoint"] == "query_chat"
+        assert record["timings"]["rerank"] == 10
+        assert record["slowest_stage"] == {"key": "generate", "ms": 30}
+        assert record["model"] == "qwen-plus"
+        assert record["total_tokens"] == 42
+
+    def test_latency_breakdown_groups_by_flavor_status_endpoint_and_stage(self, svc):
+        run(svc.save(
+            "s1", "q1", "hybrid", "", 1, 0.8, 0.9,
+            total_ms=300,
+            retrieval_flavor="balanced",
+            status="success",
+            endpoint="query_chat_stream",
+            timings={"rerank": 100, "generate": 200},
+        ))
+        run(svc.save(
+            "s2", "q2", "hybrid", "", 1, 0.8, 0.9,
+            total_ms=700,
+            retrieval_flavor="recall",
+            status="success",
+            endpoint="query_chat_stream",
+            timings={"rerank": 70, "generate": 500},
+        ))
+        run(svc.save(
+            "s3", "q3", "", "", 0, 0, 0,
+            total_ms=900,
+            retrieval_flavor="balanced",
+            status="llm_failed",
+            endpoint="query_chat",
+            timings={"generate": 900},
+        ))
+
+        breakdown = run(svc.get_latency_breakdown())
+
+        assert breakdown["by_flavor"]["balanced"]["count"] == 2
+        assert breakdown["by_flavor"]["balanced"]["p95_ms"] == 900
+        assert breakdown["by_status"]["success"]["p50_ms"] == 300
+        assert breakdown["by_status"]["success"]["p95_ms"] == 700
+        assert breakdown["by_endpoint"]["query_chat_stream"]["count"] == 2
+        assert breakdown["stages"]["rerank"]["p50_ms"] == 70
+        assert breakdown["stages"]["rerank"]["p95_ms"] == 100
+
 
 class TestTrend:
     def test_trend_includes_failed_count(self, svc):
