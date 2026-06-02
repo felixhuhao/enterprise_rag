@@ -313,6 +313,7 @@ def run_eval_case(
             "trace": rag["trace"],
             "retrieval_step": rag["retrieval_step"],
             "rerank_results": rag["rerank_results"],
+            "groundedness": rag.get("groundedness", {}),
             "search_mode": rag["search_mode"],
             "error": rag["error"],
             # New fields passthrough
@@ -527,7 +528,11 @@ def _derive_failure_categories(row: dict) -> list[str]:
     if row.get("eval_type") == "no_answer":
         categories.append("no_answer_wrong")
 
-    if row.get("hit_metric_applicable") and row.get("hit_at_10") is False:
+    rerank_drop = _has_rerank_drop(row)
+    if rerank_drop:
+        categories.append("rerank_drop")
+
+    if row.get("hit_metric_applicable") and row.get("hit_at_10") is False and not rerank_drop:
         categories.append("retrieval_miss")
 
     answer_score = row.get("answer_score")
@@ -546,9 +551,74 @@ def _derive_failure_categories(row: dict) -> list[str]:
     if isinstance(citation_score, (int, float)) and citation_score < 1.0:
         categories.append("citation_miss")
 
+    if _has_context_loss(row):
+        categories.append("context_loss")
+
+    if _has_unsupported_answer(row):
+        categories.append("answer_unsupported")
+
+    if _has_uncertain_judge(row):
+        categories.append("judge_uncertain")
+
     if not categories:
         categories.append("unknown")
     return _ordered_failure_categories(categories)
+
+
+def _has_rerank_drop(row: dict) -> bool:
+    if not row.get("hit_metric_applicable"):
+        return False
+    return any(
+        row.get(key) is True
+        for key in ("pre_rerank_hit_at_10", "retrieval_hit_at_10", "candidate_hit_at_10")
+    ) and row.get("hit_at_10") is False
+
+
+def _has_context_loss(row: dict) -> bool:
+    if row.get("eval_mode") == "retrieval_only":
+        return False
+    if not row.get("hit_metric_applicable") or row.get("hit_at_10") is not True:
+        return False
+    citation_score = row.get("citation_score")
+    return isinstance(citation_score, (int, float)) and not isinstance(citation_score, bool) and citation_score < 1.0
+
+
+def _has_unsupported_answer(row: dict) -> bool:
+    judge = row.get("judge") if isinstance(row.get("judge"), dict) else {}
+    unsupported = judge.get("unsupported_claims")
+    if isinstance(unsupported, list) and unsupported:
+        return True
+
+    groundedness = row.get("groundedness") if isinstance(row.get("groundedness"), dict) else {}
+    score = groundedness.get("groundedness_score")
+    if isinstance(score, (int, float)) and not isinstance(score, bool) and score < 0.7:
+        return True
+    claims = groundedness.get("claims")
+    if isinstance(claims, list):
+        return any(_claim_is_unsupported(claim) for claim in claims if isinstance(claim, dict))
+    return False
+
+
+def _claim_is_unsupported(claim: dict) -> bool:
+    value = claim.get("supported")
+    if isinstance(value, bool):
+        return not value
+    status = str(claim.get("status") or claim.get("verdict") or "").lower()
+    return status in {"unsupported", "not_supported", "false", "fail"}
+
+
+def _has_uncertain_judge(row: dict) -> bool:
+    if row.get("eval_type") != "llm_judge":
+        return False
+    if row.get("judge_error"):
+        return True
+    judge = row.get("judge") if isinstance(row.get("judge"), dict) else {}
+    if judge.get("parse_warning"):
+        return True
+    judge_score = row.get("judge_score")
+    if isinstance(judge_score, (int, float)) and not isinstance(judge_score, bool):
+        return 0.6 <= judge_score < 0.8
+    return str(judge.get("verdict") or "").lower() == "warn"
 
 
 def _ordered_failure_categories(categories: list[str]) -> list[str]:

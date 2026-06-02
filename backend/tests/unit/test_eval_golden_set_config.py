@@ -261,6 +261,69 @@ def test_failure_category_prefers_citation_when_answer_component_passes():
     assert summary["failure_categories"] == {"citation_miss": 1}
 
 
+def test_fine_grained_failure_categories_are_best_effort():
+    summary = build_summary([
+        {
+            "id": "rerank-drop",
+            "final_score": 0.0,
+            "eval_type": "rule",
+            "preferred_flavor": "balanced",
+            "hit_metric_applicable": True,
+            "pre_rerank_hit_at_10": True,
+            "hit_at_10": False,
+        },
+        {
+            "id": "context-loss",
+            "final_score": 0.4,
+            "eval_type": "rule",
+            "preferred_flavor": "balanced",
+            "hit_metric_applicable": True,
+            "hit_at_10": True,
+            "citation_score": 0.0,
+        },
+        {
+            "id": "unsupported",
+            "final_score": 0.4,
+            "eval_type": "llm_judge",
+            "preferred_flavor": "balanced",
+            "citation_score": 1.0,
+            "judge": {"unsupported_claims": ["claim"], "score": 0.4, "verdict": "fail"},
+            "judge_score": 0.4,
+        },
+        {
+            "id": "judge-warn",
+            "final_score": 0.7,
+            "eval_type": "llm_judge",
+            "preferred_flavor": "balanced",
+            "citation_score": 1.0,
+            "judge": {"score": 0.7, "verdict": "warn"},
+            "judge_score": 0.7,
+        },
+    ])
+
+    assert summary["failure_categories"] == {
+        "rerank_drop": 1,
+        "context_loss": 1,
+        "citation_miss": 1,
+        "answer_unsupported": 1,
+        "judge_uncertain": 1,
+    }
+
+
+def test_answer_unsupported_can_use_groundedness_signal():
+    summary = build_summary([
+        {
+            "id": "groundedness-low",
+            "final_score": 0.4,
+            "eval_type": "rule",
+            "preferred_flavor": "balanced",
+            "groundedness": {"groundedness_score": 0.4},
+        }
+    ])
+
+    assert summary["failure_categories"] == {"answer_unsupported": 1}
+
+
 def test_retrieval_only_summary_marks_answer_metrics_not_applicable():
     summary = build_summary([
         {

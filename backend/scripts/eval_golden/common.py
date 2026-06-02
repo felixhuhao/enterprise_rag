@@ -3,9 +3,13 @@
 EVAL_MODES = {"full", "quick", "retrieval_only", "answer_lite"}
 FAILURE_CATEGORIES = (
     "retrieval_miss",
+    "rerank_drop",
+    "context_loss",
     "citation_miss",
     "answer_incomplete",
+    "answer_unsupported",
     "no_answer_wrong",
+    "judge_uncertain",
     "timeout",
     "unknown",
 )

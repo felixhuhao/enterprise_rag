@@ -32,6 +32,7 @@ def query_rag(
         "search_mode": "",
         "retrieval_flavor": "",
         "strict_evidence": False,
+        "groundedness": {},
         "error": None,
     }
 
@@ -66,6 +67,12 @@ def query_rag(
                     result["citations"] = event.get("citations", [])
                 elif evt_type == "trace":
                     result["trace"].update(event.get("trace", {}))
+                elif evt_type == "groundedness":
+                    result["groundedness"] = {
+                        key: value
+                        for key, value in event.items()
+                        if key != "type"
+                    }
                 elif evt_type == "retrieval_step":
                     result["retrieval_step"] = {
                         "results_count": event.get("results_count"),
