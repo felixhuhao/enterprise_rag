@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any
 
 from app.core.database import get_db
+from app.services.query_observability import json_dumps, observability_json_columns
 
 FLAVORS = ("balanced", "exact", "recall", "discovery")
 
@@ -37,11 +38,31 @@ class QueryStatsService:
         strict_evidence: bool = False,
         citations: list[dict] | str | None = None,
         fallback_used: bool = False,
+        observability: dict[str, Any] | None = None,
+        endpoint: str = "",
+        timings: dict[str, Any] | str | None = None,
+        resolved_settings: dict[str, Any] | str | None = None,
+        result_shape: dict[str, Any] | str | None = None,
+        fallback_details: dict[str, Any] | str | None = None,
+        token_usage: dict[str, Any] | str | None = None,
     ):
         """Save one query run."""
         now = datetime.now().isoformat()
         flavor = retrieval_flavor if retrieval_flavor in FLAVORS else "balanced"
         citations_json = _json_text(citations)
+        obs_cols = observability_json_columns(observability)
+        if endpoint:
+            obs_cols["endpoint"] = endpoint
+        if timings is not None:
+            obs_cols["timings_json"] = _json_object_text(timings)
+        if resolved_settings is not None:
+            obs_cols["settings_json"] = _json_object_text(resolved_settings)
+        if result_shape is not None:
+            obs_cols["result_shape_json"] = _json_object_text(result_shape)
+        if fallback_details is not None:
+            obs_cols["fallback_json"] = _json_object_text(fallback_details)
+        if token_usage is not None:
+            obs_cols["token_usage_json"] = _json_object_text(token_usage)
         async with get_db() as db:
             await db.execute(
                 """INSERT INTO query_run_stats
@@ -50,8 +71,10 @@ class QueryStatsService:
                     retrieval_wall_ms, first_token_ms, generate_ms, total_ms,
                     status, error_code, retrieved_chunks, citations,
                     retrieval_flavor, strict_evidence, fallback_used,
-                    groundedness_score, user_id, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    groundedness_score, endpoint, timings_json, settings_json,
+                    result_shape_json, fallback_json, token_usage_json,
+                    user_id, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     session_id,
                     query[:500],
@@ -72,6 +95,12 @@ class QueryStatsService:
                     1 if strict_evidence else 0,
                     1 if fallback_used else 0,
                     groundedness_score,
+                    obs_cols["endpoint"],
+                    obs_cols["timings_json"],
+                    obs_cols["settings_json"],
+                    obs_cols["result_shape_json"],
+                    obs_cols["fallback_json"],
+                    obs_cols["token_usage_json"],
                     user_id,
                     now,
                 ),
@@ -234,7 +263,9 @@ class QueryStatsService:
                           retrieval_wall_ms, first_token_ms, generate_ms, total_ms,
                           status, error_code, retrieved_chunks, citations,
                           retrieval_flavor, strict_evidence, fallback_used,
-                          groundedness_score, user_id, created_at
+                          groundedness_score, endpoint, timings_json, settings_json,
+                          result_shape_json, fallback_json, token_usage_json,
+                          user_id, created_at
                    FROM query_run_stats {where}
                    ORDER BY created_at DESC
                    LIMIT ? OFFSET ?""",
@@ -261,6 +292,14 @@ def _json_text(value: list[dict] | str | None) -> str:
     if isinstance(value, str):
         return value
     return json.dumps(value, ensure_ascii=False)
+
+
+def _json_object_text(value: dict[str, Any] | str | None) -> str:
+    if value is None:
+        return "{}"
+    if isinstance(value, str):
+        return value
+    return json_dumps(value)
 
 
 def _where(

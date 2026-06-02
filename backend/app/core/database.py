@@ -100,6 +100,12 @@ CREATE TABLE IF NOT EXISTS query_run_stats (
     strict_evidence  INTEGER DEFAULT 0,
     fallback_used    INTEGER DEFAULT 0,
     groundedness_score REAL DEFAULT NULL,
+    endpoint         TEXT DEFAULT '',
+    timings_json     TEXT DEFAULT '{}',
+    settings_json    TEXT DEFAULT '{}',
+    result_shape_json TEXT DEFAULT '{}',
+    fallback_json    TEXT DEFAULT '{}',
+    token_usage_json TEXT DEFAULT '{}',
     user_id          TEXT DEFAULT '',
     created_at       TEXT NOT NULL
 );
@@ -227,6 +233,19 @@ async def init_db():
             await db.execute("ALTER TABLE query_run_stats ADD COLUMN user_id TEXT DEFAULT ''")
         except aiosqlite.OperationalError:
             pass
+        # migration: query observability payload columns
+        for col_ddl in (
+            "ALTER TABLE query_run_stats ADD COLUMN endpoint TEXT DEFAULT ''",
+            "ALTER TABLE query_run_stats ADD COLUMN timings_json TEXT DEFAULT '{}'",
+            "ALTER TABLE query_run_stats ADD COLUMN settings_json TEXT DEFAULT '{}'",
+            "ALTER TABLE query_run_stats ADD COLUMN result_shape_json TEXT DEFAULT '{}'",
+            "ALTER TABLE query_run_stats ADD COLUMN fallback_json TEXT DEFAULT '{}'",
+            "ALTER TABLE query_run_stats ADD COLUMN token_usage_json TEXT DEFAULT '{}'",
+        ):
+            try:
+                await db.execute(col_ddl)
+            except aiosqlite.OperationalError:
+                pass
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_qrunstats_flavor_created "
             "ON query_run_stats(retrieval_flavor, created_at)"

@@ -1,11 +1,17 @@
 """Unit tests for QueryStatsService: save with status, aggregation, trend."""
 
 import asyncio
+import json
 import sqlite3
 from contextlib import asynccontextmanager
 
 import pytest
 
+from app.rag.query.config import QueryConfig
+from app.services.query_observability import (
+    build_query_observability_payload,
+    observability_json_columns,
+)
 from app.services.query_stats_service import QueryStatsService
 
 # ---------------------------------------------------------------------------
@@ -34,6 +40,12 @@ CREATE TABLE IF NOT EXISTS query_run_stats (
     strict_evidence  INTEGER DEFAULT 0,
     fallback_used    INTEGER DEFAULT 0,
     groundedness_score REAL DEFAULT NULL,
+    endpoint         TEXT DEFAULT '',
+    timings_json     TEXT DEFAULT '{}',
+    settings_json    TEXT DEFAULT '{}',
+    result_shape_json TEXT DEFAULT '{}',
+    fallback_json    TEXT DEFAULT '{}',
+    token_usage_json TEXT DEFAULT '{}',
     user_id          TEXT DEFAULT '',
     created_at       TEXT NOT NULL
 );
@@ -170,6 +182,59 @@ class TestSave:
         assert record["strict_evidence"] == 1
         assert record["fallback_used"] == 1
         assert '"C1"' in record["citations"]
+
+    def test_observability_payload_is_saved(self, svc):
+        payload = build_query_observability_payload(
+            endpoint="query_chat_stream",
+            status="success",
+            state={
+                "confirmed_entity": "星辰科技",
+                "entity_mode": "single",
+                "query_plan": {
+                    "retrieval_flavor": "recall",
+                    "strict_evidence": True,
+                    "use_hyde": False,
+                    "budget": {
+                        "search_limit": 20,
+                        "rerank_candidate_k": 30,
+                        "final_context_k": 8,
+                        "reason": "recall_high_coverage",
+                    },
+                },
+                "search_results": [
+                    {"document_id": "doc-1", "file_title": "制度.md"},
+                    {"document_id": "doc-2", "file_title": "FAQ.md"},
+                ],
+                "rerank_candidates": [{"document_id": "doc-1"}, {"document_id": "doc-2"}],
+                "rerank_debug": [{"final_score": 0.9}, {"final_score": 0.7}],
+                "fallback_info": {"used": False, "blocked": False, "reason": ""},
+            },
+            trace={"rewrite_ms": 12, "rerank_ms": 34, "retrieval_wall_ms": 100},
+            gen_trace={"generate_ms": 200, "total_ms": 300},
+            query_config=QueryConfig(retrieval_flavor="recall", strict_evidence=True),
+            citations=[{"id": "C1", "document_id": "doc-1"}],
+            token_usage={
+                "model": "qwen-plus",
+                "prompt_tokens": "100",
+                "completion_tokens": 20,
+                "total_tokens": 120,
+            },
+        )
+
+        run(svc.save(
+            "s5", "observed query", "hybrid", "",
+            result_count=2, rerank_avg_score=0.8, rerank_top_score=0.9,
+            observability=payload,
+        ))
+
+        result = run(svc.get_records(page=1, page_size=10))
+        record = result["records"][0]
+        assert record["endpoint"] == "query_chat_stream"
+        assert json.loads(record["timings_json"])["rerank"] == 34
+        assert json.loads(record["settings_json"])["selected_entities"] == ["星辰科技"]
+        assert json.loads(record["result_shape_json"])["cited_documents_count"] == 1
+        assert json.loads(record["fallback_json"])["used"] is False
+        assert json.loads(record["token_usage_json"])["total_tokens"] == 120
 
 
 class TestAggregation:
@@ -322,3 +387,82 @@ class TestRetrievedChunks:
         run(svc.save("s1", "q", "", "", 0, 0, 0))
         result = run(svc.get_records(page=1, page_size=10))
         assert result["records"][0]["retrieved_chunks"] == "[]"
+        assert result["records"][0]["timings_json"] == "{}"
+
+
+class TestObservabilityPayload:
+    def test_build_payload_normalizes_trace_settings_shape_and_tokens(self):
+        payload = build_query_observability_payload(
+            endpoint="query_chat_stream",
+            status="success",
+            error_code="",
+            state={
+                "confirmed_entity": "星辰科技",
+                "matched_entities": ["星辰科技", "远景能源"],
+                "entity_mode": "multi_explicit",
+                "query_plan": {
+                    "retrieval_flavor": "balanced",
+                    "strict_evidence": False,
+                    "use_hyde": True,
+                    "use_query_expansion": False,
+                    "fallback_policy": {"entity_filter_to_global": True, "reason": "enabled_by_flavor"},
+                    "budget": {"search_limit": 10, "rerank_candidate_k": 8, "final_context_k": 5},
+                },
+                "search_results": [
+                    {"document_id": "doc-1", "file_title": "制度.md"},
+                    {"document_id": "doc-1", "file_title": "制度.md"},
+                ],
+                "rerank_debug": [{"final_score": 0.6}, {"final_score": 0.4}],
+                "context_map": {"C1": {}, "C2": {}},
+                "fallback_info": {"used": True, "blocked": False, "reason": "low_score"},
+            },
+            trace={"rewrite_ms": 1.4, "unknown": 99, "build_prompt_ms": 5},
+            gen_trace={"first_token_ms": 20, "generate_ms": 50, "total_ms": 70},
+            query_config=QueryConfig(use_hyde=True, use_rerank=True),
+            citations=[{"id": "C1", "document_id": "doc-1"}],
+            token_usage={"model_name": "qwen-plus", "prompt_tokens": 10, "completion_tokens": 5},
+        )
+
+        assert payload["timings_ms"] == {
+            "rewrite": 1,
+            "prompt_build": 5,
+            "first_token": 20,
+            "generate": 50,
+            "total": 70,
+        }
+        assert payload["resolved_settings"]["selected_entities"] == ["星辰科技", "远景能源"]
+        assert payload["resolved_settings"]["rerank_candidate_k"] == 8
+        assert payload["result_shape"]["final_context_chunks_count"] == 2
+        assert payload["result_shape"]["retrieved_documents_count"] == 1
+        assert payload["result_shape"]["avg_rerank_score"] == 0.5
+        assert payload["result_shape"]["empty_result_reason"] == ""
+        assert payload["fallback_info"]["reason"] == "low_score"
+        assert payload["token_usage"]["available"] is True
+        assert payload["token_usage"]["model"] == "qwen-plus"
+        assert payload["token_usage"]["total_tokens"] is None
+
+    def test_empty_rerank_candidates_key_does_not_fallback_to_debug_count(self):
+        payload = build_query_observability_payload(
+            state={
+                "search_results": [],
+                "rerank_candidates": [],
+                "rerank_debug": [{"final_score": 0.8}],
+                "search_mode": "empty",
+            },
+        )
+
+        assert payload["result_shape"]["retrieved_chunks_count"] == 0
+        assert payload["result_shape"]["rerank_candidates_count"] == 0
+        assert payload["result_shape"]["empty_result_reason"] == "empty"
+
+    def test_observability_json_columns_defaults_to_empty_objects(self):
+        columns = observability_json_columns(None)
+
+        assert columns == {
+            "endpoint": "",
+            "timings_json": "{}",
+            "settings_json": "{}",
+            "result_shape_json": "{}",
+            "fallback_json": "{}",
+            "token_usage_json": "{}",
+        }

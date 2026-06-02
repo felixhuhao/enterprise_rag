@@ -102,10 +102,10 @@ Suggested shape:
     "use_rerank": true
   },
   "result_shape": {
-    "retrieved_chunks": 24,
-    "rerank_candidates": 10,
-    "final_context_chunks": 5,
-    "citations": 4,
+    "retrieved_chunks_count": 24,
+    "rerank_candidates_count": 10,
+    "final_context_chunks_count": 5,
+    "citations_count": 4,
     "avg_rerank_score": 0.71,
     "top_rerank_score": 0.88,
     "empty_result_reason": ""
@@ -211,12 +211,12 @@ Persist enough counts to explain whether a query failed because nothing was retr
 
 Required fields:
 
-- retrieved chunk count
-- rerank candidate count
-- final context chunk count
-- citation count
-- retrieved document count
-- cited document count
+- retrieved chunk count (`retrieved_chunks_count`)
+- rerank candidate count (`rerank_candidates_count`)
+- final context chunk count (`final_context_chunks_count`)
+- citation count (`citations_count`)
+- retrieved document count (`retrieved_documents_count`)
+- cited document count (`cited_documents_count`)
 - average rerank score
 - top rerank score
 - empty result reason
@@ -360,6 +360,8 @@ Candidates:
 The P1 scope above is the logical feature breakdown. Implementation should be grouped by data flow to avoid repeated schema/API churn.
 
 ### Iteration 1: Data Model And Payload Helper
+
+Status: implemented on 2026-06-02.
 
 Purpose: create the stable observability shape before changing query paths.
 
