@@ -468,6 +468,8 @@ Exit criteria:
 
 ### Iteration 5: Frontend Query Detail
 
+Status: implemented on 2026-06-02.
+
 Purpose: make the data useful from the admin UI.
 
 Work:

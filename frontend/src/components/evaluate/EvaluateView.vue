@@ -29,6 +29,7 @@
             :total="queryStatsStore.recordsTotal"
             :current-page="currentPage"
             :flavor-filter="flavorFilter"
+            :filter-user-id="filterUserId"
             @page-change="onPageChange"
             @flavor-change="onFlavorChange"
           />
