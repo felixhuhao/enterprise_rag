@@ -390,6 +390,8 @@ Exit criteria:
 
 ### Iteration 2: Streaming Query Write Path
 
+Status: implemented on 2026-06-02.
+
 Purpose: make the main chat stream save full observability data.
 
 Work:

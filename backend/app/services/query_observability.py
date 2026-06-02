@@ -186,12 +186,15 @@ def _result_shape(
 
 def _token_usage(token_usage: Mapping[str, Any] | None) -> dict[str, Any]:
     data = _dict(token_usage)
+    prompt_tokens = _int_or_none(data.get("prompt_tokens"))
+    completion_tokens = _int_or_none(data.get("completion_tokens"))
+    total_tokens = _int_or_none(data.get("total_tokens"))
     return {
-        "available": bool(data),
+        "available": any(value is not None for value in (prompt_tokens, completion_tokens, total_tokens)),
         "model": data.get("model") or data.get("model_name") or "",
-        "prompt_tokens": _int_or_none(data.get("prompt_tokens")),
-        "completion_tokens": _int_or_none(data.get("completion_tokens")),
-        "total_tokens": _int_or_none(data.get("total_tokens")),
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
     }
 
 

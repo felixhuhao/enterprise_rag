@@ -466,3 +466,16 @@ class TestObservabilityPayload:
             "fallback_json": "{}",
             "token_usage_json": "{}",
         }
+
+    def test_token_usage_with_model_only_is_explicitly_unavailable(self):
+        payload = build_query_observability_payload(
+            token_usage={"model": "qwen-plus"},
+        )
+
+        assert payload["token_usage"] == {
+            "available": False,
+            "model": "qwen-plus",
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "total_tokens": None,
+        }

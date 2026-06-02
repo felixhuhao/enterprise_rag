@@ -5,6 +5,7 @@ import json
 import logging
 import time
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -66,6 +67,63 @@ def _retrieval_path(row: dict) -> str:
     if row.get("source_type", "").startswith("table_"):
         return "table"
     return "primary"
+
+
+def _llm_model_name(llm: Any) -> str:
+    for attr in ("model_name", "model", "model_id", "deployment_name"):
+        value = getattr(llm, attr, None)
+        if value:
+            return str(value)
+    return ""
+
+
+def _extract_llm_chunk_token_usage(chunk: Any, model_name: str = "") -> dict:
+    """Extract token usage from LangChain chat chunks when providers expose it."""
+    usage: dict[str, Any] = {"model": model_name} if model_name else {}
+    _merge_usage_fields(usage, getattr(chunk, "usage_metadata", None))
+
+    response_metadata = getattr(chunk, "response_metadata", None)
+    if isinstance(response_metadata, dict):
+        if not usage.get("model"):
+            usage["model"] = response_metadata.get("model_name") or response_metadata.get("model") or ""
+        nested = (
+            response_metadata.get("token_usage")
+            or response_metadata.get("usage")
+            or response_metadata.get("usage_metadata")
+        )
+        _merge_usage_fields(usage, nested)
+        _merge_usage_fields(usage, response_metadata)
+
+    return {k: v for k, v in usage.items() if v not in (None, "")}
+
+
+def _merge_token_usage(existing: dict, update: dict) -> dict:
+    merged = dict(existing or {})
+    if update.get("model"):
+        merged["model"] = update["model"]
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        value = update.get(key)
+        if value is not None:
+            merged[key] = value
+    return merged
+
+
+def _merge_usage_fields(target: dict, source: Any) -> None:
+    if not isinstance(source, dict):
+        return
+    mappings = {
+        "prompt_tokens": ("prompt_tokens", "input_tokens", "prompt_token_count", "input_token_count"),
+        "completion_tokens": (
+            "completion_tokens", "output_tokens", "completion_token_count", "output_token_count"
+        ),
+        "total_tokens": ("total_tokens", "total_token_count"),
+    }
+    for dest, names in mappings.items():
+        for name in names:
+            value = source.get(name)
+            if value is not None:
+                target[dest] = value
+                break
 
 
 class QueryChatRequest(BaseModel):
@@ -196,6 +254,7 @@ async def _stream_generator(
     from app.rag.query.generate import _chat_llm
     from app.rag.query.search_pipeline import run_search_pipeline
     from app.rag.query.validate_citations import validate_citations_node
+    from app.services.query_observability import build_query_observability_payload
     from app.errors import classify_error
     from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
     import threading
@@ -213,6 +272,7 @@ async def _stream_generator(
     gen_trace: dict = {}
     cit_result: dict = {}
     gr_result: dict = {}
+    token_usage: dict = {"model": _llm_model_name(_chat_llm)}
     status = "client_aborted"
     error_code = "CLIENT_ABORTED"
 
@@ -295,9 +355,13 @@ async def _stream_generator(
         first_token_ts = None
 
         def _llm_producer():
-            nonlocal answer, first_token_ts
+            nonlocal answer, first_token_ts, token_usage
             try:
                 for chunk in _chat_llm.stream(messages):
+                    token_usage = _merge_token_usage(
+                        token_usage,
+                        _extract_llm_chunk_token_usage(chunk, token_usage.get("model", "")),
+                    )
                     if chunk.content:
                         if first_token_ts is None:
                             first_token_ts = time.monotonic()
@@ -407,6 +471,18 @@ async def _stream_generator(
                     or "fallback" in state.get("search_mode_hyde", "")
                     or any("fallback" in mode for mode in state.get("search_modes_expanded", []))
                 )
+                observability = build_query_observability_payload(
+                    endpoint="query_chat_stream",
+                    status=status,
+                    error_code=error_code,
+                    state=state,
+                    trace=state.get("trace", {}),
+                    gen_trace=gen_trace,
+                    query_config=query_config,
+                    citations=cit_result.get("citations", []),
+                    fallback_info=fallback_info,
+                    token_usage=token_usage,
+                )
                 save_task = asyncio.create_task(query_stats_service.save(
                     session_id, query,
                     state.get("search_mode", ""), state.get("search_mode_hyde", ""),
@@ -424,6 +500,7 @@ async def _stream_generator(
                     strict_evidence=bool(query_plan.get("strict_evidence", False)),
                     citations=cit_result.get("citations", []),
                     fallback_used=fallback_used_flag,
+                    observability=observability,
                 ))
                 await asyncio.shield(save_task)
             except asyncio.CancelledError:
