@@ -30,11 +30,12 @@ async def lifespan(app: FastAPI):
     """
     # 启动时初始化数据库
     from app.core.database import init_db
-    from app.core.health import validate_startup_storage
+    from app.core.health import validate_startup_milvus, validate_startup_storage
     from app.core.runtime_settings import runtime_settings
     from app.services.document_service import mark_interrupted_documents_failed
     from app.services.job_service import mark_interrupted_jobs_failed
     validate_startup_storage()
+    validate_startup_milvus()
     await init_db()
     await mark_interrupted_jobs_failed()
     await mark_interrupted_documents_failed()
@@ -88,8 +89,10 @@ async def rate_limit_middleware(request: Request, call_next):
 
 # 健康检查（不需要鉴权）
 @app.get("/health")
-async def health():
-    return {"status": "ok"}
+async def health_check():
+    from app.core.health import build_health_payload
+
+    return await build_health_payload()
 
 # 将所有 API 路由挂载到 /api 前缀下
 app.include_router(api_router, prefix="/api")

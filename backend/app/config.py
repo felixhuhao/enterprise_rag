@@ -51,6 +51,8 @@ class Settings(BaseSettings):
 
     # ---- Milvus 向量数据库 ----
     MILVUS_URI: str = "http://localhost:19530"
+    MILVUS_REQUIRED_ON_STARTUP: bool = False
+    MILVUS_HEALTH_TIMEOUT_SECONDS: float = 2.0
 
     # ---- Markdown Zip 配置 ----
     MD_ZIP_MAX_SIZE_MB: int = 50

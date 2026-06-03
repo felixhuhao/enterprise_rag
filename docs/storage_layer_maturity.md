@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-03
 
-Status: Phase 1 active. Iteration 2 complete.
+Status: Phase 1 active. Iteration 3 complete.
 
 ## Goal
 
@@ -294,7 +294,7 @@ permission-insensitive mounted filesystems.
 
 ### Iteration 3: Health Payload And Milvus Policy
 
-Status: planned.
+Status: implemented on 2026-06-03.
 
 Work:
 
@@ -307,6 +307,11 @@ Exit criteria:
 
 - `/health` reports SQLite, local storage, disk, and Milvus status.
 - Milvus startup behavior is controlled by config, not by storage backend.
+
+Validation:
+
+- `PYTHONPATH=backend .venv/bin/python -m pytest backend/tests/unit/test_storage_health.py backend/tests/unit/test_database_schema.py`
+- `MILVUS_URI=http://localhost:19530 PYTHONPATH=backend .venv/bin/python -m pytest backend/tests/unit`
 
 ### Iteration 4: Validation And Closeout
 
