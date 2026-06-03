@@ -22,12 +22,12 @@ This design is successful when:
 
 | Concern | What we have today | Gap |
 |---------|--------------------|-----|
-| Database | SQLite via `aiosqlite`, single file at `./data/app.db` | No WAL mode; write transactions can block readers under load |
+| Database | SQLite via `aiosqlite`, single file at `./data/app.db`; WAL, busy timeout, `synchronous=NORMAL`, and foreign keys are configured on connections | Still a single-node database; no schema-version baseline yet |
 | Schema migrations | Inline `ALTER TABLE` inside `init_db()` with try/except | No version tracking, no rollback, migrations are silently idempotent |
 | File storage | Direct `pathlib`/`shutil` on local disk (`data/general_uploads`, `data/general_parsed`) | No abstraction layer; swapping to S3 means touching every service |
 | Job queue | FastAPI `BackgroundTasks` + durable `jobs` table | No retry policy, no concurrency control, no dead-letter handling |
-| Startup validation | Pydantic-settings reads `.env`, `init_db()` runs migrations | Missing checks for directory writability, disk space, vector DB reachability |
-| Observability | `query_run_stats` and `document_error_events` tables | No storage-layer metrics (DB wall time, lock contention, file I/O bytes, write errors) |
+| Startup validation | Pydantic-settings reads `.env`; startup validates SQLite pragmas, directory writability, disk space, and Milvus policy | No full provider readiness suite or backup/restore validation |
+| Observability | `query_run_stats`, `document_error_events`, `/health`, and storage/Milvus health payloads | No deep storage-layer metrics (DB wall time, lock contention, file I/O bytes, write errors) |
 
 ## Importance
 

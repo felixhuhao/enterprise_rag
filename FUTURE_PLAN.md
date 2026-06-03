@@ -1,6 +1,6 @@
 # Future Plan
 
-This project is close to a polished Enterprise RAG system. The next useful work is not adding a broad agent platform or BI module, but improving explainability, retrieval debugging, and product polish.
+This project is close to a polished Enterprise RAG system. Phase 11-14 and Storage Layer Phase 1 are complete, so the next useful work is wrap-up: documentation alignment, final smoke testing, demo polish, and keeping larger governance/operations ideas in inventory until a real deployment goal appears.
 
 ## Positioning
 
@@ -12,6 +12,36 @@ Enterprise RAG should stay focused on document intelligence:
 - Support evaluation, observability, and operational recovery.
 
 ChatBI should remain a separate project. Fusion between RAG and BI can be discussed as an architectural extension, but merging both into this codebase would dilute the product story.
+
+## Current Wrap-Up Status
+
+Completed product foundation:
+
+- Phase 11: Golden Set Evaluation Loop And Fast Eval Modes.
+- Phase 12: Query Observability And Latency/Cost Profile.
+- Phase 13: Document Parsing And Chunk Quality Governance.
+- Phase 14: Background Job Reliability P1.
+- Storage Layer Maturity Phase 1: SQLite hardening, startup guards, and health payload.
+
+Current closeout focus:
+
+- Keep README, architecture, evaluation, smoke-test, market-evaluation, and roadmap docs aligned.
+- Run one final manual demo pass across upload/process, chunk quality, retrieval test, chat, eval, jobs, and `/health`.
+- Treat the 30-case golden set as a regression loop, not a market benchmark.
+- Add future golden cases only from real warning/failure cases and demo gaps.
+
+Explicitly deferred:
+
+- Tag and ACL governance hardening.
+- Storage Layer Phases 2-4: migration baseline, file-storage abstraction, object storage, deeper metrics.
+- Completed document reparse/reindex.
+- Doc2Query / generated chunk questions.
+- Citation/evidence trust productization.
+- Deployment and operations readiness.
+
+## Roadmap Reading Guide
+
+The sections below include both historical product-foundation plans and deferred inventory. Items that are marked complete should be treated as shipped foundation, not active scope. Items in Inventory / Deferred Ideas should stay out of the current wrap-up pass unless a concrete deployment or product requirement changes the priority.
 
 ## Product Benchmarks
 
@@ -63,7 +93,9 @@ Vectara is a useful benchmark for grounded generation and factual consistency. T
 
 The main lesson for this project is that citations alone are not enough. A generated answer can cite the right documents while still making unsupported or overconfident claims. A mature RAG product should show whether the final answer is actually supported by the retrieved chunks.
 
-## Recommended Next Scope
+## Historical Product Foundation
+
+The following scopes describe the product foundation that led to the current system. Most of these capabilities have already been implemented or consolidated into Phase 11-14 work. Keep them as architectural context, not as a fresh execution queue.
 
 ### 1. Document Detail And Chunk Viewer
 
@@ -658,12 +690,17 @@ Before adding more retrieval algorithms, the project should strengthen the produ
 
 Detailed scope: [`docs/phase11_eval_loop.md`](docs/phase11_eval_loop.md)
 
+Status: complete. Current product semantics are three run modes
+(`retrieval_only`, `answer_lite`, `full`) plus a smoke-case subset filter.
+The backend still accepts `quick` as a compatibility path, but the UI should
+present 冒烟集 as case selection rather than a fourth mode.
+
 Goal: turn the current 30-case golden set from a slow smoke test into a practical evaluation loop that can guide retrieval changes.
 
 Thirty cases are not enough for final confidence, but they are enough to build the evaluation machinery. The target is an evaluation pyramid:
 
 ```text
-quick smoke       5-8 cases, full pipeline, run before commit
+smoke subset      5-8 representative cases, selected before commit
 retrieval-only    all cases, no answer generation, no judge
 answer-lite       selected cases, generation on, judge off or cached
 full regression   all cases, generation + judge, nightly or release gate
@@ -1289,19 +1326,23 @@ Completed major roadmap items and query-flavor phases should now be treated as p
 
 For previous retrieval-quality work, use the executable roadmap in
 [`docs/query_flavor_roadmap.md`](docs/query_flavor_roadmap.md) as historical
-context. Phases 0-10 are complete. The next phase in this document is Phase 11:
-Golden Set Evaluation Loop And Fast Eval Modes.
+context. Phases 0-10 are complete.
 
-Current execution order:
+Completed execution:
 
 1. Phase 11: Golden Set Evaluation Loop And Fast Eval Modes.
 2. Phase 12: Query Observability And Latency/Cost Profile.
 3. Phase 13: Document Parsing And Chunk Quality Governance.
-4. Phase 14: Background Job Reliability.
-5. Keep Inventory / Deferred Ideas out of the current pass unless a completed active phase proves a concrete need.
-6. Grow the golden set from 30 cases toward 80-150 cases by adding cases from real failures and demo gaps.
-7. Update README and screenshots to show the final product story after the evaluation loop is visible.
-8. Stop feature work and move to final polish when the product story and regression loop are both credible.
+4. Phase 14: Background Job Reliability P1.
+5. Storage Layer Maturity Phase 1.
+
+Current wrap-up order:
+
+1. Update README and docs to show the final product story.
+2. Run one final manual smoke pass.
+3. Capture any final warning cases as future golden-set candidates.
+4. Keep Inventory / Deferred Ideas out of the current pass.
+5. Stop feature work unless a blocker appears during final validation.
 
 ## Success Criteria
 

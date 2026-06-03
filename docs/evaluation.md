@@ -21,26 +21,52 @@ Cases are grouped by retrieval intent:
 | `discovery` | 关联查找 | `discovery` | Constrained multi-hop questions over people/entities |
 | `strict` | 仅基于资料回答 | `strict_evidence=true` | Refusal or conservative answer when a fact is missing |
 
+## Evaluation Modes
+
+The product UI treats **mode** and **case subset** as separate controls:
+
+| Mode | UI Label | What Runs | Main Signal |
+|---|---|---|---|
+| `retrieval_only` | 仅检索 | Query planning, retrieval, rerank, and trace only | `Hit@5`, `Hit@10`, expected document/chunk coverage, retrieval latency |
+| `answer_lite` | 轻答案 | Retrieval + answer generation + deterministic/cached scoring | Answer/citation quality without a fresh judge call for every case |
+| `full` | 完整 | Retrieval + answer generation + optional LLM judge | Release-style regression quality |
+
+The smoke set is not a fourth product mode. It is a stable subset of representative cases used for quick checks. The backend still accepts `--mode quick` as a compatibility path, but the UI presents this as an **冒烟集** subset filter layered on top of the selected run mode.
+
 ## Running From CLI
 
-Start backend first, then run:
+Start backend first. For frequent retrieval checks, run retrieval-only:
 
 ```bash
 cd backend
 python scripts/eval_golden_set.py \
   --golden-set ../data/challenge_golden_set_v1.jsonl \
   --api-base http://127.0.0.1:8010/api \
+  --mode retrieval_only \
+  --concurrency 4 \
+  --output ../data/challenge_golden_set_v1_results.jsonl
+```
+
+For release-style validation, run full mode with judge:
+
+```bash
+cd backend
+python scripts/eval_golden_set.py \
+  --golden-set ../data/challenge_golden_set_v1.jsonl \
+  --api-base http://127.0.0.1:8010/api \
+  --mode full \
   --judge \
   --output ../data/challenge_golden_set_v1_results.jsonl
 ```
 
-Run a subset:
+Run a slice:
 
 ```bash
 cd backend
 python scripts/eval_golden_set.py \
   --golden-set ../data/challenge_golden_set_v1.jsonl \
   --api-base http://127.0.0.1:8010/api \
+  --mode full \
   --judge \
   --slice recall
 ```
@@ -60,9 +86,12 @@ Useful slices:
 Quality Center -> 基准测试集:
 
 - view enabled and disabled cases
-- run all enabled cases, or filter by flavor
+- run all enabled cases, smoke cases, or filter by flavor
+- choose run mode: 仅检索, 轻答案, or 完整
 - set per-case timeout for long-running cases
+- set limited concurrency for faster runs
 - see per-case progress while evaluation is running
+- compare summary metrics against an accepted baseline
 - edit case config and expected points
 - enable, disable, or delete draft cases
 - publish feedback drafts into the baseline set
@@ -124,6 +153,7 @@ Each case records:
 | `citation_score` | Fraction of expected source documents found in citations |
 | `final_score` | Combined score used for verdict |
 | `hit_at_5` / `hit_at_10` | Whether expected docs appeared in rerank results |
+| `failure_category` | One or more categories explaining likely failure cause |
 | `verdict` | `pass`, `warn`, `fail`, or `error` |
 
 Verdict thresholds:
@@ -140,10 +170,11 @@ Verdict thresholds:
 |---|---|
 | `*_results.jsonl` | Per-case answer, citations, trace, rerank results, scores |
 | `*_summary.json` | Aggregate score, pass rate, per-flavor and per-type breakdown |
+| `accepted_baselines.json` | Latest accepted summary per mode/flavor for delta comparison |
 
 ## Current Demo Baseline
 
-The current enabled baseline has been manually validated after the latest retrieval fixes. All enabled cases pass in the demo environment.
+The current enabled baseline has been manually validated after the latest evaluation-loop, observability, chunk-quality, and background-job work. The latest full demo run completed successfully with one known warning case around judge/citation uncertainty; retrieval-only and smoke paths are fast enough for day-to-day checks.
 
 Rerun the baseline after changes to:
 
@@ -152,6 +183,23 @@ Rerun the baseline after changes to:
 - Milvus schema or embedding model
 - retrieval budget, query expansion, multi-hop, rerank, context expansion, or prompt construction
 - citation validation or evaluation scoring
+
+## Failure Categories
+
+Failure categories make a case actionable before reading the full JSONL output:
+
+| Category | Meaning |
+|---|---|
+| `retrieval_miss` | Expected evidence did not appear in retrieved/reranked chunks |
+| `rerank_drop` | Evidence was retrieved but dropped before final context |
+| `context_loss` | Evidence was available but not carried into answer context |
+| `citation_miss` | Expected document was present but not cited correctly |
+| `answer_unsupported` | Answer made claims not supported by evidence |
+| `answer_incomplete` | Answer missed expected points |
+| `no_answer_wrong` | Strict/no-answer case was answered incorrectly |
+| `timeout` | Case exceeded timeout |
+| `judge_uncertain` | Judge output was warning-level or hard to parse |
+| `pending_judge` | Full/quick-compatible run skipped judge for an LLM-judge case |
 
 ## Query Trace
 

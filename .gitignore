@@ -69,13 +69,15 @@ docs/*
 !docs/phase11_eval_loop.md
 !docs/phase12_observability.md
 !docs/phase13_chunk_quality.md
+!docs/phase14_background_jobs.md
+!docs/project_market_evaluation.md
 !docs/query_flavor_roadmap.md
 !docs/smoke_test.md
+!docs/storage_layer_maturity.md
 !docs/images/
 !docs/images/*.png
 docs/archive/
 
 # Evaluation artifacts
 pdf_extract_output.txt
-FUTURE_PLAN.md
 .gstack/

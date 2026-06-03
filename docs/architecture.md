@@ -6,6 +6,7 @@
                           ┌─────────────────────────────────────────┐
                           │           Vue 3 Frontend                │
                           │ Query Chat · Documents · Quality Center │
+                          │ Settings · Jobs · Retrieval Test        │
                           └────────────────┬────────────────────────┘
                                            │ HTTP / SSE
                                            ▼
@@ -13,7 +14,7 @@
 │                        FastAPI Backend                               │
 │                                                                      │
 │  ┌──────────┐  ┌───────────┐  ┌──────────┐  ┌──────────────────┐   │
-│  │ Documents│  │Query Chat │  │  Query   │  │    Settings      │   │
+│  │ Documents│  │Query Chat │  │  Query   │  │ Settings / Jobs  │   │
 │  │   API    │  │   SSE API │  │  Stats   │  │    API           │   │
 │  └────┬─────┘  └─────┬─────┘  └────┬─────┘  └──────────────────┘   │
 │       │              │              │                                  │
@@ -84,6 +85,10 @@ Documents flow through a LangGraph state machine. Each node updates document sta
                   └──────────────┘
 ```
 
+Long-running ingestion is also represented as a durable job. The document status
+remains the source of truth for the document itself, while the job record tracks
+the task lifecycle, progress stage, message, error code, and timestamps.
+
 ### Chunking Strategy
 
 | Content Type | Strategy |
@@ -93,6 +98,25 @@ Documents flow through a LangGraph state machine. Each node updates document sta
 | Large tables | `table_summary` + row groups, each with `raw_table_path` for traceability |
 | Image descriptions | Injected into adjacent text chunks before splitting |
 | Search metadata | Deterministic keywords, structured tags, and sparse `search_text` |
+
+### Chunk Quality Governance
+
+Every completed ingestion run writes a deterministic chunk quality report under
+the parsed artifacts and stores a compact summary on the document row.
+
+The report covers:
+
+- chunk count and min/max/average size
+- missing section/title warnings
+- oversized, undersized, empty, and low-information chunks
+- duplicate chunks
+- table metadata warnings
+- image description and asset-path warnings
+- parser, chunker, and enrichment version metadata
+
+Document detail surfaces the quality status and warning tags next to affected
+chunks. This keeps parsing/chunking issues visible before retrieval tuning starts
+blaming search.
 
 ## Query Pipeline
 
@@ -205,6 +229,10 @@ Fallback from entity-filtered search to broader search is policy-driven:
 
 Every query records structured stats for monitoring and evaluation.
 
+Structured observability payloads are persisted with query records. They include
+endpoint/status, error code, stage timings, resolved retrieval settings, result
+shape, fallback details, and token/model usage when available.
+
 ### Per-Query Trace (SSE)
 
 | Field | Description |
@@ -246,6 +274,23 @@ The Quality Center shows:
 | `MILVUS_ERROR` | Vector store error | "Storage service error" |
 | `LLM_GENERATION_FAILED` | LLM API error during answer generation | "Answer generation failed" |
 | `CLIENT_ABORTED` | User disconnected mid-stream | — |
+
+## Operations And Health
+
+The backend exposes `/health` with startup/storage diagnostics:
+
+- SQLite pragma status: journal mode, busy timeout, foreign keys, synchronous
+- database/upload/parsed directory writability
+- data-volume disk space against `STORAGE_MIN_FREE_MB`
+- Milvus reachability and configured startup policy
+
+SQLite uses WAL mode with connection-level busy timeout and foreign keys. This is
+intended to make the local/single-node deployment more reliable without changing
+the database engine.
+
+Background jobs are stored in SQLite and exposed through admin APIs. P1 supports
+document ingestion and golden-set evaluation jobs. Retry, cancellation,
+dead-letter handling, and external workers remain deferred.
 
 ## Data Flow
 

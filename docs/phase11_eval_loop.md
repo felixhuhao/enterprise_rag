@@ -1,6 +1,17 @@
 # Phase 11: Golden Set Evaluation Loop And Fast Eval Modes
 
-Last updated: 2026-06-02
+Last updated: 2026-06-03
+
+Status: complete. Fast eval modes, retrieval-only scoring, answer-lite scoring,
+judge cache, concurrency, accepted-baseline deltas, failure categories, and UI
+case details are implemented and manually validated.
+
+Current product semantics:
+
+- `retrieval_only`, `answer_lite`, and `full` are the three main run modes.
+- The smoke set is a case subset filter, not a separate product mode.
+- The backend still accepts `quick` as a compatibility path for quick-tagged
+  cases, but the UI presents this as 冒烟集 selection.
 
 ## Goal
 

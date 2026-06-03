@@ -21,7 +21,7 @@ docker compose exec backend python scripts/seed_demo.py
 # http://localhost:5173  —  default token: enterprise-rag-dev-token
 ```
 
-Milvus data persists in `./data/milvus`. Re-run `seed_demo.py` anytime — it skips already-completed documents. The default demo corpus is `data/enterprise_docs`; the legacy PDF stock-report demo is still available with `--data-dir "../data/stock reports"` and requires MinerU.
+Milvus data persists in Docker named volumes (`milvus-data`, `milvus-etcd`), not a Windows bind mount. Re-run `seed_demo.py` anytime — it skips already-completed documents. The default demo corpus is `data/enterprise_docs`; the legacy PDF stock-report demo is still available with `--data-dir "../data/stock reports"` and requires MinerU.
 
 If you change embedding models, reset the Milvus collection and re-process documents:
 
@@ -135,14 +135,17 @@ entity_confirm → query_plan → rewrite
 - **Text-first multimodal** — images described and indexed as text, no separate VL embedding space
 - **Table-aware chunking** — small tables as full chunks, large tables as row groups
 - **Metadata enrichment** — deterministic enterprise-policy tags and search text for better sparse recall
+- **Chunk quality governance** — deterministic quality reports, document-level status, and chunk warning tags
 - **Strategy-aware retrieval** — balanced, exact, recall, and discovery flavors with resolved budgets
 - **Hybrid retrieval** — dense + BM25 sparse, RRF fusion, HyDE, query expansion, multi-hop discovery, LLM rerank
 - **Small-to-big context** — final anchor chunks can include neighboring chunks from the same section
 - **Retrieval testing** — inspect Top K chunks, trace, budgets, expansion queries, tags, and rerank scores without answer generation
 - **Streaming answers with citations** — numbered citations, image evidence, source validation
-- **Observability** — per-query trace, rerank scores, latency breakdown, error classification
-- **Quality center** — query records, answer feedback, stats by retrieval flavor, and baseline evaluation
-- **Evaluation** — baseline test set runner with rule / LLM-judge / no-answer scoring
+- **Observability** — structured query payloads, per-stage latency, token usage, fallback details, and error classification
+- **Quality center** — query records, answer feedback, stats by retrieval flavor, baseline evaluation, and accepted-baseline deltas
+- **Evaluation** — retrieval-only, smoke subset, answer-lite, and full regression runs with rule / LLM-judge / no-answer scoring
+- **Background jobs** — document ingestion and golden-set evaluation are tracked through durable job records
+- **Storage health** — SQLite WAL pragmas, startup storage guards, disk checks, Milvus policy, and `/health` diagnostics
 - **Admin tuning** — entity aliases, runtime settings, retrieval strategy tuning, and structured tag controls
 
 ## Project Structure
@@ -199,6 +202,9 @@ Optional:
 | `EMBEDDING_MODEL_NAME` | `bge-m3` | Display name for the embedding model in diagnostics |
 | `MINERU_API_TOKEN` | — | Required for PDF parsing |
 | `MILVUS_URI` | `http://localhost:19530` | Milvus connection |
+| `MILVUS_REQUIRED_ON_STARTUP` | `false` | If true, startup fails when Milvus is unreachable |
+| `MILVUS_HEALTH_TIMEOUT_SECONDS` | `2.0` | Timeout for Milvus startup and health probes |
+| `STORAGE_MIN_FREE_MB` | `1024` | Warn when available storage on the data volume drops below this threshold |
 | `EMBEDDING_BATCH_SIZE` | `4` | Embedding batch size |
 | `EMBEDDING_DEVICE` | `auto` | `auto`, `cuda`, or `cpu` |
 | `IMAGE_DESCRIPTION_ENABLED` | `true` | Enable image-to-text |
@@ -208,6 +214,9 @@ Full list in `.env.example`.
 ## Verification
 
 ```bash
+# Health
+curl http://127.0.0.1:8010/health
+
 # Backend
 cd backend
 python -m pytest tests/unit -q
@@ -226,11 +235,23 @@ cd backend
 python scripts/eval_golden_set.py \
   --golden-set ../data/challenge_golden_set_v1.jsonl \
   --api-base http://127.0.0.1:8010/api \
+  --mode retrieval_only \
+  --concurrency 4 \
+  --output ../data/challenge_golden_set_v1_results.jsonl
+```
+
+Use answer-capable modes when generation behavior matters:
+
+```bash
+python scripts/eval_golden_set.py \
+  --golden-set ../data/challenge_golden_set_v1.jsonl \
+  --api-base http://127.0.0.1:8010/api \
+  --mode full \
   --judge \
   --output ../data/challenge_golden_set_v1_results.jsonl
 ```
 
-The same cases can also be managed from the Quality Center. Feedback can be turned into draft baseline cases, edited, enabled/disabled, and run from the UI.
+The same cases can also be managed from the Quality Center. The UI exposes three run modes: `仅检索`, `轻答案`, and `完整`; the smoke set is a stable subset filter for quick checks. Feedback can be turned into draft baseline cases, edited, enabled/disabled, and run from the UI.
 
 ## Rebuilding The Index
 
@@ -265,3 +286,5 @@ Tags are intentionally coarse and limited. They are not a user-editable free-for
 - [Architecture](docs/architecture.md) — system diagrams and data flow details
 - [Evaluation](docs/evaluation.md) — baseline test set design, scoring, and UI workflow
 - [Smoke Test](docs/smoke_test.md) — manual regression checklist for demo paths
+- [Project Market Evaluation](docs/project_market_evaluation.md) — current product/market assessment
+- [Storage Layer Maturity](docs/storage_layer_maturity.md) — storage hardening status and deferred storage roadmap
