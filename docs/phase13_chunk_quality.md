@@ -1,0 +1,512 @@
+# Phase 13: Document Parsing And Chunk Quality Governance
+
+Last updated: 2026-06-03
+
+Status: scoped. Implementation not started.
+
+## Goal
+
+Make ingestion quality visible before retrieval tuning starts blaming search for
+bad source artifacts.
+
+Phase 13 is successful when an admin can open a document and quickly answer:
+
+- Did parsing and chunking produce healthy chunks?
+- Which chunks look suspicious?
+- Are table/image chunks missing expected metadata?
+- Which parser/chunker/enrichment versions produced this artifact?
+- Did a repeated processing run change the document shape?
+
+This phase is about deterministic inspection and governance. It should not
+change retrieval ranking logic.
+
+## Current Baseline
+
+The project already has important foundations:
+
+- Document detail already shows document metadata and chunk list.
+- Chunk search, expand, copy, and citation-to-chunk navigation already exist.
+- `parsed/{document_id}/chunks.json` is the natural artifact for chunk
+  inspection.
+- Document chunk APIs already fall back from Milvus to parsed artifacts.
+- Query observability can already expose whether a query failed at retrieval,
+  rerank, context, generation, citation, or fallback.
+
+The current gap is quality governance:
+
+- There is no structured chunk quality report.
+- Document status says processing completed, but not whether the produced chunks
+  are healthy.
+- Parser/chunker/enrichment versions are not persisted as first-class metadata.
+- Repeated processing is not auditable beyond status timestamps and error
+  events.
+- Suspicious chunks are not marked in the document detail UI.
+
+## Scope Boundary
+
+In scope:
+
+- Deterministic chunk quality metrics.
+- Persisting a compact quality report under parsed artifacts.
+- Persisting compact quality summary fields on `general_documents`.
+- Showing quality status and warning summaries in document detail.
+- Marking suspicious chunks in the existing chunk table.
+- Recording lightweight processing history in parsed artifacts.
+
+Out of scope:
+
+- LLM-based chunk quality scoring.
+- Automatic chunk rewriting.
+- Manual chunk editing.
+- New retrieval algorithms.
+- Full background job system.
+- Reparse/reindex workflow for completed documents.
+- Full diff UI for chunk content changes.
+- Automatic blame assignment from query failures to source chunks.
+
+## P1 Scope
+
+P1 is the minimum useful loop: produce deterministic quality reports during
+ingestion and make them visible in the existing document detail UI.
+
+### P1.1 Chunk Quality Analyzer
+
+Add a backend analyzer that accepts normalized/enriched chunks and returns a
+stable report.
+
+Required document-level metrics:
+
+- `chunk_count`
+- `min_chunk_chars`
+- `max_chunk_chars`
+- `avg_chunk_chars`
+- `empty_chunk_count`
+- `low_information_chunk_count`
+- `missing_section_title_count`
+- `oversized_chunk_count`
+- `undersized_chunk_count`
+- `duplicate_chunk_count`
+- `table_without_metadata_count`
+- `image_without_description_count`
+- `image_without_asset_path_count`
+
+Required warning types:
+
+- `empty_chunk`
+- `low_information_chunk`
+- `missing_section_title`
+- `oversized_chunk`
+- `undersized_chunk`
+- `duplicate_chunk`
+- `table_without_metadata`
+- `image_without_description`
+- `image_without_asset_path`
+
+Required chunk-level annotations:
+
+- `chunk_key`
+- `sequence`
+- `warnings`
+- `content_length`
+
+Suggested thresholds for first version:
+
+- empty: trimmed content length is `0`
+- low information: trimmed content length `< 30` or mostly punctuation/markers
+- undersized: trimmed content length `< 80`
+- oversized: trimmed content length `> 2500`
+- duplicate: normalized content text appears more than once
+
+These thresholds should be constants in the analyzer and can become settings
+later only if they create noise.
+
+### P1.2 Quality Report Artifact
+
+Persist a deterministic report under:
+
+```text
+parsed/{document_id}/chunk_quality.json
+```
+
+Suggested shape:
+
+```json
+{
+  "document_id": "doc_...",
+  "status": "warning",
+  "quality_version": "chunk_quality_v1",
+  "parser_name": "markdown",
+  "parser_version": "markdown_v1",
+  "chunker_version": "markdown_chunker_v1",
+  "enrichment_profile": "default",
+  "processed_at": "2026-06-03T10:00:00",
+  "chunk_count": 42,
+  "metrics": {
+    "min_chunk_chars": 120,
+    "max_chunk_chars": 1800,
+    "avg_chunk_chars": 640
+  },
+  "warnings": [
+    {"type": "missing_section_title", "count": 5},
+    {"type": "oversized_chunk", "count": 1}
+  ],
+  "chunks": [
+    {
+      "chunk_key": "doc_intro_01",
+      "sequence": 1,
+      "content_length": 1800,
+      "warnings": ["oversized_chunk"]
+    }
+  ]
+}
+```
+
+Report status:
+
+- `good`: no warnings
+- `warning`: one or more warnings
+- `failed`: analyzer could not produce a valid report
+
+P1 does not use `needs_reparse` as an automatic state. That label can be
+introduced later if quality warnings become actionable through a reparse flow.
+
+### P1.3 Always Persist Chunk Artifacts
+
+Ensure `chunks.json` is written even when enrichment is disabled.
+
+Current implementation writes `chunks.json` from the enrichment artifact path.
+Phase 13 should decouple chunk artifact persistence from enrichment so document
+detail and quality reporting do not depend on `chunk_enrichment_enabled`.
+
+Required behavior:
+
+- write raw/normalized chunks after chunking
+- overwrite `chunks.json` with enriched chunks after enrichment when enrichment
+  runs
+- keep `chunk_enrichment.json` only for enrichment-specific fields
+
+### P1.4 Document Quality Summary Fields
+
+Add compact summary fields to `general_documents`:
+
+- `quality_status`
+- `quality_warning_count`
+- `parser_version`
+- `chunker_version`
+- `enrichment_profile`
+- `processed_at`
+
+The detailed report remains in `chunk_quality.json`.
+
+Why not store the full report in SQLite:
+
+- The report can grow with chunk count.
+- Parsed artifacts already live per document.
+- The UI needs a compact list/status view plus detail-on-demand.
+
+### P1.5 Document API Additions
+
+Extend existing document APIs instead of creating a separate quality product.
+
+Required behavior:
+
+- `GET /documents` and `GET /documents/{document_id}` include compact quality
+  summary fields.
+- `GET /documents/{document_id}/chunks` includes:
+  - `quality_report` summary/details needed by the detail page
+  - chunk-level `quality_warnings` merged into each chunk when available
+- Missing `chunk_quality.json` should not break old documents. Return an
+  explicit empty or unavailable report.
+
+### P1.6 Document Detail UI
+
+Add a compact quality panel to the existing document detail page.
+
+Minimum UI:
+
+- quality status tag: good / warning / failed / unavailable
+- warning count
+- chunk length min / avg / max
+- parser/chunker/enrichment metadata
+- top warning types and counts
+- processing timestamp
+
+Chunk table additions:
+
+- warning indicator per chunk
+- filter or search option for warning chunks, if cheap
+- tooltip or small inline labels for warning types
+
+The UI should not become a large analytics dashboard. It should help the admin
+decide whether a bad answer might be caused by suspicious chunks.
+
+### P1.7 Lightweight Processing History
+
+Persist a small append-only history artifact:
+
+```text
+parsed/{document_id}/processing_history.json
+```
+
+Required fields per entry:
+
+- `processed_at`
+- `parser_version`
+- `chunker_version`
+- `enrichment_profile`
+- `chunk_count`
+- `quality_status`
+- `quality_warning_count`
+- `source_file_type`
+
+P1 history is artifact-only. Do not add a DB table yet; Phase 14 will introduce
+a real job model.
+
+## P2 Scope
+
+P2 should be considered only after P1 quality warnings have been observed on
+real documents.
+
+### P2.1 Chunk Diff Report
+
+Add compact comparison between the latest processing run and the previous
+history entry:
+
+- added chunk count
+- removed chunk count
+- changed chunk count
+- section coverage changes
+- warning count delta
+
+Keep this as a report artifact first. A detailed visual diff is not necessary.
+
+### P2.2 Quality Threshold Settings
+
+Expose thresholds only if default constants create repeated false positives.
+
+Potential settings:
+
+- oversized chunk threshold
+- undersized chunk threshold
+- low-information threshold
+- duplicate normalization behavior
+
+Avoid making this a large tuning panel.
+
+### P2.3 Reparse/Reindex Action
+
+Add explicit reparse/reindex for completed documents only after Phase 14 job
+reliability exists, or implement it very carefully with idempotent cleanup.
+
+Reason to defer:
+
+- Reparse/reindex is a long-running operation.
+- It touches parsed artifacts, DB state, and Milvus vectors.
+- It should be represented as a job rather than a fragile request lifecycle.
+
+### P2.4 Retrieval-To-Quality Cross-Link
+
+When a query retrieves suspicious chunks, show a link from query detail to the
+document quality panel.
+
+Do not automatically classify a query failure as caused by chunk quality. Show
+the evidence and let the admin inspect it.
+
+## Not Doing In Phase 13
+
+- No LLM judge for chunk quality.
+- No automatic chunk rewrite or merge/split.
+- No manual chunk editor.
+- No new retrieval feature.
+- No background job framework.
+- No completed-document reindex endpoint in P1.
+- No graph database or GraphRAG.
+- No multi-tenant knowledge-base management.
+
+## Implementation Iterations
+
+### Iteration 1: Quality Taxonomy And Analyzer
+
+Purpose: create deterministic quality logic without touching ingestion first.
+
+Work:
+
+- Add `app.rag.ingestion.chunk_quality` or equivalent helper.
+- Define warning constants and report version constants.
+- Implement report generation from a list of chunk dicts.
+- Generate document-level metrics and chunk-level warning annotations.
+- Keep thresholds as module constants, not user settings.
+- Add unit tests for:
+  - good chunks
+  - empty/low-information chunks
+  - missing section titles
+  - oversized/undersized chunks
+  - duplicate chunks
+  - table/image metadata warnings
+
+Likely files:
+
+- `backend/app/rag/ingestion/chunk_quality.py`
+- `backend/tests/unit/test_chunk_quality.py`
+
+Exit criteria:
+
+- Analyzer produces stable report JSON from in-memory chunks.
+- Warning counts and chunk-level annotations are deterministic.
+- No ingestion, DB, API, or frontend behavior changes yet.
+
+### Iteration 2: Ingestion Artifact Integration
+
+Purpose: write quality reports during document processing.
+
+Work:
+
+- Ensure `chunks.json` is always written after chunking.
+- Preserve enrichment-specific artifact behavior.
+- Write `chunk_quality.json`.
+- Write/update `processing_history.json`.
+- Return quality summary from `run_ingestion_graph`.
+- Keep `chunk_quality.json` generation resilient: analyzer failure should fail
+  the quality report, not silently skip artifact creation.
+
+Likely files:
+
+- `backend/app/rag/ingestion/graph.py`
+- `backend/app/rag/ingestion/chunk_quality.py`
+- `backend/tests/unit/test_chunk_quality.py`
+
+Exit criteria:
+
+- Processing any supported document type creates `chunks.json` and
+  `chunk_quality.json`.
+- Enrichment disabled does not prevent chunk artifact persistence.
+- `run_ingestion_graph` returns compact quality summary fields, but DB does not
+  need to persist them yet.
+
+### Iteration 3: DB Summary Persistence
+
+Purpose: persist compact quality status on `general_documents`.
+
+Work:
+
+- Add summary columns to `general_documents`.
+- Update migrations and document status update whitelist.
+- Save quality summary when processing completes.
+- Add backend tests or smoke coverage.
+
+New columns:
+
+- `quality_status`
+- `quality_warning_count`
+- `parser_version`
+- `chunker_version`
+- `enrichment_profile`
+- `processed_at`
+
+Likely files:
+
+- `backend/app/core/database.py`
+- `backend/app/services/document_service.py`
+- relevant backend tests
+
+Exit criteria:
+
+- Newly processed documents persist quality summary fields.
+- Existing documents migrate cleanly with safe defaults.
+- Document processing still completes when quality status is `warning`.
+
+### Iteration 4: Document API Quality Detail
+
+Purpose: expose quality summaries and artifact details through existing
+document APIs.
+
+Work:
+
+- Extend document response types with quality summary fields.
+- Add helper to load `chunk_quality.json` safely.
+- Extend `GET /documents/{document_id}/chunks` response with:
+  - `quality_report`
+  - chunk-level `quality_warnings`
+- Make missing or malformed quality artifacts explicit and non-breaking.
+- Add backend tests or smoke coverage for old documents without reports.
+
+Likely files:
+
+- `backend/app/services/document_service.py`
+- `backend/app/services/document_chunk_query.py`
+- `backend/app/api/documents.py`
+- `frontend/src/api/documents.ts` may wait until Iteration 5 unless needed
+
+Exit criteria:
+
+- Old documents without `chunk_quality.json` still load.
+- New documents return report summary and chunk warning annotations.
+- API consumers do not need to parse artifact files directly.
+
+### Iteration 5: Document Detail Quality UI
+
+Purpose: make quality visible to admins.
+
+Work:
+
+- Add quality panel to document detail.
+- Add warning indicators to chunk table.
+- Add warning-only filter if low-cost.
+- Update frontend API types.
+- Keep existing chunk search/expand/copy behavior unchanged.
+
+Likely files:
+
+- `frontend/src/api/documents.ts`
+- `frontend/src/components/documents/DocumentDetailView.vue`
+
+Exit criteria:
+
+- Admin can identify suspicious chunks without opening backend artifacts.
+- Old documents without reports show an unavailable/unknown quality state
+  without breaking the page.
+
+### Iteration 6: Validation And Closeout
+
+Purpose: verify with realistic documents and decide whether P2 is worth doing.
+
+Engineering checks:
+
+- backend analyzer unit tests
+- backend compile/smoke for ingestion and document APIs
+- frontend build
+- `git diff --check`
+
+Manual checks:
+
+- normal Markdown document
+- Markdown zip with images
+- PDF when MinerU is available
+- document with intentionally oversized chunk
+- document with missing section titles
+- document with duplicate content
+- old document without quality report
+
+Closeout:
+
+- Confirm warnings are useful and not noisy on demo corpus.
+- Confirm document detail remains scannable.
+- Record deferred P2 findings.
+- Mark Phase 13 complete only after manual checks pass.
+
+## Acceptance Criteria
+
+P1 is complete when:
+
+- Every newly processed document has `chunks.json` and `chunk_quality.json`.
+- Document list/detail exposes compact quality status.
+- Document detail shows warning summaries and suspicious chunk indicators.
+- Parser/chunker/enrichment versions are visible.
+- Old documents without quality reports still work.
+- Repeated processing appends lightweight history.
+
+P2 is complete when:
+
+- Reprocessing can show compact chunk-shape deltas.
+- Thresholds can be adjusted if defaults create meaningful noise.
+- Query detail can link suspicious retrieved chunks back to document quality.

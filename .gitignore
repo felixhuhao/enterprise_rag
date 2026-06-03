@@ -68,6 +68,7 @@ docs/*
 !docs/DEVELOPMENT_CONTEXT.md
 !docs/phase11_eval_loop.md
 !docs/phase12_observability.md
+!docs/phase13_chunk_quality.md
 !docs/query_flavor_roadmap.md
 !docs/smoke_test.md
 !docs/images/
