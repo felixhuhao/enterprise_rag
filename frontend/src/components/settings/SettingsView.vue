@@ -339,6 +339,9 @@ async function loadPreviewDocuments() {
 }
 
 async function loadRecentJobs() {
+  if (!authStore.currentUser) {
+    await authStore.fetchMe()
+  }
   if (!authStore.isAdmin) return
   jobsLoading.value = true
   jobsError.value = ''

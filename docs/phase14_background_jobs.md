@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-03
 
-Status: P1 in progress. Iterations 1-4 implemented.
+Status: P1 API validated. UI manual check pending.
 
 ## Goal
 
@@ -449,7 +449,7 @@ Engineering validation:
 
 ### Iteration 5: Manual Validation And P2 Decision
 
-Status: planned.
+Status: in progress on 2026-06-03.
 
 Purpose: test reliability and decide whether retry/cancel/reparse should move
 from P2 to active scope.
@@ -463,6 +463,39 @@ Manual checks:
 - run retrieval-only eval
 - run answer-lite or full eval
 - restart backend while a job is running if practical
+
+Completed validation on 2026-06-03:
+
+- Rebuilt and restarted backend/frontend containers with the Phase 14 code.
+- Verified `GET /api/admin/jobs` as admin.
+- Uploaded and processed `manual_test_assets/phase13/phase13_normal.md`.
+  - Process endpoint returned `job_id`.
+  - Document job progressed through coarse stages and reached `succeeded`.
+  - Document reached `completed` with `quality_status=good`.
+  - Smoke document was deleted after validation.
+- Ran `POST /api/admin/eval/run` with:
+  - `mode=retrieval_only`
+  - `limit=1`
+  - `concurrency=1`
+  - Eval endpoint returned `job_id`.
+  - Eval job progressed from `0/1` to `1/1` and reached `succeeded`.
+  - Existing `/api/admin/eval/status` also reported `succeeded`.
+- Verified recent jobs list returns both the eval job and document job with
+  `progress_percent=100`.
+
+Remaining manual UI checks:
+
+- Open `http://localhost:5173/settings` as admin.
+- In `运行状态`, confirm the `后台任务` panel appears.
+- Confirm recent document/eval jobs show:
+  - readable task names
+  - status chips
+  - progress values
+  - resource labels
+  - updated time
+- Open a job detail drawer and confirm timestamps, message, and error fields are
+  readable.
+- Confirm non-admin users do not see the panel.
 
 Closeout:
 

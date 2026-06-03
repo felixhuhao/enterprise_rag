@@ -3,7 +3,7 @@
     <header class="panel-head">
       <div>
         <div class="panel-title">后台任务</div>
-        <p>最近的文档处理和评测任务。</p>
+        <p>最近的文档处理和评测任务。当前 {{ jobs.length }} 条。</p>
       </div>
       <a-button size="mini" :loading="loading" @click="$emit('refresh')">
         <template #icon><icon-refresh /></template>
@@ -15,63 +15,45 @@
 
     <a-empty v-else-if="!loading && !jobs.length" description="暂无任务记录" />
 
-    <a-table
+    <div
       v-else
-      :data="jobs"
-      :loading="loading"
-      :pagination="false"
-      size="small"
-      row-key="job_id"
-      class="jobs-table"
+      class="job-list"
     >
-      <a-table-column title="任务" data-index="job_type" :width="170">
-        <template #cell="{ record }">
-          <div class="job-main">
-            <strong>{{ jobTypeLabel(record.job_type) }}</strong>
-            <span>{{ shortId(record.job_id) }}</span>
-          </div>
-        </template>
-      </a-table-column>
-
-      <a-table-column title="状态" data-index="status" :width="100">
-        <template #cell="{ record }">
-          <a-tag :color="statusColor(record.status)">{{ record.status_label || statusLabel(record.status) }}</a-tag>
-        </template>
-      </a-table-column>
-
-      <a-table-column title="进度" data-index="progress_percent" :width="180">
-        <template #cell="{ record }">
-          <div class="progress-cell">
-            <a-progress
-              v-if="record.progress_percent !== null"
-              :percent="record.progress_percent / 100"
-              size="small"
-              :show-text="false"
-            />
-            <span>{{ progressText(record) }}</span>
-          </div>
-        </template>
-      </a-table-column>
-
-      <a-table-column title="资源" data-index="resource_id">
-        <template #cell="{ record }">
-          <div class="resource-cell">
-            <span>{{ resourceLabel(record) }}</span>
-            <small>{{ record.message || '-' }}</small>
-          </div>
-        </template>
-      </a-table-column>
-
-      <a-table-column title="更新" data-index="updated_at" :width="150">
-        <template #cell="{ record }">{{ formatTime(record.updated_at) }}</template>
-      </a-table-column>
-
-      <a-table-column title="操作" :width="82" align="right">
-        <template #cell="{ record }">
-          <a-button size="mini" @click="openDetail(record)">详情</a-button>
-        </template>
-      </a-table-column>
-    </a-table>
+      <div class="job-list-head">
+        <span>任务</span>
+        <span>状态</span>
+        <span>进度</span>
+        <span>资源</span>
+        <span>更新</span>
+        <span></span>
+      </div>
+      <div v-for="job in jobs" :key="job.job_id" class="job-row">
+        <div class="job-main">
+          <strong>{{ jobTypeLabel(job.job_type) }}</strong>
+          <span>{{ shortId(job.job_id) }}</span>
+        </div>
+        <div>
+          <a-tag :color="statusColor(job.status)">{{ job.status_label || statusLabel(job.status) }}</a-tag>
+        </div>
+        <div class="progress-cell">
+          <a-progress
+            v-if="job.progress_percent !== null"
+            :percent="job.progress_percent / 100"
+            size="small"
+            :show-text="false"
+          />
+          <span>{{ progressText(job) }}</span>
+        </div>
+        <div class="resource-cell">
+          <span>{{ resourceLabel(job) }}</span>
+          <small>{{ job.message || '-' }}</small>
+        </div>
+        <div class="time-cell">{{ formatTime(job.updated_at) }}</div>
+        <div class="action-cell">
+          <a-button size="mini" @click="openDetail(job)">详情</a-button>
+        </div>
+      </div>
+    </div>
 
     <a-drawer
       v-model:visible="detailOpen"
@@ -217,10 +199,36 @@ function formatTime(value: string): string {
   font-size: 12px;
 }
 
-.jobs-table {
+.job-list {
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
+}
+
+.job-list-head,
+.job-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 170px) 96px minmax(120px, 170px) minmax(180px, 1fr) 150px 72px;
+  gap: 12px;
+  align-items: center;
+}
+
+.job-list-head {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.job-row {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.job-row:last-child {
+  border-bottom: 0;
 }
 
 .job-main,
@@ -242,12 +250,17 @@ function formatTime(value: string): string {
 
 .job-main span,
 .resource-cell small,
-.progress-cell span {
+.progress-cell span,
+.time-cell {
   overflow: hidden;
   color: var(--text-muted);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.action-cell {
+  text-align: right;
 }
 
 .detail-head {
@@ -306,6 +319,19 @@ function formatTime(value: string): string {
   .panel-head {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .job-list-head {
+    display: none;
+  }
+
+  .job-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .action-cell {
+    text-align: left;
   }
 }
 </style>
