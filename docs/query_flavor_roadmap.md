@@ -1,6 +1,6 @@
 # Query Flavor Roadmap
 
-This roadmap describes the next retrieval-quality work after the current feature freeze. The goal is to improve recall, precision, and evidence control without turning the system into an uncontrolled agent or a pile of independent toggles.
+This roadmap is a historical implementation plan for retrieval-flavor work. Phases 0-10 are implemented; later experimental sections remain deferred unless future evaluation shows a concrete need. The original goal was to improve recall, precision, and evidence control without turning the system into an uncontrolled agent or a pile of independent toggles.
 
 ## Core Decision
 
@@ -274,7 +274,7 @@ Default first version:
 context_expansion = small_to_big_final_only
 small_to_big_window = 1
 small_to_big_same_section_only = true
-small_to_big_max_chars = 2400查询历史搜索/筛选	中（方便回溯）	低
+small_to_big_max_chars = 2400
 ```
 
 Rules:
@@ -383,7 +383,7 @@ groundedness_score -> 资料支持度
 
 Main chat should show intent-level controls. Debug panels can still expose raw fields like `entity_mode`, `search_mode`, `fallback_info`, RRF rank, and rerank scores.
 
-Implementation status: Phases 0-8 are implemented. The next quality work should move from query-time tricks to ingestion-time enrichment, because some recall failures come from source chunks using different wording than user questions.
+Implementation status: Phases 0-10 are implemented. Later quality work should come from measured failures in the Phase 11 evaluation loop, not from adding query-time tricks speculatively.
 
 Example failure:
 

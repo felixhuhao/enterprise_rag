@@ -16,6 +16,7 @@
 - 点击文档进入详情页，切片列表可搜索、分页、展开、复制。
 - 文档详情应显示质量状态、质量摘要和可疑切片 warning 标签。
 - 正常 Markdown 文档处理完成后，质量状态应为 `good` 或只有可解释的少量 warning。
+- 上传并处理文档后，系统设置 -> 后台任务应出现对应 document ingestion job。
 - 从检索命中详情点击定位时，应跳到对应文档详情并高亮目标切片。
 
 ## 3. 实体别名
@@ -65,6 +66,7 @@
 - 冒烟集应作为 case 子集筛选，不应和评测模式混淆。
 - 运行基准测试集时，进度、通过/警告/失败状态应持续刷新；单个 case 失败不应中断剩余 case。
 - 设为基线后，下一次同 mode/flavor 运行应显示 baseline delta。
+- 运行任一评测后，系统设置 -> 后台任务应出现对应 eval job。
 
 ## 7. 系统设置
 
@@ -92,6 +94,13 @@ curl http://127.0.0.1:8010/health
 ```bash
 cd backend
 python -m pytest tests/unit -q
+
+python scripts/eval_golden_set.py \
+  --golden-set ../data/challenge_golden_set_v1.jsonl \
+  --api-base http://127.0.0.1:8010/api \
+  --mode retrieval_only \
+  --limit 1 \
+  --concurrency 1
 
 cd ../frontend
 npm run build

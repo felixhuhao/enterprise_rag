@@ -156,8 +156,12 @@ enterprise_rag/
 ├── .env.example
 ├── backend/
 │   ├── app/
-│   │   ├── api/                  # REST endpoints: documents, query, stats, settings
-│   │   ├── core/                 # database, config, runtime settings
+│   │   ├── api/                  # auth, admin, documents, query, stats, eval, jobs, settings, system
+│   │   ├── config.py             # pydantic-settings configuration
+│   │   ├── core/                 # auth helpers, database, health, runtime settings
+│   │   ├── deps.py               # request dependencies
+│   │   ├── errors.py             # shared error classification
+│   │   ├── models/               # Pydantic request/response schemas
 │   │   ├── rag/
 │   │   │   ├── chunking/         # markdown/table chunker + enrichment tags
 │   │   │   ├── embeddings/       # local dense embedding client
@@ -165,17 +169,24 @@ enterprise_rag/
 │   │   │   ├── parsing/          # MinerU, Markdown, image describer, ZIP
 │   │   │   ├── query/            # search, fusion, rerank, prompt, citations
 │   │   │   └── vectorstores/     # Milvus collection management
-│   │   └── services/             # document, chat history, query stats
+│   │   ├── services/             # document, eval, jobs, retrieval test, query stats
+│   │   └── utils/                # small shared helpers
 │   ├── scripts/
+│   │   ├── eval_golden/          # golden-set runner modules
+│   │   ├── eval_golden_set.py    # baseline evaluation CLI wrapper
+│   │   ├── reset_milvus_collection.py
 │   │   ├── seed_demo.py          # idempotent demo data seeding
-│   │   └── eval_golden_set.py    # baseline evaluation runner
+│   │   └── smoke_test_embedding.py
 │   └── tests/
 ├── frontend/
 │   └── src/
 │       ├── api/
-│       ├── components/           # query-chat, documents, evaluate, settings
+│       ├── components/           # admin, common, documents, evaluate, feedback, layout, query-chat, retrieval-test, settings
+│       ├── composables/
+│       ├── router/
 │       ├── stores/
-│       └── styles/
+│       ├── styles/
+│       └── utils/
 └── data/
     ├── enterprise_docs/           # Fast Markdown demo corpus + .entity file
     ├── challenge_golden_set_v1.jsonl # Enterprise baseline test set
@@ -198,7 +209,15 @@ Optional:
 
 | Variable | Default | Description |
 |---|---|---|
+| `RATE_LIMIT_PER_MINUTE` | `60` | Per-token API rate limit |
+| `CORS_ORIGINS` | `["http://localhost:5173","http://localhost:4173"]` | Allowed frontend origins |
+| `DATABASE_PATH` | `./data/app.db` | SQLite database path |
+| `GENERAL_UPLOAD_DIR` | `./data/general_uploads` | Uploaded source artifact directory |
+| `GENERAL_PARSED_DIR` | `./data/general_parsed` | Parsed/chunk artifact directory |
+| `UPLOAD_MAX_SIZE_MB` | `100` | Maximum single upload size |
+| `MD_ZIP_MAX_SIZE_MB` | `50` | Maximum Markdown ZIP upload size |
 | `CHAT_MODEL` | `deepseek-v4-flash` | LLM model name |
+| `CHAT_TIMEOUT` | `180` | Chat completion timeout in seconds |
 | `EMBEDDING_MODEL_NAME` | `bge-m3` | Display name for the embedding model in diagnostics |
 | `MINERU_API_TOKEN` | — | Required for PDF parsing |
 | `MILVUS_URI` | `http://localhost:19530` | Milvus connection |
@@ -208,6 +227,7 @@ Optional:
 | `EMBEDDING_BATCH_SIZE` | `4` | Embedding batch size |
 | `EMBEDDING_DEVICE` | `auto` | `auto`, `cuda`, or `cpu` |
 | `IMAGE_DESCRIPTION_ENABLED` | `true` | Enable image-to-text |
+| `IMAGE_DESCRIPTION_MODEL` | `glm-4.6v-flash` | Image description model name |
 
 Full list in `.env.example`.
 

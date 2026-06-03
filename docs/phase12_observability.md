@@ -533,9 +533,10 @@ Engineering validation completed:
   - detail lookup applies user filtering
   - latency breakdown groups by flavor/status/endpoint and stage timings
 
-Validation limits:
+Validation follow-up:
 
-- `pytest` is not installed in the local Python environment or the current backend container, so `test_query_stats.py` was not run through pytest.
+- 2026-06-03: `PYTHONPATH=backend .venv/bin/python -m pytest backend/tests/unit/test_query_stats.py -q`
+  passed (`24 passed`), closing the earlier pytest-environment validation gap.
 - P2 is deferred by choice, not because P1 is blocked.
 
 Deferred P2 findings:

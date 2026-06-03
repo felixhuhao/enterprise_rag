@@ -72,6 +72,7 @@ docs/*
 !docs/phase14_background_jobs.md
 !docs/project_market_evaluation.md
 !docs/query_flavor_roadmap.md
+!docs/refactoring_plan.md
 !docs/smoke_test.md
 !docs/storage_layer_maturity.md
 !docs/images/

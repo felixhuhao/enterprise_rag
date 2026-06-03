@@ -174,7 +174,19 @@ Verdict thresholds:
 
 ## Current Demo Baseline
 
-The current enabled baseline has been manually validated after the latest evaluation-loop, observability, chunk-quality, and background-job work. The latest full demo run completed successfully with one known warning case around judge/citation uncertainty; retrieval-only and smoke paths are fast enough for day-to-day checks.
+Latest manually recorded demo run:
+
+| Date | Mode | Scope | Result |
+|---|---|---|---|
+| 2026-06-03 | `full` with judge | all enabled demo cases | completed with one warning |
+
+Known warning:
+
+| Case | Score | Failure Categories | Note |
+|---|---:|---|---|
+| `strict_002` | `0.53` | `citation_miss`, `judge_uncertain` | Expected evidence was retrieved, but citation/judge scoring stayed warning-level |
+
+Retrieval-only and smoke-subset paths were also manually validated as fast enough for day-to-day checks. Treat this as a local demo baseline, not an external benchmark. For current numbers, prefer the latest `data/eval_results/*_summary.json` file or the Quality Center run summary.
 
 Rerun the baseline after changes to:
 
