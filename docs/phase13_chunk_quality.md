@@ -363,6 +363,8 @@ the evidence and let the admin inspect it.
 
 ### Iteration 1: Quality Taxonomy And Analyzer
 
+Status: implemented on 2026-06-03.
+
 Purpose: create deterministic quality logic without touching ingestion first.
 
 Work:
