@@ -490,6 +490,8 @@ Exit criteria:
 
 ### Iteration 5: Document Detail Quality UI
 
+Status: implemented on 2026-06-03.
+
 Purpose: make quality visible to admins.
 
 Work:

@@ -61,6 +61,54 @@
             <span v-if="document.error_code" class="error-code">{{ document.error_code }}</span>
             <span>{{ errorHint || document.error_msg }}</span>
           </div>
+
+          <div class="quality-panel">
+            <div class="quality-header">
+              <h3>切片质量</h3>
+              <a-tag :color="qualityStatusColor" size="small">
+                {{ qualityStatusLabel }}
+              </a-tag>
+            </div>
+            <div class="quality-grid">
+              <div class="quality-item">
+                <span>告警切片</span>
+                <strong>{{ warningChunkCount }} / {{ chunks.length }}</strong>
+              </div>
+              <div class="quality-item">
+                <span>告警总数</span>
+                <strong>{{ qualityWarningTotal }}</strong>
+              </div>
+              <div class="quality-item">
+                <span>解析器</span>
+                <strong>{{ qualityReport?.parser_version || document.parser_version || '—' }}</strong>
+              </div>
+              <div class="quality-item">
+                <span>切片器</span>
+                <strong>{{ qualityReport?.chunker_version || document.chunker_version || '—' }}</strong>
+              </div>
+              <div class="quality-item">
+                <span>增强策略</span>
+                <strong>{{ qualityReport?.enrichment_profile || document.enrichment_profile || '—' }}</strong>
+              </div>
+              <div class="quality-item">
+                <span>处理时间</span>
+                <strong>{{ formatTime(qualityReport?.processed_at || document.processed_at || '') }}</strong>
+              </div>
+            </div>
+            <div v-if="qualityWarningRows.length" class="quality-warning-list">
+              <a-tag
+                v-for="warning in qualityWarningRows"
+                :key="warning.type"
+                color="orange"
+                size="small"
+              >
+                {{ qualityWarningLabel(warning.type) }} {{ warning.count }}
+              </a-tag>
+            </div>
+            <div v-else class="quality-empty">
+              {{ qualityEmptyText }}
+            </div>
+          </div>
         </section>
 
         <section class="detail-card chunks-card">
@@ -69,12 +117,17 @@
               <h3>切片列表</h3>
               <p>{{ filteredChunks.length }} / {{ chunks.length }} 个切片</p>
             </div>
-            <a-input-search
-              v-model="keyword"
-              class="chunk-search"
-              placeholder="搜索切片内容"
-              allow-clear
-            />
+            <div class="chunk-tools">
+              <a-checkbox v-model="showWarningsOnly" :disabled="warningChunkCount === 0">
+                仅警告
+              </a-checkbox>
+              <a-input-search
+                v-model="keyword"
+                class="chunk-search"
+                placeholder="搜索切片内容"
+                allow-clear
+              />
+            </div>
           </div>
 
           <div :ref="setChunkTableContainer" class="chunk-table-wrap">
@@ -120,6 +173,20 @@
               </a-table-column>
 
               <a-table-column title="长度" data-index="content_length" :width="chunkColumns.columnWidth('content_length')" align="center" :sortable="{ sortDirections: ['ascend', 'descend'] }" :body-cell-class="bodyCellClass" />
+
+              <a-table-column title="质量" data-index="quality_warnings" :width="chunkColumns.columnWidth('quality_warnings')" align="center" :body-cell-class="bodyCellClass">
+                <template #cell="{ record }">
+                  <div v-if="record.quality_warnings?.length" class="chunk-quality-tags">
+                    <a-tag color="orange" size="small">
+                      {{ qualityWarningLabel(record.quality_warnings[0]) }}
+                    </a-tag>
+                    <span v-if="record.quality_warnings.length > 1" class="quality-more">
+                      +{{ record.quality_warnings.length - 1 }}
+                    </span>
+                  </div>
+                  <span v-else>—</span>
+                </template>
+              </a-table-column>
 
               <a-table-column title="内容预览" data-index="content" :width="chunkColumns.columnWidth('content')" :body-cell-class="bodyCellClass">
                 <template #cell="{ record }">
@@ -176,7 +243,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { IconFile, IconLeft } from '@arco-design/web-vue/es/icon'
 import type { TableData } from '@arco-design/web-vue/es/table/interface'
-import type { Document, DocumentChunk, DocumentChunksSource } from '../../api/documents'
+import type { Document, DocumentChunk, DocumentChunksSource, DocumentQualityReport } from '../../api/documents'
 import { getDocumentChunks, getRelatedDocuments } from '../../api/documents'
 import { ERROR_HINTS } from '../../utils/errorHints'
 import { sourceTypeLabel } from '../../utils/labelMaps'
@@ -188,8 +255,10 @@ const router = useRouter()
 const document = ref<Document | null>(null)
 const chunks = ref<DocumentChunk[]>([])
 const chunksSource = ref<DocumentChunksSource>('none')
+const qualityReport = ref<DocumentQualityReport | null>(null)
 const loading = ref(false)
 const keyword = ref('')
+const showWarningsOnly = ref(false)
 const expandedKeys = ref<Set<string>>(new Set())
 const PAGE_SIZE = 20
 const currentPage = ref(1)
@@ -197,12 +266,13 @@ const highlightChunkId = ref<string | null>(null)
 const highlightChunkKey = ref<string | null>(null)
 const related = ref<Document[]>([])
 const relatedEntity = ref('')
-const chunkColumns = useAutoFitColumns('enterprise-rag:document-chunks:auto-v1', {
+const chunkColumns = useAutoFitColumns('enterprise-rag:document-chunks:auto-v2', {
   sequence: { width: 56, minWidth: 44, maxWidth: 70 },
   section_title: { width: 220, minWidth: 140, maxWidth: 320 },
   page: { width: 86, minWidth: 70, maxWidth: 100 },
   source_type: { width: 92, minWidth: 76, maxWidth: 120 },
   content_length: { width: 86, minWidth: 70, maxWidth: 100 },
+  quality_warnings: { width: 130, minWidth: 92, maxWidth: 170 },
   content: { width: 520, minWidth: 260, flex: true },
   image_paths: { width: 64, minWidth: 52, maxWidth: 78 },
 }, { minWidth: 44 })
@@ -225,6 +295,25 @@ const STATUS_MAP: Record<string, { label: string; color: string }> = {
   failed: { label: '失败', color: 'red' },
 }
 
+const QUALITY_STATUS_MAP: Record<string, { label: string; color: string }> = {
+  good: { label: '良好', color: 'green' },
+  warning: { label: '警告', color: 'orange' },
+  failed: { label: '失败', color: 'red' },
+  unavailable: { label: '未知', color: 'gray' },
+}
+
+const QUALITY_WARNING_LABELS: Record<string, string> = {
+  empty_chunk: '空切片',
+  low_information_chunk: '低信息量',
+  missing_section_title: '缺章节',
+  oversized_chunk: '过长',
+  undersized_chunk: '过短',
+  duplicate_chunk: '重复',
+  table_without_metadata: '表格元数据',
+  image_without_description: '图片描述',
+  image_without_asset_path: '图片路径',
+}
+
 const chunkSourceLabel = computed(() => {
   if (chunksSource.value === 'milvus') return '已入库'
   if (chunksSource.value === 'parsed_artifact') return '仅解析产物'
@@ -242,16 +331,55 @@ const errorHint = computed(() => {
   return code ? ERROR_HINTS[code] : ''
 })
 
+const qualityStatus = computed(() => qualityReport.value?.status || document.value?.quality_status || 'unavailable')
+
+const qualityStatusLabel = computed(() => {
+  return QUALITY_STATUS_MAP[qualityStatus.value]?.label ?? qualityStatus.value
+})
+
+const qualityStatusColor = computed(() => {
+  return QUALITY_STATUS_MAP[qualityStatus.value]?.color ?? 'gray'
+})
+
+const qualityWarningRows = computed(() => {
+  const rows = qualityReport.value?.warnings ?? []
+  return rows.filter((row) => row && row.count > 0)
+})
+
+const qualityWarningTotal = computed(() => {
+  if (qualityWarningRows.value.length) {
+    return qualityWarningRows.value.reduce((sum, row) => sum + row.count, 0)
+  }
+  return document.value?.quality_warning_count ?? 0
+})
+
+const warningChunkCount = computed(() => {
+  return chunks.value.filter((chunk) => chunk.quality_warnings?.length).length
+})
+
+const qualityEmptyText = computed(() => {
+  const artifactStatus = qualityReport.value?.artifact_status
+  if (artifactStatus === 'missing') return '无质量报告'
+  if (artifactStatus === 'malformed') return '质量报告异常'
+  if (qualityStatus.value === 'good') return '无告警'
+  if (qualityStatus.value === 'unavailable') return '未知'
+  return '无告警'
+})
+
 const filteredChunks = computed(() => {
   const q = keyword.value.trim().toLowerCase()
-  if (!q) return chunks.value
-  return chunks.value.filter((chunk) => {
+  const source = showWarningsOnly.value
+    ? chunks.value.filter((chunk) => chunk.quality_warnings?.length)
+    : chunks.value
+  if (!q) return source
+  return source.filter((chunk) => {
     const fields = [
       chunk.content,
       chunk.section_title,
       chunk.title,
       chunk.table_title ?? '',
       chunk.source_type,
+      ...(chunk.quality_warnings ?? []).map(qualityWarningLabel),
     ]
     return fields.some((field) => field.toLowerCase().includes(q))
   })
@@ -267,6 +395,10 @@ function statusColor(status: string) {
 
 function sourceTypeColor(sourceType: string) {
   return sourceType.startsWith('table_') ? 'orange' : 'arcoblue'
+}
+
+function qualityWarningLabel(type: string) {
+  return QUALITY_WARNING_LABELS[type] ?? type
 }
 
 function formatTime(value: string) {
@@ -310,6 +442,7 @@ async function loadDetail() {
     document.value = payload.document
     chunks.value = payload.chunks
     chunksSource.value = payload.chunks_source
+    qualityReport.value = payload.quality_report
     // 数据加载后尝试高亮
     applyHighlight()
 
@@ -334,10 +467,14 @@ function onPageChange(page: number) {
 }
 
 function rowClass(record: DocumentChunk) {
+  const classes: string[] = []
   if (isHighlightedChunk(record)) {
-    return 'chunk-row-highlight'
+    classes.push('chunk-row-highlight')
   }
-  return ''
+  if (record.quality_warnings?.length) {
+    classes.push('chunk-row-warning')
+  }
+  return classes.join(' ')
 }
 
 function bodyCellClass(record: TableData) {
@@ -417,13 +554,19 @@ watch(keyword, () => {
   currentPage.value = 1
 })
 
+watch(showWarningsOnly, () => {
+  currentPage.value = 1
+})
+
 watch(() => route.params.documentId, () => {
   document.value = null
   chunks.value = []
+  qualityReport.value = null
   related.value = []
   relatedEntity.value = ''
   currentPage.value = 1
   keyword.value = ''
+  showWarningsOnly.value = false
   highlightChunkId.value = null
   highlightChunkKey.value = null
   loadDetail()
@@ -547,6 +690,62 @@ onMounted(loadDetail)
   margin-right: 8px;
 }
 
+.quality-panel {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.quality-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.quality-header h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 15px;
+}
+.quality-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+.quality-item {
+  min-width: 0;
+  border: 1px solid var(--border);
+  background: #f8fafc;
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+}
+.quality-item span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.quality-item strong {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.quality-warning-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.quality-empty {
+  margin-top: 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .chunks-toolbar {
   display: flex;
   align-items: center;
@@ -568,6 +767,13 @@ onMounted(loadDetail)
   width: 260px;
   max-width: 100%;
 }
+.chunk-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  min-width: 0;
+}
 
 .chunk-table-wrap {
   min-width: 0;
@@ -581,6 +787,18 @@ onMounted(loadDetail)
   line-height: 1.45;
   white-space: normal;
   word-break: break-word;
+}
+.chunk-quality-tags {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  max-width: 100%;
+}
+.quality-more {
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
 }
 .content-preview {
   display: flex;
@@ -690,8 +908,13 @@ onMounted(loadDetail)
   box-shadow: inset 3px 0 0 #f97316;
 }
 
+:deep(.chunk-row-warning .arco-table-td) {
+  background: #fffbeb;
+}
+
 @media (max-width: 1100px) {
-  .metadata-grid {
+  .metadata-grid,
+  .quality-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
@@ -700,10 +923,17 @@ onMounted(loadDetail)
   .detail-header,
   .chunks-toolbar {
     flex-direction: column;
+    align-items: stretch;
   }
 
-  .metadata-grid {
+  .metadata-grid,
+  .quality-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .chunk-tools {
+    width: 100%;
+    justify-content: space-between;
   }
 
   .chunk-search {
