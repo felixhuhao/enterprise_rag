@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-03
 
-Status: Phase 1 active. Iteration 1 complete.
+Status: Phase 1 active. Iteration 2 complete.
 
 ## Goal
 
@@ -269,7 +269,7 @@ Validation:
 
 ### Iteration 2: Startup Storage Guard
 
-Status: planned.
+Status: implemented on 2026-06-03.
 
 Work:
 
@@ -282,6 +282,15 @@ Exit criteria:
 
 - Normal startup still works.
 - A deliberately unwritable data directory fails before serving traffic.
+
+Validation:
+
+- `PYTHONPATH=backend .venv/bin/python -m pytest backend/tests/unit/test_storage_health.py backend/tests/unit/test_database_schema.py`
+- `MILVUS_URI=http://localhost:19530 PYTHONPATH=backend .venv/bin/python -m pytest backend/tests/unit`
+
+Note: the chmod-based unwritable-directory test is skipped on environments where
+the current user can still write to read-only directories, such as root or
+permission-insensitive mounted filesystems.
 
 ### Iteration 3: Health Payload And Milvus Policy
 

@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     GENERAL_UPLOAD_DIR: str = "./data/general_uploads"
     GENERAL_PARSED_DIR: str = "./data/general_parsed"
     DATABASE_PATH: str = "./data/app.db"
+    STORAGE_MIN_FREE_MB: int = 1024
 
     # ---- LLM 模型配置 ----
     DEEPSEEK_API_KEY: str = ""
