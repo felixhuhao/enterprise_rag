@@ -395,6 +395,8 @@ Exit criteria:
 
 ### Iteration 2: Ingestion Artifact Integration
 
+Status: implemented on 2026-06-03.
+
 Purpose: write quality reports during document processing.
 
 Work:

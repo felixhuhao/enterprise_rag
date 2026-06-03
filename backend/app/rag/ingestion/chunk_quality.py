@@ -119,6 +119,36 @@ def unavailable_quality_report() -> dict[str, Any]:
     }
 
 
+def failed_quality_report(
+    *,
+    document_id: str = "",
+    error: str = "",
+    parser_name: str = PARSER_NAME,
+    parser_version: str = PARSER_VERSION,
+    chunker_version: str = CHUNKER_VERSION,
+    enrichment_profile: str = "",
+    processed_at: str | None = None,
+    source_file_type: str = "",
+) -> dict[str, Any]:
+    """Return a fixed report shape when analyzer execution fails."""
+    return {
+        "document_id": document_id,
+        "status": "failed",
+        "quality_version": QUALITY_VERSION,
+        "parser_name": parser_name,
+        "parser_version": parser_version,
+        "chunker_version": chunker_version,
+        "enrichment_profile": enrichment_profile,
+        "processed_at": processed_at or datetime.now().isoformat(),
+        "source_file_type": source_file_type,
+        "chunk_count": 0,
+        "metrics": {},
+        "warnings": [],
+        "chunks": [],
+        "error": str(error)[:1000],
+    }
+
+
 def quality_summary(report: dict[str, Any]) -> dict[str, Any]:
     """Extract compact fields intended for document row persistence."""
     return {
