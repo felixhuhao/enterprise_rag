@@ -405,11 +405,13 @@ def _json_list(value: Any) -> list:
 
 
 def _slowest_stage(timings: dict) -> dict:
-    candidates = {
-        str(key): _int_value(value)
-        for key, value in timings.items()
-        if key not in {"total", "retrieval_wall"} and _int_value(value) is not None
-    }
+    candidates = {}
+    for key, value in timings.items():
+        if key in {"total", "retrieval_wall"}:
+            continue
+        ms = _int_value(value)
+        if ms is not None:
+            candidates[str(key)] = ms
     if not candidates:
         return {}
     key, value = max(candidates.items(), key=lambda item: item[1])

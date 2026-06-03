@@ -159,7 +159,9 @@ def batch_describe_images(images_dir: str) -> dict[str, dict]:
             results = asyncio.run(_run_batch())
 
         for item in results:
-            if isinstance(item, Exception):
+            if isinstance(item, BaseException):
+                if not isinstance(item, Exception):
+                    raise item
                 logger.warning("Batch describe error: %s", item)
                 continue
             rel_key, result = item

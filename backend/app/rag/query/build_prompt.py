@@ -8,7 +8,7 @@ from langgraph.graph.state import RunnableConfig
 
 from app.rag.query.config import QueryConfig, get_query_config
 from app.rag.query.planner import get_query_plan, plan_budget
-from app.rag.query.state import QueryState
+from app.rag.query.state import QueryState, effective_query
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +121,7 @@ def build_prompt_node(state: QueryState, config: RunnableConfig) -> dict:
         context_parts, context_map = _truncate_context_parts(context_parts, context_map, max_chars)
 
     context_text = "\n\n---\n\n".join(context_parts)
-    query = state.get("rewritten_query") or state["query"]
+    query = effective_query(state)
 
     plan = get_query_plan(state, config)
     prompt_policy = plan.get("prompt_policy") or {}

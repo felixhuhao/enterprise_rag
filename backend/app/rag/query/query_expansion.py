@@ -12,7 +12,7 @@ from langgraph.graph.state import RunnableConfig
 from app.config import settings
 from app.rag.query.config import get_query_config
 from app.rag.query.planner import get_query_plan
-from app.rag.query.state import QueryState
+from app.rag.query.state import QueryState, effective_query
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ def query_expansion_node(state: QueryState, config: RunnableConfig) -> dict:
     if not plan.get("use_query_expansion"):
         return {"expanded_queries": []}
 
-    query = state.get("rewritten_query") or state["query"]
+    query = effective_query(state)
     count = cfg.query_expansion_count
     try:
         response = _invoke_expansion_llm([

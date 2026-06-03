@@ -1,7 +1,12 @@
 """Citation scoring and retrieval-hit metrics."""
 
-def score_citation(citations: list, expected_documents: list,
-                   min_expected_citations: int = 1, item: dict = None) -> dict:
+
+def score_citation(
+    citations: list,
+    expected_documents: list,
+    min_expected_citations: int = 1,
+    item: dict | None = None,
+) -> dict:
     """Score citation recall against expected documents.
 
     Extended with section matching and anchor text tracking.

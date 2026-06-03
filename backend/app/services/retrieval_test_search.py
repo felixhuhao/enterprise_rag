@@ -7,8 +7,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 from app.rag.query.config import QueryConfig
 from app.rag.query.fallback import empty_fallback_info, fallback_blocked, fallback_used
+from app.rag.query.state import QueryState, effective_query
 
-SearchNodeFn = Callable[[dict, dict], dict]
+SearchNodeFn = Callable[[QueryState, dict], dict]
 AclFilterFn = Callable[[dict], tuple[str | None, list[str] | None]]
 CombineAclFn = Callable[[str | None, str | None], str | None]
 EmbedQueryFn = Callable[[str], list[float]]
@@ -16,7 +17,7 @@ DenseSearchFn = Callable[[list[float], str | None, int], list[dict]]
 
 
 def run_primary_search(
-    state: dict,
+    state: QueryState,
     run_config: dict,
     cfg: QueryConfig,
     *,
@@ -47,7 +48,7 @@ def run_primary_search(
             dense_search=dense_search,
         )
 
-    query = state.get("rewritten_query") or state["query"]
+    query = effective_query(state)
     entity_filter = state.get("entity_filter") or None
     combined = combine_acl(entity_filter, acl_expr)
     query_dense = embed_query(query)
@@ -71,7 +72,7 @@ def run_primary_search(
 
 
 def run_multi_entity_dense_search(
-    state: dict,
+    state: QueryState,
     cfg: QueryConfig,
     acl_filter: str | None = None,
     *,
@@ -80,7 +81,7 @@ def run_multi_entity_dense_search(
     dense_search: DenseSearchFn,
 ) -> dict:
     """Dense-only variant of multi-entity retrieval for the retrieval test page."""
-    query = state.get("rewritten_query") or state["query"]
+    query = effective_query(state)
     matched = state.get("matched_entities", [])
     n = max(len(matched), 1)
     per_limit = max(cfg.search_limit // n, 5)

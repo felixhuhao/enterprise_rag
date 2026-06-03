@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import MutableMapping
+from collections.abc import Mapping, MutableMapping, Sequence
+from typing import Any
 
 
 def normalize_chunk_content(content: object) -> str:
@@ -11,7 +12,7 @@ def normalize_chunk_content(content: object) -> str:
     return " ".join(str(content or "").split())
 
 
-def base_chunk_key(chunk: MutableMapping[str, object]) -> str:
+def base_chunk_key(chunk: Mapping[str, Any]) -> str:
     """Build the deterministic base key for one source chunk."""
     parts = [
         str(chunk.get("document_id") or ""),
@@ -25,7 +26,7 @@ def base_chunk_key(chunk: MutableMapping[str, object]) -> str:
     return f"ck_{digest}"
 
 
-def assign_chunk_keys(chunks: list[MutableMapping[str, object]]) -> list[MutableMapping[str, object]]:
+def assign_chunk_keys(chunks: Sequence[MutableMapping[str, Any]]) -> Sequence[MutableMapping[str, Any]]:
     """Assign stable chunk_key values, suffixing duplicate base keys deterministically."""
     seen: dict[str, int] = {}
     for chunk in chunks:

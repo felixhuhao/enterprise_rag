@@ -15,11 +15,13 @@ from app.core.auth import CurrentUser, get_allowed_document_ids
 from app.deps import verify_token
 from app.services.chat_history import load_history, save_message
 from app.services.query_observability import build_query_observability_payload
+from app.rag.query.state import query_state_from_mapping, require_context_text, require_query
 from app.utils.llm_usage import (
     extract_llm_token_usage,
     llm_model_name,
     merge_token_usage,
 )
+from app.utils.schema import ensure_dict
 from app.utils.sse import sse_event
 from app.utils.time import tick_ms
 
@@ -171,9 +173,9 @@ async def query_chat(req: QueryChatRequest, current_user: CurrentUser = Depends(
                 logger.warning("保存非流式失败统计失败", exc_info=True)
         raise HTTPException(status_code=500, detail={"code": code, "message": str(exc)[:500]}) from exc
 
-    obs_state = result.get("_observability_state") if isinstance(result.get("_observability_state"), dict) else {}
-    obs_trace = result.get("_observability_trace") if isinstance(result.get("_observability_trace"), dict) else {}
-    token_usage = result.get("_token_usage") if isinstance(result.get("_token_usage"), dict) else {}
+    obs_state = ensure_dict(result.get("_observability_state"))
+    obs_trace = ensure_dict(result.get("_observability_trace"))
+    token_usage = ensure_dict(result.get("_token_usage"))
 
     # 保存聊天历史
     if not is_eval:
@@ -185,7 +187,7 @@ async def query_chat(req: QueryChatRequest, current_user: CurrentUser = Depends(
         try:
             fallback_info = result.get("fallback_info")
             if not isinstance(fallback_info, dict):
-                fallback_info = state_fallback_info({})
+                fallback_info = state_fallback_info(query_state_from_mapping(query=req.query))
             _rd = obs_state.get("rerank_debug", [])
             rerank_avg = (
                 sum(r["final_score"] for r in _rd) / len(_rd)
@@ -193,6 +195,7 @@ async def query_chat(req: QueryChatRequest, current_user: CurrentUser = Depends(
             )
             rerank_top = _rd[0]["final_score"] if _rd else 0
             search_results = obs_state.get("search_results", [])
+            groundedness = ensure_dict(result.get("groundedness"))
             observability = build_query_observability_payload(
                 endpoint="query_chat",
                 status="success",
@@ -217,7 +220,7 @@ async def query_chat(req: QueryChatRequest, current_user: CurrentUser = Depends(
                 total_ms=obs_trace.get("total_ms", tick_ms(t0)),
                 status="success",
                 retrieved_chunks=_build_retrieved_chunks(search_results),
-                groundedness_score=(result.get("groundedness") or {}).get("groundedness_score"),
+                groundedness_score=groundedness.get("groundedness_score"),
                 user_id=current_user.user_id,
                 retrieval_flavor=result.get("retrieval_flavor", query_config.retrieval_flavor),
                 strict_evidence=bool(result.get("strict_evidence", query_config.strict_evidence)),
@@ -275,7 +278,7 @@ async def _stream_generator(
     }}
 
     # 外层变量初始化 — 所有路径都能安全取值
-    state: dict = {}
+    state = query_state_from_mapping(query=query)
     gen_trace: dict = {}
     cit_result: dict = {}
     gr_result: dict = {}
@@ -286,14 +289,14 @@ async def _stream_generator(
     # Phase 1: 搜索管线（同步，线程内执行）
     def run_search():
         trace: dict = {}
-        state = run_search_pipeline(query, run_config, trace=trace)
+        search_state = run_search_pipeline(query, run_config, trace=trace)
 
         t = time.monotonic()
-        state.update(build_prompt_node(state, run_config))
+        search_state.update(build_prompt_node(search_state, run_config))
         trace["build_prompt_ms"] = tick_ms(t)
         trace["retrieval_wall_ms"] = trace.get("retrieval_wall_ms", 0) + trace["build_prompt_ms"]
-        state["trace"] = trace
-        return state
+        search_state["trace"] = trace
+        return search_state
 
     # ── 所有 yield/await 都在 finally 保护内 ──
     try:
@@ -345,13 +348,13 @@ async def _stream_generator(
 
         # ── Phase 2: LLM 流式生成（带对话历史） ──
         history = [] if is_eval else await load_history(session_id, user_id=user_id, limit=10)
-        messages = [SystemMessage(content=state.get("context_text", ""))]
+        messages = [SystemMessage(content=require_context_text(state))]
         for msg in history:
             if msg["role"] == "user":
                 messages.append(HumanMessage(content=msg["content"]))
             elif msg["role"] == "assistant":
                 messages.append(AIMessage(content=msg["content"]))
-        messages.append(HumanMessage(content=state.get("query", "")))
+        messages.append(HumanMessage(content=require_query(state)))
 
         answer = ""
         llm_failed = False

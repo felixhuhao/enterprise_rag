@@ -18,7 +18,7 @@ from app.rag.query.fallback import (
 from app.rag.query.filter_utils import build_acl_expr, build_entity_expr, combine_filters, get_allowed_ids
 from app.rag.query.planner import plan_allows_entity_fallback, plan_budget
 from app.rag.query.scoring_utils import need_fallback
-from app.rag.query.state import QueryState
+from app.rag.query.state import QueryState, effective_query
 from app.rag.vectorstores.general_milvus import COLLECTION_NAME, available_output_fields, client
 from app.rag.vectorstores.milvus_hits import SEARCH_OUTPUT_FIELDS_WITH_IMAGE_PATHS, parse_hits
 
@@ -33,7 +33,7 @@ def search_node(state: QueryState, config: RunnableConfig) -> dict:
     Multi-entity: per-entity parallel search + merge.
     """
     cfg = get_query_config(config)
-    query = state.get("rewritten_query") or state["query"]
+    query = effective_query(state)
     entity_mode = state.get("entity_mode", "none")
 
     # ACL check
@@ -124,7 +124,13 @@ def _single_search(
         raise RuntimeError(f"搜索失败: {e}") from e
 
 
-def _multi_entity_search(state: dict, config: RunnableConfig, query: str, cfg: QueryConfig, acl_filter: str | None = None) -> dict:
+def _multi_entity_search(
+    state: QueryState,
+    config: RunnableConfig,
+    query: str,
+    cfg: QueryConfig,
+    acl_filter: str | None = None,
+) -> dict:
     """multi_explicit: 逐 entity 检索，合并去重，记录 per_entity_counts。"""
     from concurrent.futures import ThreadPoolExecutor
 

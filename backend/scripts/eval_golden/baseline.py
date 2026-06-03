@@ -7,6 +7,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.utils.schema import ensure_dict
+
 
 BASELINE_SCHEMA_VERSION = 1
 DELTA_METRICS = (
@@ -40,7 +42,7 @@ def attach_baseline_delta(summary: dict, baseline_path: str | Path | None = None
         summary["baseline_delta"] = None
         return summary
 
-    baseline_summary = entry.get("summary") if isinstance(entry.get("summary"), dict) else {}
+    baseline_summary = ensure_dict(entry.get("summary"))
     summary["baseline"] = {
         "available": True,
         "path": str(path),
@@ -103,8 +105,8 @@ def _flavor_metrics(metric: dict) -> dict:
 
 
 def _per_flavor_deltas(current: dict, baseline: dict) -> dict:
-    current_flavors = current.get("per_flavor") if isinstance(current.get("per_flavor"), dict) else {}
-    baseline_flavors = baseline.get("per_flavor") if isinstance(baseline.get("per_flavor"), dict) else {}
+    current_flavors = ensure_dict(current.get("per_flavor"))
+    baseline_flavors = ensure_dict(baseline.get("per_flavor"))
     flavors = sorted(set(current_flavors) & set(baseline_flavors))
     return {
         flavor: _metric_deltas(_flavor_metrics(current_flavors[flavor]), _flavor_metrics(baseline_flavors[flavor]))

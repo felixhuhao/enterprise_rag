@@ -18,61 +18,62 @@ from app.rag.query.fallback import (
     state_fallback_info,
 )
 from app.rag.query.planner import get_query_plan, plan_allows_entity_fallback
+from app.rag.query.state import QueryState, query_state_from_mapping
 from app.utils.time import tick_ms
 
 logger = logging.getLogger(__name__)
 
-NodeFn = Callable[[dict, RunnableConfig], dict]
-SearchFn = Callable[[dict, RunnableConfig], dict]
-StateHook = Callable[[dict], None]
-MultiHopFn = Callable[[dict, str, RunnableConfig, QueryConfig, dict], dict]
-ShouldRunMultiHopFn = Callable[[dict, str, dict], bool]
+NodeFn = Callable[[QueryState, RunnableConfig], dict]
+SearchFn = Callable[[QueryState, RunnableConfig], dict]
+StateHook = Callable[[QueryState], None]
+MultiHopFn = Callable[[QueryState, str, RunnableConfig, QueryConfig, dict], dict]
+ShouldRunMultiHopFn = Callable[[QueryState, str, dict], bool]
 
 
-def _entity_confirm_node(state: dict, config: RunnableConfig) -> dict:
+def _entity_confirm_node(state: QueryState, config: RunnableConfig) -> dict:
     from app.rag.query.entity_confirm import entity_confirm_node
 
     return entity_confirm_node(state, config)
 
 
-def _query_plan_node(state: dict, config: RunnableConfig) -> dict:
+def _query_plan_node(state: QueryState, config: RunnableConfig) -> dict:
     from app.rag.query.planner import query_plan_node
 
     return query_plan_node(state, config)
 
 
-def _rewrite_query_node(state: dict, config: RunnableConfig) -> dict:
+def _rewrite_query_node(state: QueryState, config: RunnableConfig) -> dict:
     from app.rag.query.rewrite_query import rewrite_query_node
 
     return rewrite_query_node(state, config)
 
 
-def _table_expand_node(state: dict, config: RunnableConfig) -> dict:
+def _table_expand_node(state: QueryState, config: RunnableConfig) -> dict:
     from app.rag.query.table_expand import table_expand_node
 
     return table_expand_node(state, config)
 
 
-def _rerank_node(state: dict, config: RunnableConfig) -> dict:
+def _rerank_node(state: QueryState, config: RunnableConfig) -> dict:
     from app.rag.query.rerank import rerank_node
 
     return rerank_node(state, config)
 
 
-def _diversify_context_node(state: dict, config: RunnableConfig) -> dict:
+def _diversify_context_node(state: QueryState, config: RunnableConfig) -> dict:
     from app.rag.query.diversify_context import diversify_context_node
 
     return diversify_context_node(state, config)
 
 
-def _context_expand_node(state: dict, config: RunnableConfig) -> dict:
+def _context_expand_node(state: QueryState, config: RunnableConfig) -> dict:
     from app.rag.query.context_expand import context_expand_node
 
     return context_expand_node(state, config)
 
 
 def _run_multi_hop_search(
-    state: dict,
+    state: QueryState,
     query: str,
     run_config: RunnableConfig,
     cfg: QueryConfig,
@@ -83,7 +84,7 @@ def _run_multi_hop_search(
     return run_multi_hop_search(state, query, run_config, cfg, trace)
 
 
-def _should_run_multi_hop(state: dict, query: str, plan: dict) -> bool:
+def _should_run_multi_hop(state: QueryState, query: str, plan: dict) -> bool:
     from app.rag.query.multi_hop import _decide_multi_hop
 
     return bool(plan.get("use_multi_hop") and _decide_multi_hop(state.get("entity_mode", "none"), query))
@@ -121,7 +122,7 @@ def run_search_pipeline(
     search_fn: SearchFn | None = None,
     hyde_fn: SearchFn | None = None,
     enable_post_rerank_fallback: bool = True,
-) -> dict:
+) -> QueryState:
     """Run retrieval through context expansion and return the final state.
 
     Prompt construction and answer generation intentionally stay outside this
@@ -132,8 +133,7 @@ def run_search_pipeline(
     nodes = nodes or SearchPipelineNodes()
     hooks = hooks or SearchPipelineHooks()
     t0 = time.monotonic()
-    state = dict(initial_state or {})
-    state.setdefault("query", query)
+    state = query_state_from_mapping(initial_state, query=query)
 
     t = time.monotonic()
     state.update(nodes.entity_confirm(state, run_config))
@@ -177,7 +177,7 @@ def run_search_pipeline(
 
 
 def _run_direct_with_fallback(
-    state: dict,
+    state: QueryState,
     run_config: RunnableConfig,
     cfg: QueryConfig,
     trace: dict,
@@ -232,7 +232,7 @@ def _run_direct_with_fallback(
 
 
 def _run_direct_retrieval(
-    state: dict,
+    state: QueryState,
     run_config: RunnableConfig,
     trace: dict,
     nodes: SearchPipelineNodes,
@@ -262,7 +262,7 @@ def _run_direct_retrieval(
 
 
 def _run_table_expand_and_rerank(
-    state: dict,
+    state: QueryState,
     run_config: RunnableConfig,
     trace: dict,
     nodes: SearchPipelineNodes,

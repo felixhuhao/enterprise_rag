@@ -6,7 +6,7 @@ from langgraph.graph.state import RunnableConfig
 
 from app.rag.query.config import get_query_config
 from app.rag.query.filter_utils import build_entity_expr
-from app.rag.query.state import QueryState
+from app.rag.query.state import QueryState, require_query
 
 _BROAD_SIGNALS = [
     "所有公司", "所有企业", "全部公司", "全部企业",
@@ -22,7 +22,7 @@ def entity_confirm_node(state: QueryState, config: RunnableConfig) -> dict:
     if not cfg.use_entity_confirm:
         return _empty_result("none")
 
-    query = state["query"]
+    query = require_query(state)
     from app.rag.query.entity_cache import get_alias_map, get_known_entities
 
     known = get_known_entities()

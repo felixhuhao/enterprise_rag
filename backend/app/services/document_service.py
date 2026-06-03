@@ -5,7 +5,6 @@ import logging
 import os
 from datetime import datetime
 
-from app.config import settings
 from app.core.database import get_db
 from app.services import document_chunk_query, document_cleanup, job_service
 

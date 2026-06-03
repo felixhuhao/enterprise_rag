@@ -20,7 +20,7 @@ from app.rag.query.fallback import (
 from app.rag.query.filter_utils import build_acl_expr, combine_filters, get_allowed_ids
 from app.rag.query.planner import get_query_plan, plan_allows_entity_fallback, plan_budget
 from app.rag.query.search import SEARCH_TIMEOUT
-from app.rag.query.state import QueryState
+from app.rag.query.state import QueryState, effective_query
 from app.rag.vectorstores.general_milvus import COLLECTION_NAME, available_output_fields, client
 from app.rag.vectorstores.milvus_hits import SEARCH_OUTPUT_FIELDS, parse_hits
 
@@ -52,7 +52,7 @@ def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
     if state.get("entity_mode") == "multi_explicit":
         return {"search_results_hyde": [], "search_mode_hyde": "disabled_multi", "fallback_info": empty_fallback_info()}
 
-    query = state.get("rewritten_query") or state["query"]
+    query = effective_query(state)
     entity_filter = state.get("entity_filter") or None
     original_entity_filter = entity_filter
     budget = plan_budget(state, config)

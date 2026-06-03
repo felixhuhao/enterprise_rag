@@ -9,7 +9,7 @@ from typing import Literal
 from langgraph.graph.state import RunnableConfig
 
 from app.rag.query.config import QueryConfig, get_query_config
-from app.rag.query.state import QueryState
+from app.rag.query.state import QueryState, require_query
 
 RetrievalFlavor = Literal["balanced", "exact", "recall", "discovery"]
 
@@ -63,7 +63,7 @@ def query_plan_node(state: QueryState, config: RunnableConfig) -> dict:
     """Resolve high-level query controls into one plan for downstream nodes."""
     cfg = get_query_config(config)
     plan = build_query_plan(
-        query=state["query"],
+        query=require_query(state),
         entity_mode=state.get("entity_mode", "none"),
         cfg=cfg,
     )
@@ -201,7 +201,7 @@ def get_query_plan(state: QueryState, config: RunnableConfig | None = None) -> d
         return plan
     cfg = get_query_config(config or {})
     return asdict(build_query_plan(
-        query=state.get("query", ""),
+        query=require_query(state),
         entity_mode=state.get("entity_mode", "none"),
         cfg=cfg,
     ))

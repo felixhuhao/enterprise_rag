@@ -3,7 +3,6 @@
 import json
 import sys
 import threading
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,6 +20,7 @@ from app.api.golden_set_utils import (
 from app.core.auth import CurrentUser
 from app.deps import verify_token
 from app.services import job_service
+from app.utils.schema import ensure_dict
 
 router = APIRouter()
 
@@ -89,7 +89,7 @@ def _boolish(value) -> bool:
 
 
 def _case_flavor(case: dict) -> str:
-    source_config = case.get("source_config") if isinstance(case.get("source_config"), dict) else {}
+    source_config = ensure_dict(case.get("source_config"))
     return (
         case.get("preferred_flavor")
         or source_config.get("retrieval_flavor")
@@ -99,7 +99,7 @@ def _case_flavor(case: dict) -> str:
 
 
 def _case_strict(case: dict) -> bool:
-    source_config = case.get("source_config") if isinstance(case.get("source_config"), dict) else {}
+    source_config = ensure_dict(case.get("source_config"))
     return _boolish(case.get("strict_evidence", source_config.get("strict_evidence", False)))
 
 

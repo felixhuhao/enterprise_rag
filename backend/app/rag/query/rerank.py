@@ -14,7 +14,7 @@ from app.config import settings
 from app.rag.query.config import get_query_config
 from app.rag.query.planner import plan_budget
 from app.rag.query.scoring_utils import cliff_detect
-from app.rag.query.state import QueryState
+from app.rag.query.state import QueryState, effective_query
 
 logger = logging.getLogger(__name__)
 _TABLE_RERANK_PREVIEW_MIN = 800
@@ -52,7 +52,7 @@ def rerank_node(state: QueryState, config: RunnableConfig) -> dict:
     budget = plan_budget(state, config)
     candidate_k = int(budget.get("rerank_candidate_k") or cfg.rerank_max_top_k)
     results = state.get("search_results", [])[:candidate_k]
-    query = state.get("rewritten_query") or state["query"]
+    query = effective_query(state)
 
     if not results:
         return {"search_results": [], "rerank_candidates": [], "rerank_debug": []}

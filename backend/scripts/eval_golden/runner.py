@@ -5,6 +5,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from queue import Empty, Queue
 from threading import Event, Thread
 
+from app.utils.schema import ensure_dict
+
 from . import client, judge
 from .citation import (
     _apply_hit_metrics,
@@ -33,7 +35,7 @@ def _get_eval_type(item: dict) -> str:
 
 def _case_query_config(item: dict) -> dict:
     """Build the query config that should be used for one golden-set case."""
-    source_config = item.get("source_config") if isinstance(item.get("source_config"), dict) else {}
+    source_config = ensure_dict(item.get("source_config"))
     flavor = (
         item.get("preferred_flavor")
         or source_config.get("retrieval_flavor")
@@ -249,7 +251,8 @@ def run_retrieval_only_case(
         row["final_score"] = (
             1.0 if row.get("hit_at_10") else 0.0
         ) if row.get("hit_metric_applicable") else None
-        row["verdict"] = _verdict(row["final_score"]) if row.get("final_score") is not None else "not_applicable"
+        final_score = row.get("final_score")
+        row["verdict"] = _verdict(final_score) if isinstance(final_score, (int, float)) else "not_applicable"
         _apply_failure_category(row)
 
         if progress_callback:
@@ -590,12 +593,12 @@ def _has_context_loss(row: dict) -> bool:
 
 
 def _has_unsupported_answer(row: dict) -> bool:
-    judge = row.get("judge") if isinstance(row.get("judge"), dict) else {}
+    judge = ensure_dict(row.get("judge"))
     unsupported = judge.get("unsupported_claims")
     if isinstance(unsupported, list) and unsupported:
         return True
 
-    groundedness = row.get("groundedness") if isinstance(row.get("groundedness"), dict) else {}
+    groundedness = ensure_dict(row.get("groundedness"))
     score = groundedness.get("groundedness_score")
     if isinstance(score, (int, float)) and not isinstance(score, bool) and score < 0.7:
         return True
@@ -618,7 +621,7 @@ def _has_uncertain_judge(row: dict) -> bool:
         return False
     if row.get("judge_error"):
         return True
-    judge = row.get("judge") if isinstance(row.get("judge"), dict) else {}
+    judge = ensure_dict(row.get("judge"))
     if judge.get("parse_warning"):
         return True
     judge_score = row.get("judge_score")

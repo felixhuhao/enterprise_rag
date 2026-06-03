@@ -13,12 +13,12 @@ from app.rag.query.fallback import empty_fallback_info, merge_fallback_info
 from app.rag.query.planner import get_query_plan
 from app.rag.query.query_expansion import query_expansion_node
 from app.rag.query.rrf_fusion import rrf_fusion_node
-from app.rag.query.state import QueryState
+from app.rag.query.state import QueryState, effective_query, query_state_from_mapping
 from app.utils.time import tick_ms
 
 logger = logging.getLogger(__name__)
 
-SearchFn = Callable[[dict, RunnableConfig], dict]
+SearchFn = Callable[[QueryState, RunnableConfig], dict]
 
 
 def run_direct_search(
@@ -42,7 +42,7 @@ def run_direct_search(
     else:
         updates = _run_search_and_hyde(state, config, search_fn, hyde_fn, plan)
 
-    fusion_state = {**state, **updates}
+    fusion_state = query_state_from_mapping(state, **updates)
     t = time.monotonic()
     fused = rrf_fusion_node(fusion_state, config)
     return {**updates, **fused, "_rrf_fusion_ms": tick_ms(t)}
@@ -84,7 +84,7 @@ def _run_query_expansion_search(
 ) -> dict:
     expansion = query_expansion_node(state, config)
     expanded_queries = expansion.get("expanded_queries", [])
-    original_query = state.get("rewritten_query") or state["query"]
+    original_query = effective_query(state)
 
     if not expanded_queries:
         primary = search_fn(state, config)
@@ -142,8 +142,7 @@ def _safe_expanded_search(
     query: str,
     index: int,
 ) -> dict:
-    variant = dict(state)
-    variant["rewritten_query"] = query
+    variant = query_state_from_mapping(state, rewritten_query=query)
     try:
         return search_fn(variant, config)
     except Exception:

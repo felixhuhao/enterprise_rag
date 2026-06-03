@@ -113,9 +113,15 @@ def build_search_text(chunk: Mapping[str, object], profile: str = "enterprise_po
     file_title = str(chunk.get("file_title") or "")
     entity_name = str(chunk.get("entity_name") or "")
     table_title = str(chunk.get("table_title") or "")
-    keywords = list(chunk.get("keywords") or extract_keywords(content, section_title, profile=profile))
+    raw_keywords = chunk.get("keywords")
+    keywords = (
+        raw_keywords
+        if isinstance(raw_keywords, list) and raw_keywords
+        else extract_keywords(content, section_title, profile=profile)
+    )
+    raw_tags = chunk.get("structured_tags")
     tags = normalize_structured_tags(
-        chunk.get("structured_tags") or extract_structured_tags(content, section_title, profile=profile),
+        raw_tags if isinstance(raw_tags, list) and raw_tags else extract_structured_tags(content, section_title, profile=profile),
         profile=profile,
     )
 

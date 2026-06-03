@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import logging
 
+from langgraph.graph.state import RunnableConfig
+
 from app.config import settings
 from app.rag.query.config import QueryConfig, get_default_query_config
 from app.rag.query.search_pipeline import SearchPipelineHooks, SearchPipelineNodes, run_search_pipeline
+from app.rag.query.state import QueryState
 from app.services import retrieval_test_formatting
 from app.services import retrieval_test_search
 
@@ -139,7 +142,7 @@ def _combine_acl(entity_filter: str | None, acl_filter: str | None) -> str | Non
     return combine_filters(entity_filter, acl_filter)
 
 
-def _run_primary_search(state: dict, run_config: dict, cfg: QueryConfig, *, use_hybrid: bool) -> dict:
+def _run_primary_search(state: QueryState, run_config: RunnableConfig, cfg: QueryConfig, *, use_hybrid: bool) -> dict:
     return retrieval_test_search.run_primary_search(
         state,
         run_config,
@@ -153,19 +156,25 @@ def _run_primary_search(state: dict, run_config: dict, cfg: QueryConfig, *, use_
     )
 
 
-def _should_run_multi_hop(state: dict, query: str, plan: dict) -> bool:
+def _should_run_multi_hop(state: QueryState, query: str, plan: dict) -> bool:
     from app.rag.query.multi_hop import _decide_multi_hop
 
     return bool(plan.get("use_multi_hop") and _decide_multi_hop(state.get("entity_mode", "none"), query))
 
 
-def _run_multi_hop_search(state: dict, query: str, run_config: dict, cfg: QueryConfig, trace: dict) -> dict:
+def _run_multi_hop_search(
+    state: QueryState,
+    query: str,
+    run_config: RunnableConfig,
+    cfg: QueryConfig,
+    trace: dict,
+) -> dict:
     from app.rag.query.multi_hop import run_multi_hop_search
 
     return run_multi_hop_search(state, query, run_config, cfg, trace)
 
 
-def _run_multi_entity_dense_search(state: dict, cfg: QueryConfig, acl_filter: str | None = None) -> dict:
+def _run_multi_entity_dense_search(state: QueryState, cfg: QueryConfig, acl_filter: str | None = None) -> dict:
     return retrieval_test_search.run_multi_entity_dense_search(
         state,
         cfg,
@@ -184,7 +193,7 @@ def _apply_default_path(rows: list[dict], label: str):
         row["retrieval_path"] = label
 
 
-def _capture_table_paths(state: dict, table_paths: dict[str, list[str]]):
+def _capture_table_paths(state: QueryState, table_paths: dict[str, list[str]]):
     table_paths.clear()
     table_paths.update(_table_path_map(state.get("search_results", [])))
 
@@ -218,7 +227,7 @@ def _apply_table_paths(rows: list[dict], table_paths: dict[str, list[str]]):
             row["retrieval_path"] = " + ".join(paths)
 
 
-def _retrieval_test_rerank_node(state: dict, config: dict, cfg: QueryConfig) -> dict:
+def _retrieval_test_rerank_node(state: QueryState, config: RunnableConfig, cfg: QueryConfig) -> dict:
     if cfg.use_rerank:
         return _rerank_node(state, config)
     results = state.get("search_results", [])[:cfg.rerank_max_top_k]
@@ -233,7 +242,7 @@ def _format_result(row: dict, rank: int, *, use_rerank: bool) -> dict:
     return retrieval_test_formatting.format_result(row, rank, use_rerank=use_rerank)
 
 
-def _strategy_summary(cfg: QueryConfig, use_hybrid: bool, state: dict) -> dict:
+def _strategy_summary(cfg: QueryConfig, use_hybrid: bool, state: QueryState) -> dict:
     return retrieval_test_formatting.strategy_summary(
         cfg,
         use_hybrid,
@@ -251,55 +260,55 @@ def _mode_label(mode: str) -> str:
     return retrieval_test_formatting.mode_label(mode)
 
 
-def _entity_confirm_node(state: dict, config: dict) -> dict:
+def _entity_confirm_node(state: QueryState, config: RunnableConfig) -> dict:
     from app.rag.query.entity_confirm import entity_confirm_node
 
     return entity_confirm_node(state, config)
 
 
-def _rewrite_query_node(state: dict, config: dict) -> dict:
+def _rewrite_query_node(state: QueryState, config: RunnableConfig) -> dict:
     from app.rag.query.rewrite_query import rewrite_query_node
 
     return rewrite_query_node(state, config)
 
 
-def _query_plan_node(state: dict, config: dict) -> dict:
+def _query_plan_node(state: QueryState, config: RunnableConfig) -> dict:
     from app.rag.query.planner import query_plan_node
 
     return query_plan_node(state, config)
 
 
-def _search_node(state: dict, config: dict) -> dict:
+def _search_node(state: QueryState, config: RunnableConfig) -> dict:
     from app.rag.query.search import search_node
 
     return search_node(state, config)
 
 
-def _hyde_search_node(state: dict, config: dict) -> dict:
+def _hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
     from app.rag.query.hyde_search import hyde_search_node
 
     return hyde_search_node(state, config)
 
 
-def _table_expand_node(state: dict, config: dict) -> dict:
+def _table_expand_node(state: QueryState, config: RunnableConfig) -> dict:
     from app.rag.query.table_expand import table_expand_node
 
     return table_expand_node(state, config)
 
 
-def _rerank_node(state: dict, config: dict) -> dict:
+def _rerank_node(state: QueryState, config: RunnableConfig) -> dict:
     from app.rag.query.rerank import rerank_node
 
     return rerank_node(state, config)
 
 
-def _diversify_context_node(state: dict, config: dict) -> dict:
+def _diversify_context_node(state: QueryState, config: RunnableConfig) -> dict:
     from app.rag.query.diversify_context import diversify_context_node
 
     return diversify_context_node(state, config)
 
 
-def _context_expand_node(state: dict, config: dict) -> dict:
+def _context_expand_node(state: QueryState, config: RunnableConfig) -> dict:
     from app.rag.query.context_expand import context_expand_node
 
     return context_expand_node(state, config)

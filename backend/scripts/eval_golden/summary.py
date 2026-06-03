@@ -3,6 +3,8 @@
 import math
 from collections import Counter
 
+from app.utils.schema import ensure_dict
+
 from .common import FAILURE_CATEGORIES, _boolish, normalize_eval_mode
 from .runner import _row_failure_categories
 
@@ -272,7 +274,7 @@ def _judge_cache_usage_counts(rows: list[dict]) -> dict:
 def _summary_latencies(results: list[dict]) -> list[int]:
     values = []
     for row in results:
-        trace = row.get("trace") if isinstance(row.get("trace"), dict) else {}
+        trace = ensure_dict(row.get("trace"))
         value = (
             _positive_ms(trace.get("total_ms"))
             or _positive_ms(row.get("retrieval_latency_ms"))
@@ -326,7 +328,7 @@ def print_summary(results: list[dict], summary: dict | None = None):
     o = summary["overall"]
     if not o.get("count"):
         pending = [r for r in results if _is_pending_judge_row(r)]
-        print(f"\n  Overall: 0 scored questions")
+        print("\n  Overall: 0 scored questions")
         if pending:
             print(f"  Pending LLM judge: {len(pending)} questions (use --judge)")
         cache = summary.get("judge_cache") or {}
@@ -351,7 +353,7 @@ def print_summary(results: list[dict], summary: dict | None = None):
 
     # Per-flavor summary
     if summary.get("per_flavor"):
-        print(f"\n  --- per flavor ---")
+        print("\n  --- per flavor ---")
         for flavor, fd in summary["per_flavor"].items():
             print(f"    {flavor}: count={fd['count']}, avg={fd['avg_score']:.3f}, "
                   f"pass={fd['pass_rate']:.1%}, "
@@ -361,25 +363,25 @@ def print_summary(results: list[dict], summary: dict | None = None):
 
     # Per-tag summary
     if summary.get("per_tag"):
-        print(f"\n  --- per tag ---")
+        print("\n  --- per tag ---")
         for tag, td in summary["per_tag"].items():
             print(f"    {tag}: count={td['count']}, avg={td['avg_score']:.3f}, "
                   f"pass={td['pass_rate']:.1%}")
 
     if summary.get("failure_categories"):
-        print(f"\n  --- failure categories ---")
+        print("\n  --- failure categories ---")
         for category, count in summary["failure_categories"].items():
             print(f"    {category}: {count}")
 
     if summary.get("baseline_delta"):
-        print(f"\n  --- baseline delta ---")
+        print("\n  --- baseline delta ---")
         _print_baseline_delta(summary["baseline_delta"].get("overall", {}))
 
     cache = summary.get("judge_cache") or {}
     if cache.get("checked"):
         score_cache = cache.get("score") or {}
         lookup_cache = cache.get("lookup_only") or {}
-        print(f"\n  --- judge cache ---")
+        print("\n  --- judge cache ---")
         print(f"    score hits={score_cache.get('hits', 0)}/{score_cache.get('checked', 0)}, "
               f"lookup-only hits={lookup_cache.get('hits', 0)}/{lookup_cache.get('checked', 0)}, "
               f"fresh={cache.get('fresh', 0)}, errors={cache.get('errors', 0)}")
@@ -387,12 +389,12 @@ def print_summary(results: list[dict], summary: dict | None = None):
     # Strict evidence slice
     if summary.get("per_strict"):
         sd = summary["per_strict"]
-        print(f"\n  --- strict_evidence ---")
+        print("\n  --- strict_evidence ---")
         print(f"    count={sd['count']}, avg={sd['avg_score']:.3f}, "
               f"pass={sd['pass_rate']:.1%}")
 
     if summary["low_score_cases"]:
-        print(f"\n  Low score (<0.6):")
+        print("\n  Low score (<0.6):")
         for lc in summary["low_score_cases"]:
             print(f"    {lc['id']} score={lc['score']:.2f} — {lc['reason']}")
 
@@ -413,7 +415,7 @@ def _print_baseline_delta(delta: dict) -> None:
     }
     parts = []
     for key, label in labels.items():
-        item = delta.get(key) if isinstance(delta.get(key), dict) else {}
+        item = ensure_dict(delta.get(key))
         value = item.get("delta")
         if value is None:
             continue

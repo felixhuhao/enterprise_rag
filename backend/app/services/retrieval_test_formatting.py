@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
 from app.rag.query.config import QueryConfig
@@ -41,7 +42,7 @@ def format_result(row: dict, rank: int, *, use_rerank: bool) -> dict:
 def strategy_summary(
     cfg: QueryConfig,
     use_hybrid: bool,
-    state: dict,
+    state: Mapping[str, Any],
     *,
     settings_obj: Any,
     embedding_model_label: str,

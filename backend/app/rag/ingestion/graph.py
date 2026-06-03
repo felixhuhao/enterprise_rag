@@ -11,7 +11,7 @@ import json
 import os
 import shutil
 from datetime import datetime
-from typing import Callable, TypedDict
+from typing import Callable, TypedDict, cast
 
 from langgraph.constants import END, START
 from langgraph.graph import StateGraph
@@ -101,6 +101,24 @@ def _parser_metadata(file_type: str) -> tuple[str, str]:
     return PARSER_VERSIONS.get(file_type, ("markdown", "markdown_v1"))
 
 
+def _required_str(state: IngestionState, key: str) -> str:
+    value = state.get(key)
+    if not isinstance(value, str) or not value:
+        document_id = state.get("document_id")
+        suffix = f" for document {document_id!r}" if isinstance(document_id, str) and document_id else ""
+        raise ValueError(f"Missing required field {key!r} in ingestion state{suffix}")
+    return value
+
+
+def _required_chunks(state: IngestionState) -> list[dict]:
+    chunks = state.get("chunks")
+    if not isinstance(chunks, list):
+        document_id = state.get("document_id")
+        suffix = f" for document {document_id!r}" if isinstance(document_id, str) and document_id else ""
+        raise ValueError(f"Missing required field 'chunks' in ingestion state{suffix}")
+    return cast(list[dict], chunks)
+
+
 def _build_quality_report(state: IngestionState, config: RunnableConfig, chunks: list[dict]) -> dict:
     from app.rag.ingestion.config import get_ingestion_config
 
@@ -110,7 +128,7 @@ def _build_quality_report(state: IngestionState, config: RunnableConfig, chunks:
     try:
         return build_chunk_quality_report(
             chunks,
-            document_id=state["document_id"],
+            document_id=_required_str(state, "document_id"),
             parser_name=parser_name,
             parser_version=parser_version,
             chunker_version=CHUNKER_VERSION,
@@ -158,8 +176,9 @@ def _append_processing_history(parsed_dir: str, report: dict) -> None:
 
 def _write_quality_artifacts(state: IngestionState, config: RunnableConfig, chunks: list[dict]) -> dict:
     report = _build_quality_report(state, config, chunks)
-    _write_json_artifact(os.path.join(state["parsed_dir"], "chunk_quality.json"), report)
-    _append_processing_history(state["parsed_dir"], report)
+    parsed_dir = _required_str(state, "parsed_dir")
+    _write_json_artifact(os.path.join(parsed_dir, "chunk_quality.json"), report)
+    _append_processing_history(parsed_dir, report)
     return report
 
 
@@ -170,13 +189,13 @@ def _write_quality_artifacts(state: IngestionState, config: RunnableConfig, chun
 
 def entry(state: IngestionState, config: RunnableConfig) -> dict:
     """初始化 parsed_dir 和 entity_name。"""
-    document_id = state["document_id"]
+    document_id = _required_str(state, "document_id")
     parsed_dir = os.path.abspath(
         os.path.join(settings.GENERAL_PARSED_DIR, document_id)
     )
     _reset_parsed_dir(parsed_dir)
     # 优先级：用户指定 > 文件名提取 > 空字符串
-    entity_name = state.get("entity_name") or extract_entity_name(state["filename"])
+    entity_name = state.get("entity_name") or extract_entity_name(_required_str(state, "filename"))
 
     updater = _get_updater(config)
     if updater:
@@ -197,9 +216,9 @@ def parse_pdf(state: IngestionState, config: RunnableConfig) -> dict:
 
     updater = _get_updater(config)
     if updater:
-        updater(state["document_id"], "parsing")
+        updater(_required_str(state, "document_id"), "parsing")
 
-    result = parse_pdf_to_markdown(state["source_path"], state["parsed_dir"])
+    result = parse_pdf_to_markdown(_required_str(state, "source_path"), _required_str(state, "parsed_dir"))
     return {
         "markdown": result.markdown_content,
         "image_count": _count_images(result.images_dir),
@@ -214,9 +233,9 @@ def read_markdown_file(state: IngestionState, config: RunnableConfig) -> dict:
 
     updater = _get_updater(config)
     if updater:
-        updater(state["document_id"], "reading")
+        updater(_required_str(state, "document_id"), "reading")
 
-    markdown = read_markdown(state["source_path"])
+    markdown = read_markdown(_required_str(state, "source_path"))
     return {"markdown": markdown, "status": "reading"}
 
 
@@ -226,9 +245,9 @@ def parse_md_zip(state: IngestionState, config: RunnableConfig) -> dict:
 
     updater = _get_updater(config)
     if updater:
-        updater(state["document_id"], "parsing")
+        updater(_required_str(state, "document_id"), "parsing")
 
-    result = _parse_md_zip(state["source_path"], state["parsed_dir"])
+    result = _parse_md_zip(_required_str(state, "source_path"), _required_str(state, "parsed_dir"))
     return {
         "markdown": result.markdown_content,
         "image_count": _count_images(result.images_dir),
@@ -243,10 +262,10 @@ def normalize(state: IngestionState, config: RunnableConfig) -> dict:
 
     updater = _get_updater(config)
     if updater:
-        updater(state["document_id"], "normalizing")
+        updater(_required_str(state, "document_id"), "normalizing")
 
-    normalized = normalize_markdown(state["markdown"])
-    write_markdown(os.path.join(state["parsed_dir"], "document.md"), normalized)
+    normalized = normalize_markdown(_required_str(state, "markdown"))
+    write_markdown(os.path.join(_required_str(state, "parsed_dir"), "document.md"), normalized)
     return {"markdown": normalized, "status": "normalizing"}
 
 
@@ -264,7 +283,7 @@ def describe_images(state: IngestionState, config: RunnableConfig) -> dict:
     descriptions = batch_describe_images(images_dir)
 
     # 将绝对路径转为相对 parsed_dir 的路径，方便 asset 接口服务
-    parsed_dir = os.path.normpath(state["parsed_dir"])
+    parsed_dir = os.path.normpath(_required_str(state, "parsed_dir"))
     for key, entry in descriptions.items():
         abs_path = entry.get("image_path", "")
         if abs_path and os.path.isabs(abs_path):
@@ -283,20 +302,20 @@ def chunk(state: IngestionState, config: RunnableConfig) -> dict:
 
     updater = _get_updater(config)
     if updater:
-        updater(state["document_id"], "chunking")
+        updater(_required_str(state, "document_id"), "chunking")
 
     cfg = get_ingestion_config(config)
     chunks, _table_count = split_markdown_document(
-        state["markdown"],
-        document_id=state["document_id"],
-        filename=state["filename"],
-        source_path=state["source_path"],
-        parsed_dir=state["parsed_dir"],
-        entity_name=state["entity_name"],
+        _required_str(state, "markdown"),
+        document_id=_required_str(state, "document_id"),
+        filename=_required_str(state, "filename"),
+        source_path=_required_str(state, "source_path"),
+        parsed_dir=_required_str(state, "parsed_dir"),
+        entity_name=str(state.get("entity_name") or ""),
         image_descriptions=state.get("image_descriptions"),
         cfg=cfg,
     )
-    _write_chunks_artifact(state["parsed_dir"], chunks)
+    _write_chunks_artifact(_required_str(state, "parsed_dir"), chunks)
     return {"chunks": chunks, "status": "chunking"}
 
 
@@ -305,19 +324,19 @@ def enrich_search_metadata(state: IngestionState, config: RunnableConfig) -> dic
     from app.rag.chunking.enrichment import enrich_chunks as _enrich_chunks
     from app.rag.ingestion.config import get_ingestion_config
 
-    chunks = state.get("chunks", [])
+    chunks = _required_chunks(state)
     cfg = get_ingestion_config(config)
     if not cfg.chunk_enrichment_enabled or cfg.chunk_enrichment_profile == "none":
-        _write_chunks_artifact(state["parsed_dir"], chunks)
+        _write_chunks_artifact(_required_str(state, "parsed_dir"), chunks)
         quality_report = _write_quality_artifacts(state, config, chunks)
         return {"chunks": chunks, "quality_report": quality_report}
 
     updater = _get_updater(config)
     if updater:
-        updater(state["document_id"], "enriching")
+        updater(_required_str(state, "document_id"), "enriching")
 
     enriched = _enrich_chunks(chunks, profile=cfg.chunk_enrichment_profile)
-    _write_enrichment_artifacts(state["parsed_dir"], enriched)
+    _write_enrichment_artifacts(_required_str(state, "parsed_dir"), enriched)
     quality_report = _write_quality_artifacts(state, config, enriched)
     return {"chunks": enriched, "quality_report": quality_report, "status": "enriching"}
 
@@ -344,12 +363,12 @@ def embed_and_save(state: IngestionState, config: RunnableConfig) -> dict:
     from app.rag.embeddings.dense_embedding import embed_chunks
     from app.rag.vectorstores.general_milvus import upsert_document_chunks
 
-    doc_id = state["document_id"]
+    doc_id = _required_str(state, "document_id")
     updater = _get_updater(config)
 
     if updater:
         updater(doc_id, "embedding")
-    embedded = embed_chunks(state["chunks"])
+    embedded = embed_chunks(_required_chunks(state))
 
     if updater:
         updater(doc_id, "saving")
@@ -368,9 +387,10 @@ def embed_and_save(state: IngestionState, config: RunnableConfig) -> dict:
 
 
 def route_by_file_type(state: IngestionState) -> str:
-    if state["file_type"] == "pdf":
+    file_type = _required_str(state, "file_type")
+    if file_type == "pdf":
         return "parse_pdf"
-    if state["file_type"] == "md_zip":
+    if file_type == "md_zip":
         return "parse_md_zip"
     return "read_markdown"
 

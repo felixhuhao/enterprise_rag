@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, is_dataclass
-from typing import Any
+from typing import Any, cast, overload
 
 TIMING_KEY_LABELS = {
     "entity_confirm_ms": "entity_confirm",
@@ -212,8 +212,8 @@ def _config_dict(query_config: Any | Mapping[str, Any] | None) -> dict[str, Any]
         return {}
     if isinstance(query_config, Mapping):
         return dict(query_config)
-    if is_dataclass(query_config):
-        return asdict(query_config)
+    if is_dataclass(query_config) and not isinstance(query_config, type):
+        return asdict(cast(Any, query_config))
     if hasattr(query_config, "__dict__"):
         return dict(query_config.__dict__)
     return {}
@@ -249,6 +249,14 @@ def _int_or_none(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+@overload
+def _float(value: Any, default: float) -> float: ...
+
+
+@overload
+def _float(value: Any, default: None) -> float | None: ...
 
 
 def _float(value: Any, default: float | None = 0.0) -> float | None:

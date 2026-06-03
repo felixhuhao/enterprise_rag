@@ -12,6 +12,7 @@ import time
 
 from app.rag.query.config import QueryConfig
 from app.rag.query.fallback import empty_fallback_info, merge_fallback_info
+from app.rag.query.state import QueryState, query_state_from_mapping
 from app.utils.time import tick_ms
 
 logger = logging.getLogger(__name__)
@@ -95,7 +96,7 @@ def _extract_responsible_people(results: list[dict], max_n: int = 3) -> list[str
 
 
 def run_multi_hop_search(
-    state: dict, query: str, run_config, cfg: QueryConfig, trace: dict,
+    state: QueryState, query: str, run_config, cfg: QueryConfig, trace: dict,
 ) -> dict:
     """Broad entity discovery + per-entity hop2. Returns state update dict."""
     from app.rag.query.filter_utils import build_acl_expr, get_allowed_ids
@@ -141,13 +142,13 @@ def run_multi_hop_search(
     person_status = "not_applicable"
 
     if discovered:
-        hop2_state = {
-            **state,
-            "query": query,
-            "rewritten_query": query,
-            "entity_mode": "multi_explicit",
-            "matched_entities": discovered,
-        }
+        hop2_state = query_state_from_mapping(
+            state,
+            query=query,
+            rewritten_query=query,
+            entity_mode="multi_explicit",
+            matched_entities=discovered,
+        )
         try:
             hop2_result = search_node(hop2_state, run_config)
             hop2_results = hop2_result.get("search_results", [])

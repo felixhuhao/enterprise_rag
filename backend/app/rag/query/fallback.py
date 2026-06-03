@@ -19,7 +19,7 @@ def empty_fallback_info() -> dict:
     }
 
 
-def fallback_used(original_filter: str, reason: str = REASON_LOW_SCORE_OR_INSUFFICIENT_HITS) -> dict:
+def fallback_used(original_filter: str | None, reason: str = REASON_LOW_SCORE_OR_INSUFFICIENT_HITS) -> dict:
     return {
         "used": True,
         "blocked": False,
@@ -29,7 +29,7 @@ def fallback_used(original_filter: str, reason: str = REASON_LOW_SCORE_OR_INSUFF
     }
 
 
-def fallback_blocked(original_filter: str, reason: str = REASON_ENTITY_FALLBACK_DISABLED) -> dict:
+def fallback_blocked(original_filter: str | None, reason: str = REASON_ENTITY_FALLBACK_DISABLED) -> dict:
     return {
         "used": False,
         "blocked": True,
