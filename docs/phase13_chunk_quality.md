@@ -584,6 +584,17 @@ Manual validation note:
   `PermissionError: [Errno 1] Operation not permitted`. The parser now copies
   file contents without preserving metadata for canonical markdown and image
   assets.
+- Markdown image references are now retained in chunk `image_paths` even when
+  image description generation is disabled, missing, or failed. This keeps
+  image chunks visible to citation thumbnails and lets the quality analyzer flag
+  `image_without_description` instead of silently treating the chunk as text-only.
+- A local deployment permission issue was observed when the non-root backend
+  container wrote to a root-owned `data/general_uploads` bind mount. This is an
+  ops/deployment concern, not a Phase 13 quality feature; document it in the
+  deployment checklist if the Docker setup is hardened further.
+- Synthetic PDFs can produce `missing_section_title` warnings because extracted
+  PDF text may lack Markdown-style headings. Keep this as a P2.2 threshold/
+  heuristic observation and tune only if it becomes noisy on real documents.
 
 P2 decision after engineering closeout:
 

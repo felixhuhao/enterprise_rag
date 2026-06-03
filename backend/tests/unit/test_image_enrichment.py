@@ -49,7 +49,7 @@ class TestEnrichImagesKeepsOriginalWhenMissing:
         descriptions = {}
         enriched, paths = _enrich_images_in_text(text, descriptions)
         assert "![](images/unknown.jpg)" in enriched
-        assert len(paths) == 0
+        assert paths == ["images/unknown.jpg"]
 
     def test_keeps_ref_when_status_failed(self):
         text = "![](images/broken.png)"
@@ -58,13 +58,13 @@ class TestEnrichImagesKeepsOriginalWhenMissing:
         }
         enriched, paths = _enrich_images_in_text(text, descriptions)
         assert "![](images/broken.png)" in enriched
-        assert len(paths) == 0
+        assert paths == ["images/broken.png"]
 
     def test_empty_descriptions_returns_unchanged(self):
         text = "![](images/foo.jpg)"
         enriched, paths = _enrich_images_in_text(text, {})
         assert enriched == text
-        assert paths == []
+        assert paths == ["images/foo.jpg"]
 
 
 class TestFallbackBasenameMatching:
@@ -107,6 +107,11 @@ class TestReturnsImagePaths:
         _, paths = _enrich_images_in_text(text, descriptions)
         assert paths == ["/abs/x.png", "/abs/y.jpg"]
 
+    def test_image_paths_are_deduplicated(self):
+        text = "![](images/x.png)\n![](images/x.png)"
+        _, paths = _enrich_images_in_text(text, {})
+        assert paths == ["images/x.png"]
+
 
 class TestSplitWithImageDescriptions:
     def test_text_chunks_get_image_paths(self, tmp_parsed_dir):
@@ -127,6 +132,22 @@ class TestSplitWithImageDescriptions:
         with_images = [c for c in text_chunks if c["image_paths"]]
         assert len(with_images) >= 1
         assert "/p/chart.jpg" in with_images[0]["image_paths"]
+
+    def test_text_chunks_keep_image_paths_without_descriptions(self, tmp_parsed_dir):
+        md = "# 标题\n\n![](images/chart.jpg)\n\n说明文字\n"
+        chunks, _ = split_markdown_document(
+            md,
+            document_id="test",
+            filename="test.md",
+            source_path="/tmp/test.md",
+            parsed_dir=tmp_parsed_dir,
+            image_descriptions={},
+        )
+        text_chunks = [c for c in chunks if c["source_type"] == "text"]
+        with_images = [c for c in text_chunks if c["image_paths"]]
+        assert len(with_images) >= 1
+        assert with_images[0]["image_paths"] == ["images/chart.jpg"]
+        assert "![](images/chart.jpg)" in with_images[0]["content"]
 
     def test_table_chunks_have_empty_image_paths(self, tmp_parsed_dir):
         md = "## 表\n\n| A | B |\n|---|---|\n| 1 | 2 |\n"

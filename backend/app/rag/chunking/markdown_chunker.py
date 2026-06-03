@@ -371,35 +371,39 @@ def _enrich_images_in_text(
     Returns (enriched_text, image_paths).
     Matching: full ref path first, then basename fallback.
     """
-    if not image_descriptions:
-        return text, []
-
     matched_paths: list[str] = []
-    replacements: list[tuple[re.Match, str, str]] = []
+    replacements: list[tuple[re.Match, str]] = []
 
     for m in _IMG_REF_RE.finditer(text):
-        ref_path = m.group(1).lstrip("./")
-        # Level 1: full ref path match
-        desc_entry = image_descriptions.get(ref_path)
-        # Level 2: basename fallback
-        if desc_entry is None:
-            basename = os.path.basename(ref_path)
-            for key, entry in image_descriptions.items():
-                if os.path.basename(key) == basename:
-                    desc_entry = entry
-                    break
+        ref_path = m.group(1).strip().lstrip("./")
+        desc_entry = _find_image_description(ref_path, image_descriptions)
+        image_path = str(desc_entry.get("image_path") or ref_path) if desc_entry else ref_path
+        if image_path not in matched_paths:
+            matched_paths.append(image_path)
         if desc_entry and desc_entry.get("description") and desc_entry.get("status") == "ok":
             description = desc_entry["description"]
-            image_path = desc_entry.get("image_path", ref_path)
-            replacements.append((m, description, image_path))
-            matched_paths.append(image_path)
+            replacements.append((m, description))
 
     # Replace in reverse order to preserve positions
     enriched = text
-    for m, description, _ in reversed(replacements):
+    for m, description in reversed(replacements):
         enriched = enriched[: m.start()] + f"[图片描述：{description}]" + enriched[m.end() :]
 
     return enriched, matched_paths
+
+
+def _find_image_description(ref_path: str, image_descriptions: dict[str, dict]) -> dict | None:
+    # Level 1: full ref path match
+    desc_entry = image_descriptions.get(ref_path)
+    if desc_entry is not None:
+        return desc_entry
+
+    # Level 2: basename fallback
+    basename = os.path.basename(ref_path)
+    for key, entry in image_descriptions.items():
+        if os.path.basename(key) == basename:
+            return entry
+    return None
 
 
 def _split_text(text: str, cfg: IngestionConfig | None = None) -> Iterable[str]:
