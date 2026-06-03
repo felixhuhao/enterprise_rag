@@ -64,3 +64,34 @@ def test_init_db_migrates_general_document_quality_summary_columns(tmp_path, mon
     assert row["chunker_version"] == ""
     assert row["enrichment_profile"] == ""
     assert row["processed_at"] == ""
+
+
+def test_init_db_creates_jobs_table(tmp_path, monkeypatch):
+    db_path = tmp_path / "app.db"
+    monkeypatch.setattr(database, "DB_PATH", str(db_path))
+
+    run(database.init_db())
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(jobs)").fetchall()}
+    conn.close()
+
+    assert {
+        "job_id",
+        "job_type",
+        "status",
+        "resource_type",
+        "resource_id",
+        "progress_current",
+        "progress_total",
+        "message",
+        "error_code",
+        "error_detail",
+        "attempt_count",
+        "created_by",
+        "created_at",
+        "started_at",
+        "finished_at",
+        "updated_at",
+    }.issubset(columns)

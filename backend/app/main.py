@@ -32,7 +32,9 @@ async def lifespan(app: FastAPI):
     from app.core.database import init_db
     from app.core.runtime_settings import runtime_settings
     from app.services.document_service import mark_interrupted_documents_failed
+    from app.services.job_service import mark_interrupted_jobs_failed
     await init_db()
+    await mark_interrupted_jobs_failed()
     await mark_interrupted_documents_failed()
     await runtime_settings.get_all()  # 预加载运行时设置到内存缓存
     print("[启动] RuntimeSettings 已加载")

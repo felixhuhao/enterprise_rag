@@ -151,6 +151,28 @@ CREATE TABLE IF NOT EXISTS query_feedback (
 CREATE INDEX IF NOT EXISTS idx_feedback_created ON query_feedback(created_at);
 CREATE INDEX IF NOT EXISTS idx_feedback_user ON query_feedback(user_id);
 
+CREATE TABLE IF NOT EXISTS jobs (
+    job_id           TEXT PRIMARY KEY,
+    job_type         TEXT NOT NULL,
+    status           TEXT NOT NULL DEFAULT 'queued',
+    resource_type    TEXT DEFAULT '',
+    resource_id      TEXT DEFAULT '',
+    progress_current INTEGER DEFAULT 0,
+    progress_total   INTEGER DEFAULT 0,
+    message          TEXT DEFAULT '',
+    error_code       TEXT DEFAULT '',
+    error_detail     TEXT DEFAULT '',
+    attempt_count    INTEGER DEFAULT 1,
+    created_by       TEXT DEFAULT '',
+    created_at       TEXT NOT NULL,
+    started_at       TEXT DEFAULT '',
+    finished_at      TEXT DEFAULT '',
+    updated_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_jobs_status_updated ON jobs(status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_jobs_type_updated ON jobs(job_type, updated_at);
+CREATE INDEX IF NOT EXISTS idx_jobs_resource ON jobs(resource_type, resource_id);
+
 CREATE TABLE IF NOT EXISTS entity_aliases (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     alias TEXT NOT NULL,
