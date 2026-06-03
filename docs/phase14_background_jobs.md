@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-03
 
-Status: P1 in progress. Iterations 1-3 implemented.
+Status: P1 in progress. Iterations 1-4 implemented.
 
 ## Goal
 
@@ -425,7 +425,7 @@ Engineering validation:
 
 ### Iteration 4: Frontend Job Visibility
 
-Status: planned.
+Status: implemented on 2026-06-03.
 
 Purpose: make jobs visible without turning the admin UI into a monitoring
 product.
@@ -442,6 +442,10 @@ Exit criteria:
 
 - Admin can diagnose active/recent jobs from the UI.
 - No existing document/eval workflow becomes harder to use.
+
+Engineering validation:
+
+- `npm run build` in `frontend`
 
 ### Iteration 5: Manual Validation And P2 Decision
 

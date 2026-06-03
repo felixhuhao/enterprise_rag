@@ -23,6 +23,13 @@
             :backend-database-label="backendDatabaseLabel"
             :token-status="tokenStatus"
           />
+          <RecentJobsPanel
+            v-if="authStore.isAdmin"
+            :jobs="recentJobs"
+            :loading="jobsLoading"
+            :error="jobsError"
+            @refresh="loadRecentJobs"
+          />
         </a-tab-pane>
 
         <a-tab-pane key="tuning" title="策略微调">
@@ -87,6 +94,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { Message } from '@arco-design/web-vue'
+import { listJobs, type JobRecord } from '../../api/adminJobs'
 import { listDocuments, type Document } from '../../api/documents'
 import { getSettings, updateSettings, updateToken } from '../../api/settings'
 import { getRuntimeInfo, type RuntimeInfo } from '../../api/system'
@@ -102,6 +110,7 @@ import {
 } from '../../api/structuredTags'
 import { useAuthStore } from '../../stores/auth'
 import StrategyTuningPanel from './StrategyTuningPanel.vue'
+import RecentJobsPanel from './RecentJobsPanel.vue'
 import SystemStatusPanel from './SystemStatusPanel.vue'
 import TagGovernancePanel from './TagGovernancePanel.vue'
 import TokenSettingsPanel from './TokenSettingsPanel.vue'
@@ -141,8 +150,11 @@ const activeFlavor = ref<FlavorKey>('balanced')
 const tagLoading = ref(false)
 const tagMetricsLoading = ref(false)
 const tagSaving = ref(false)
+const jobsLoading = ref(false)
 const tagRecords = ref<StructuredTagRecord[]>([])
 const tagMetrics = ref<StructuredTagMetrics | null>(null)
+const recentJobs = ref<JobRecord[]>([])
+const jobsError = ref('')
 const selectedTag = ref<StructuredTagRecord | null>(null)
 const tagEditorOpen = ref(false)
 const previewDocsLoading = ref(false)
@@ -277,6 +289,7 @@ async function loadSettings() {
         loadTagRecords(),
         loadTagMetrics(),
         loadPreviewDocuments(),
+        loadRecentJobs(),
       ])
     }
     loadedAt.value = new Date().toLocaleString()
@@ -322,6 +335,20 @@ async function loadPreviewDocuments() {
     allDocuments.value = []
   } finally {
     previewDocsLoading.value = false
+  }
+}
+
+async function loadRecentJobs() {
+  if (!authStore.isAdmin) return
+  jobsLoading.value = true
+  jobsError.value = ''
+  try {
+    const data = await listJobs({ limit: 12 })
+    recentJobs.value = data.jobs
+  } catch (e: any) {
+    jobsError.value = e?.response?.data?.detail || '后台任务加载失败'
+  } finally {
+    jobsLoading.value = false
   }
 }
 
