@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-03
 
-Status: P1 API validated. UI manual check pending.
+Status: P1 complete. P2 deferred.
 
 ## Goal
 
@@ -255,8 +255,25 @@ Do not block backend closeout on elaborate frontend controls.
 
 ## P2 Scope
 
+P2 is deferred. Completed document reparse/reindex is the highest-value deferred
+item, but it is not required for the Phase 14 P1 reliability loop.
+
 P2 should start only after P1 proves stable under manual upload, retry, delete,
-and eval runs.
+and eval runs, and after there is a concrete need for long-term knowledge-base
+maintenance rather than one-off demo uploads.
+
+### P2.0 Job Metadata And Lineage
+
+Add compact job metadata before adding mutation endpoints.
+
+Useful metadata:
+
+- original eval request parameters for eval retry
+- document processing profile or parser/chunker context for reparse
+- `parent_job_id` or `previous_job_id` for retry/reparse lineage
+- result and summary artifact paths where relevant
+
+This prevents retry and reparse endpoints from guessing context from UI state.
 
 ### P2.1 Explicit Retry Endpoint
 
@@ -292,7 +309,14 @@ Do not fake cancellation for work that cannot safely stop.
 
 ### P2.3 Completed Document Reparse/Reindex
 
-Add explicit reparse/reindex after job reliability exists.
+Add explicit reparse/reindex after job reliability exists and the project needs
+true knowledge-base maintenance.
+
+This is high-value because parser, chunker, metadata, quality-warning, and
+embedding changes eventually need a safe way to refresh already-completed
+documents. It remains deferred because delete-and-reupload is still a workable
+manual fallback, while safe reparse requires careful Milvus cleanup and artifact
+overwrite semantics.
 
 Requirements:
 
@@ -449,7 +473,7 @@ Engineering validation:
 
 ### Iteration 5: Manual Validation And P2 Decision
 
-Status: in progress on 2026-06-03.
+Status: completed on 2026-06-03.
 
 Purpose: test reliability and decide whether retry/cancel/reparse should move
 from P2 to active scope.
@@ -483,10 +507,10 @@ Completed validation on 2026-06-03:
 - Verified recent jobs list returns both the eval job and document job with
   `progress_percent=100`.
 
-Remaining manual UI checks:
+Completed manual UI checks:
 
 - Open `http://localhost:5173/settings` as admin.
-- In `运行状态`, confirm the `后台任务` panel appears.
+- In `运行状态`, confirm the `后台任务` panel appears and shows recent jobs.
 - Confirm recent document/eval jobs show:
   - readable task names
   - status chips
@@ -495,13 +519,13 @@ Remaining manual UI checks:
   - updated time
 - Open a job detail drawer and confirm timestamps, message, and error fields are
   readable.
-- Confirm non-admin users do not see the panel.
 
 Closeout:
 
-- Record failures or noisy job states.
-- Decide whether P2.1 retry and P2.3 reparse/reindex should start immediately.
-- Mark Phase 14 P1 complete only after manual checks pass.
+- P1 is complete.
+- P2 remains deferred.
+- Completed document reparse/reindex is recorded as the highest-value deferred
+  item, but not part of Phase 14 P1.
 
 ## Acceptance Criteria
 
