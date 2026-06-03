@@ -39,8 +39,57 @@ def test_get_document_chunks_payload_falls_back_to_sorted_parsed_chunks_after_mi
 
     assert payload["chunks_source"] == "parsed_artifact"
     assert payload["chunks"] == [
-        {"document_id": "doc-1", "content": "first", "sequence": 1},
-        {"document_id": "doc-1", "content": "second", "sequence": 2},
+        {"document_id": "doc-1", "content": "first", "sequence": 1, "quality_warnings": []},
+        {"document_id": "doc-1", "content": "second", "sequence": 2, "quality_warnings": []},
+    ]
+    assert payload["quality_report"]["status"] == "unavailable"
+    assert payload["quality_report"]["artifact_status"] == "not_requested"
+
+
+def test_get_document_chunks_payload_includes_quality_report_and_chunk_warnings():
+    quality_report = {
+        "status": "warning",
+        "warnings": [{"type": "undersized_chunk", "count": 1}],
+        "chunks": [
+            {"chunk_key": "ck-1", "sequence": 1, "warnings": ["undersized_chunk"]},
+            {"chunk_key": "ck-2", "sequence": 2, "warnings": []},
+        ],
+    }
+
+    payload = run(document_chunk_query.get_document_chunks_payload(
+        "doc-1",
+        {"document_id": "doc-1"},
+        query_milvus_chunks=lambda _document_id: [
+            {"chunk_key": "ck-2", "content": "second"},
+            {"chunk_key": "ck-1", "content": "first"},
+        ],
+        load_parsed_chunks=lambda _document_id: [],
+        load_quality_report=lambda _document_id: quality_report,
+        normalize_chunk=lambda row, document_id, sequence_index: {
+            "chunk_key": row["chunk_key"],
+            "document_id": document_id,
+            "content": row["content"],
+            "sequence": sequence_index,
+        },
+        sort_chunks=lambda rows: sorted(rows, key=lambda row: row["chunk_key"]),
+    ))
+
+    assert payload["quality_report"] == quality_report
+    assert payload["chunks"] == [
+        {
+            "chunk_key": "ck-1",
+            "document_id": "doc-1",
+            "content": "first",
+            "sequence": 1,
+            "quality_warnings": ["undersized_chunk"],
+        },
+        {
+            "chunk_key": "ck-2",
+            "document_id": "doc-1",
+            "content": "second",
+            "sequence": 2,
+            "quality_warnings": [],
+        },
     ]
 
 
@@ -75,7 +124,33 @@ def test_get_document_chunk_by_key_payload_falls_back_after_milvus_error():
         "document_id": "doc-1",
         "content": "second",
         "sequence": 2,
+        "quality_warnings": [],
     }
+
+
+def test_get_document_chunk_by_key_payload_includes_quality_warnings():
+    chunk = run(document_chunk_query.get_document_chunk_by_key_payload(
+        "doc-1",
+        "target",
+        query_milvus_chunk_by_key=lambda _document_id, _chunk_key: {
+            "chunk_key": "target",
+            "content": "full source",
+        },
+        load_parsed_chunks=lambda _document_id: [],
+        load_quality_report=lambda _document_id: {
+            "status": "warning",
+            "chunks": [{"chunk_key": "target", "sequence": 1, "warnings": ["missing_section_title"]}],
+        },
+        normalize_chunk=lambda row, document_id, sequence_index: {
+            "chunk_key": row["chunk_key"],
+            "document_id": document_id,
+            "content": row["content"],
+            "sequence": sequence_index,
+        },
+        sort_chunks=lambda rows: rows,
+    ))
+
+    assert chunk["quality_warnings"] == ["missing_section_title"]
 
 
 def test_load_parsed_chunks_filters_non_dict_rows(tmp_path, monkeypatch):
@@ -95,6 +170,67 @@ def test_load_parsed_chunks_filters_non_dict_rows(tmp_path, monkeypatch):
     rows = document_chunk_query.load_parsed_chunks("doc-1")
 
     assert rows == [{"content": "valid"}, {"content": "also valid"}]
+
+
+def test_load_quality_report_returns_explicit_missing_report(tmp_path, monkeypatch):
+    monkeypatch.setattr(document_chunk_query.settings, "GENERAL_PARSED_DIR", str(tmp_path))
+
+    report = document_chunk_query.load_quality_report("doc-1")
+
+    assert report["status"] == "unavailable"
+    assert report["artifact_status"] == "missing"
+    assert report["document_id"] == "doc-1"
+
+
+def test_load_quality_report_returns_explicit_malformed_report(tmp_path, monkeypatch):
+    doc_dir = tmp_path / "doc-1"
+    doc_dir.mkdir()
+    (doc_dir / "chunk_quality.json").write_text("{bad json", encoding="utf-8")
+    monkeypatch.setattr(document_chunk_query.settings, "GENERAL_PARSED_DIR", str(tmp_path))
+
+    report = document_chunk_query.load_quality_report("doc-1")
+
+    assert report["status"] == "unavailable"
+    assert report["artifact_status"] == "malformed"
+    assert report["document_id"] == "doc-1"
+    assert report["error"]
+
+
+def test_load_quality_report_treats_missing_status_as_malformed(tmp_path, monkeypatch):
+    doc_dir = tmp_path / "doc-1"
+    doc_dir.mkdir()
+    (doc_dir / "chunk_quality.json").write_text(
+        json.dumps({"chunks": [{"chunk_key": "ck-1", "warnings": ["undersized_chunk"]}]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(document_chunk_query.settings, "GENERAL_PARSED_DIR", str(tmp_path))
+
+    report = document_chunk_query.load_quality_report("doc-1")
+
+    assert report["status"] == "unavailable"
+    assert report["artifact_status"] == "malformed"
+    assert report["error"] == "chunk_quality.json is missing status"
+
+
+def test_load_quality_report_reads_available_report(tmp_path, monkeypatch):
+    doc_dir = tmp_path / "doc-1"
+    doc_dir.mkdir()
+    (doc_dir / "chunk_quality.json").write_text(
+        json.dumps({
+            "status": "warning",
+            "warnings": [{"type": "undersized_chunk", "count": 1}],
+            "chunks": [{"chunk_key": "ck-1", "warnings": ["undersized_chunk"]}],
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(document_chunk_query.settings, "GENERAL_PARSED_DIR", str(tmp_path))
+
+    report = document_chunk_query.load_quality_report("doc-1")
+
+    assert report["status"] == "warning"
+    assert report["artifact_status"] == "available"
+    assert report["document_id"] == "doc-1"
+    assert report["chunks"][0]["chunk_key"] == "ck-1"
 
 
 def test_normalize_chunk_parses_metadata_lists_and_derives_stable_key():

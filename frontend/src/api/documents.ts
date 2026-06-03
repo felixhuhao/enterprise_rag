@@ -12,6 +12,12 @@ export interface Document {
   status: string
   chunk_count: number
   image_count: number
+  quality_status?: string
+  quality_warning_count?: number
+  parser_version?: string
+  chunker_version?: string
+  enrichment_profile?: string
+  processed_at?: string
   error_msg: string
   error_code: string
   retry_count?: number
@@ -45,11 +51,31 @@ export interface DocumentChunk {
   keywords?: string[]
   structured_tags?: string[]
   content_length: number
+  quality_warnings?: string[]
+}
+
+export interface DocumentQualityReport {
+  document_id?: string
+  status: string
+  quality_version?: string
+  parser_name?: string
+  parser_version?: string
+  chunker_version?: string
+  enrichment_profile?: string
+  processed_at?: string
+  source_file_type?: string
+  artifact_status?: 'available' | 'missing' | 'malformed' | 'not_requested' | string
+  chunk_count?: number
+  metrics?: Record<string, unknown>
+  warnings?: Array<{ type: string; count: number }>
+  chunks?: Array<{ chunk_key?: string; sequence?: number; content_length?: number; warnings?: string[] }>
+  error?: string
 }
 
 export interface DocumentChunksResponse {
   chunks_source: DocumentChunksSource
   document: Document
+  quality_report: DocumentQualityReport
   chunks: DocumentChunk[]
 }
 

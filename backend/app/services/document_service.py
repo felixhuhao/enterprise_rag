@@ -71,7 +71,9 @@ async def list_documents() -> list[dict]:
 
 _RELATED_COLUMNS = (
     "document_id, filename, file_type, entity_name, status, "
-    "chunk_count, image_count, created_at, updated_at"
+    "chunk_count, image_count, quality_status, quality_warning_count, "
+    "parser_version, chunker_version, enrichment_profile, processed_at, "
+    "created_at, updated_at"
 )
 
 
@@ -116,6 +118,7 @@ async def get_document_chunks(document_id: str) -> dict | None:
         doc,
         query_milvus_chunks=_sync_query_milvus_chunks,
         load_parsed_chunks=_load_parsed_chunks,
+        load_quality_report=_load_quality_report,
         normalize_chunk=_normalize_chunk,
         sort_chunks=_sort_chunks,
     )
@@ -131,6 +134,7 @@ async def get_document_chunk_by_key(document_id: str, chunk_key: str) -> dict | 
         chunk_key,
         query_milvus_chunk_by_key=_sync_query_milvus_chunk_by_key,
         load_parsed_chunks=_load_parsed_chunks,
+        load_quality_report=_load_quality_report,
         normalize_chunk=_normalize_chunk,
         sort_chunks=_sort_chunks,
     )
@@ -381,6 +385,10 @@ def _sync_query_milvus_chunk_by_key(document_id: str, chunk_key: str) -> dict | 
 
 def _load_parsed_chunks(document_id: str) -> list[dict]:
     return document_chunk_query.load_parsed_chunks(document_id)
+
+
+def _load_quality_report(document_id: str) -> dict:
+    return document_chunk_query.load_quality_report(document_id)
 
 
 def _normalize_chunk(row: dict, document_id: str, sequence_index: int) -> dict:

@@ -460,6 +460,8 @@ Exit criteria:
 
 ### Iteration 4: Document API Quality Detail
 
+Status: implemented on 2026-06-03.
+
 Purpose: expose quality summaries and artifact details through existing
 document APIs.
 
