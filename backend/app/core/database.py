@@ -41,6 +41,12 @@ CREATE TABLE IF NOT EXISTS general_documents (
     status         TEXT NOT NULL DEFAULT 'uploaded',
     chunk_count    INTEGER DEFAULT 0,
     image_count    INTEGER DEFAULT 0,
+    quality_status TEXT DEFAULT 'unavailable',
+    quality_warning_count INTEGER DEFAULT 0,
+    parser_version TEXT DEFAULT '',
+    chunker_version TEXT DEFAULT '',
+    enrichment_profile TEXT DEFAULT '',
+    processed_at   TEXT DEFAULT '',
     retry_count    INTEGER DEFAULT 0,
     last_failed_stage TEXT DEFAULT '',
     cleanup_status TEXT DEFAULT '',
@@ -187,6 +193,19 @@ async def init_db():
             ("retry_count", "ALTER TABLE general_documents ADD COLUMN retry_count INTEGER DEFAULT 0"),
             ("last_failed_stage", "ALTER TABLE general_documents ADD COLUMN last_failed_stage TEXT DEFAULT ''"),
             ("cleanup_status", "ALTER TABLE general_documents ADD COLUMN cleanup_status TEXT DEFAULT ''"),
+        ):
+            try:
+                await db.execute(ddl)
+            except aiosqlite.OperationalError:
+                pass
+        # migration: chunk quality summary columns
+        for _col, ddl in (
+            ("quality_status", "ALTER TABLE general_documents ADD COLUMN quality_status TEXT DEFAULT 'unavailable'"),
+            ("quality_warning_count", "ALTER TABLE general_documents ADD COLUMN quality_warning_count INTEGER DEFAULT 0"),
+            ("parser_version", "ALTER TABLE general_documents ADD COLUMN parser_version TEXT DEFAULT ''"),
+            ("chunker_version", "ALTER TABLE general_documents ADD COLUMN chunker_version TEXT DEFAULT ''"),
+            ("enrichment_profile", "ALTER TABLE general_documents ADD COLUMN enrichment_profile TEXT DEFAULT ''"),
+            ("processed_at", "ALTER TABLE general_documents ADD COLUMN processed_at TEXT DEFAULT ''"),
         ):
             try:
                 await db.execute(ddl)

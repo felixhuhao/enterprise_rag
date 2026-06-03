@@ -426,6 +426,8 @@ Exit criteria:
 
 ### Iteration 3: DB Summary Persistence
 
+Status: implemented on 2026-06-03.
+
 Purpose: persist compact quality status on `general_documents`.
 
 Work:

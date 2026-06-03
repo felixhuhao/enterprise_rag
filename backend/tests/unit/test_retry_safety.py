@@ -32,6 +32,12 @@ CREATE TABLE IF NOT EXISTS general_documents (
     status         TEXT NOT NULL DEFAULT 'uploaded',
     chunk_count    INTEGER DEFAULT 0,
     image_count    INTEGER DEFAULT 0,
+    quality_status TEXT DEFAULT 'unavailable',
+    quality_warning_count INTEGER DEFAULT 0,
+    parser_version TEXT DEFAULT '',
+    chunker_version TEXT DEFAULT '',
+    enrichment_profile TEXT DEFAULT '',
+    processed_at   TEXT DEFAULT '',
     retry_count    INTEGER DEFAULT 0,
     last_failed_stage TEXT DEFAULT '',
     cleanup_status TEXT DEFAULT '',
@@ -165,6 +171,28 @@ class TestUpdateDocumentStatus:
         assert row["last_failed_stage"] == "parsing"
         assert row["error_code"] == "MINERU_API_ERROR"
 
+    def test_updates_quality_summary_fields(self, db):
+        asyncio.run(svc.update_document_status(
+            "doc-2",
+            "completed",
+            quality_status="warning",
+            quality_warning_count=2,
+            parser_version="markdown_v1",
+            chunker_version="markdown_chunker_v1",
+            enrichment_profile="enterprise_policy",
+            processed_at="2026-06-03T10:00:00",
+        ))
+        row = db.execute(
+            "SELECT quality_status, quality_warning_count, parser_version, chunker_version, "
+            "enrichment_profile, processed_at FROM general_documents WHERE document_id = 'doc-2'"
+        ).fetchone()
+        assert row["quality_status"] == "warning"
+        assert row["quality_warning_count"] == 2
+        assert row["parser_version"] == "markdown_v1"
+        assert row["chunker_version"] == "markdown_chunker_v1"
+        assert row["enrichment_profile"] == "enterprise_policy"
+        assert row["processed_at"] == "2026-06-03T10:00:00"
+
     def test_claim_document_for_processing_is_atomic(self, db):
         first = asyncio.run(svc.claim_document_for_processing("doc-4"))
         second = asyncio.run(svc.claim_document_for_processing("doc-4"))
@@ -239,6 +267,43 @@ class TestMarkInterruptedDocumentsFailed:
         for doc_id in ("doc-1", "doc-2", "doc-3", "doc-4"):
             row = db.execute("SELECT status FROM general_documents WHERE document_id = ?", (doc_id,)).fetchone()
             assert row["status"] in ("failed", "uploaded")
+
+
+# ---------------------------------------------------------------------------
+# Tests: process_document quality summary persistence
+# ---------------------------------------------------------------------------
+
+class TestProcessDocument:
+
+    def test_persists_quality_summary_on_completion(self, db):
+        with patch("app.services.document_service.os.path.isfile", return_value=True), \
+             patch("app.services.document_service._sync_process_document", return_value={
+                 "chunk_count": 5,
+                 "image_count": 1,
+                 "quality_status": "warning",
+                 "quality_warning_count": 3,
+                 "parser_version": "markdown_v1",
+                 "chunker_version": "markdown_chunker_v1",
+                 "enrichment_profile": "enterprise_policy",
+                 "processed_at": "2026-06-03T10:00:00",
+             }), \
+             patch("app.services.document_service._invalidate_entity_cache"):
+            asyncio.run(svc.process_document("doc-4"))
+
+        row = db.execute(
+            "SELECT status, chunk_count, image_count, quality_status, quality_warning_count, "
+            "parser_version, chunker_version, enrichment_profile, processed_at "
+            "FROM general_documents WHERE document_id = 'doc-4'"
+        ).fetchone()
+        assert row["status"] == "completed"
+        assert row["chunk_count"] == 5
+        assert row["image_count"] == 1
+        assert row["quality_status"] == "warning"
+        assert row["quality_warning_count"] == 3
+        assert row["parser_version"] == "markdown_v1"
+        assert row["chunker_version"] == "markdown_chunker_v1"
+        assert row["enrichment_profile"] == "enterprise_policy"
+        assert row["processed_at"] == "2026-06-03T10:00:00"
 
 
 # ---------------------------------------------------------------------------

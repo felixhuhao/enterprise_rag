@@ -138,10 +138,31 @@ async def get_document_chunk_by_key(document_id: str, chunk_key: str) -> dict | 
 
 _ALLOWED_STATUS_FIELDS = frozenset({
     "chunk_count", "image_count",
+    "quality_status", "quality_warning_count",
+    "parser_version", "chunker_version",
+    "enrichment_profile", "processed_at",
     "error_msg", "error_code",
     "retry_count", "last_failed_stage",
     "cleanup_status", "entity_name",
 })
+
+_QUALITY_SUMMARY_FIELDS = (
+    "quality_status",
+    "quality_warning_count",
+    "parser_version",
+    "chunker_version",
+    "enrichment_profile",
+    "processed_at",
+)
+
+
+def _quality_status_update_fields(result: dict) -> dict:
+    """Return compact quality fields from an ingestion result."""
+    return {
+        key: result[key]
+        for key in _QUALITY_SUMMARY_FIELDS
+        if key in result
+    }
 
 
 async def update_document_status(document_id: str, status: str, **kwargs):
@@ -270,6 +291,7 @@ async def process_document(document_id: str):
             chunk_count=result["chunk_count"],
             image_count=result["image_count"],
             error_msg="",
+            **_quality_status_update_fields(result),
         )
         _invalidate_entity_cache()
     except Exception as exc:
