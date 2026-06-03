@@ -18,12 +18,54 @@ logger = logging.getLogger(__name__)
 
 DB_PATH = settings.DATABASE_PATH
 
+SQLITE_BUSY_TIMEOUT_MS = 5000
+SQLITE_SYNCHRONOUS = "NORMAL"
+
+
+async def _configure_connection(db: aiosqlite.Connection) -> None:
+    """Apply connection-scoped SQLite pragmas.
+
+    Database-level pragmas such as journal_mode are intentionally handled during
+    startup initialization instead of on every short-lived connection.
+    """
+    await db.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_MS}")
+    await db.execute("PRAGMA foreign_keys = ON")
+    await db.execute(f"PRAGMA synchronous = {SQLITE_SYNCHRONOUS}")
+
+
+async def open_db_connection() -> aiosqlite.Connection:
+    """Open a short-lived SQLite connection with project defaults applied."""
+    db = await aiosqlite.connect(DB_PATH)
+    db.row_factory = aiosqlite.Row
+    await _configure_connection(db)
+    return db
+
+
+async def _pragma_value(db: aiosqlite.Connection, pragma: str):
+    async with db.execute(f"PRAGMA {pragma}") as cursor:
+        row = await cursor.fetchone()
+    return row[0] if row else None
+
+
+async def _enable_wal(db: aiosqlite.Connection) -> str:
+    return str(await _pragma_value(db, "journal_mode = WAL")).lower()
+
+
+async def sqlite_pragma_status() -> dict:
+    """Return effective SQLite pragma values for startup logs and tests."""
+    async with get_db() as db:
+        return {
+            "journal_mode": str(await _pragma_value(db, "journal_mode")).lower(),
+            "busy_timeout": await _pragma_value(db, "busy_timeout"),
+            "foreign_keys": await _pragma_value(db, "foreign_keys"),
+            "synchronous": await _pragma_value(db, "synchronous"),
+        }
+
 
 @asynccontextmanager
 async def get_db():
     """获取数据库连接的异步上下文管理器（每次新建，用完自动关闭）"""
-    db = await aiosqlite.connect(DB_PATH)
-    db.row_factory = aiosqlite.Row
+    db = await open_db_connection()
     try:
         yield db
     finally:
@@ -198,7 +240,11 @@ CREATE TABLE IF NOT EXISTS structured_tag_overrides (
 async def init_db():
     """初始化数据库：创建目录、建表、插入默认数据"""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    async with aiosqlite.connect(DB_PATH) as db:
+    db = await open_db_connection()
+    try:
+        journal_mode = await _enable_wal(db)
+        if journal_mode != "wal":
+            logger.warning("SQLite WAL mode is not active for %s (journal_mode=%s)", DB_PATH, journal_mode)
         await db.executescript(_SCHEMA)
         # migration: 旧库可能没有 entity_name 列
         try:
@@ -348,4 +394,17 @@ async def init_db():
                     (key, value),
                 )
         await db.commit()
+        busy_timeout = await _pragma_value(db, "busy_timeout")
+        foreign_keys = await _pragma_value(db, "foreign_keys")
+        synchronous = await _pragma_value(db, "synchronous")
+    finally:
+        await db.close()
+    logger.info(
+        "SQLite initialized path=%s journal_mode=%s busy_timeout=%s foreign_keys=%s synchronous=%s",
+        DB_PATH,
+        journal_mode,
+        busy_timeout,
+        foreign_keys,
+        synchronous,
+    )
     print(f"[启动] 数据库初始化完成: {DB_PATH}")

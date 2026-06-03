@@ -5,6 +5,14 @@ from datetime import datetime
 from app.core import database
 
 
+_SQLITE_SYNCHRONOUS_VALUES = {
+    "OFF": 0,
+    "NORMAL": 1,
+    "FULL": 2,
+    "EXTRA": 3,
+}
+
+
 def run(coro):
     return asyncio.run(coro)
 
@@ -95,3 +103,16 @@ def test_init_db_creates_jobs_table(tmp_path, monkeypatch):
         "finished_at",
         "updated_at",
     }.issubset(columns)
+
+
+def test_init_db_sets_sqlite_pragmas_for_new_connections(tmp_path, monkeypatch):
+    db_path = tmp_path / "app.db"
+    monkeypatch.setattr(database, "DB_PATH", str(db_path))
+
+    run(database.init_db())
+    status = run(database.sqlite_pragma_status())
+
+    assert status["journal_mode"] == "wal"
+    assert status["busy_timeout"] == database.SQLITE_BUSY_TIMEOUT_MS
+    assert status["foreign_keys"] == 1
+    assert status["synchronous"] == _SQLITE_SYNCHRONOUS_VALUES[database.SQLITE_SYNCHRONOUS]
