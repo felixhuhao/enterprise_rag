@@ -4,12 +4,13 @@
 
 ## Quick Start (Docker)
 
-**Prerequisites**: Docker Desktop running, local dense embedding model files (tested with `BAAI/bge-m3`), a DeepSeek-compatible chat API key, a Zhipu image-description API key, and optionally a [MinerU token](https://mineru.net/) for PDF parsing.
+**Prerequisites**: Docker Engine or Docker Desktop running, local dense embedding model files (tested with `BAAI/bge-m3`), a DeepSeek-compatible chat API key, a Zhipu image-description API key, and optionally a [MinerU token](https://mineru.net/) for PDF parsing.
 
 ```bash
 # 1. Configure
 cp .env.example .env
 # Edit .env — set EMBEDDING_MODEL_HOST_PATH, DEEPSEEK_API_KEY, ZHIPU_API_KEY, and MINERU_API_TOKEN (for PDF)
+# Linux example: EMBEDDING_MODEL_HOST_PATH=/home/hao/models/BAAI/bge-m3
 
 # 2. Launch
 docker compose up -d --build
@@ -21,7 +22,7 @@ docker compose exec backend python scripts/seed_demo.py
 # http://localhost:5173  —  default token: enterprise-rag-dev-token
 ```
 
-Milvus data persists in Docker named volumes (`milvus-data`, `milvus-etcd`), not a Windows bind mount. Re-run `seed_demo.py` anytime — it skips already-completed documents. The default demo corpus is `data/enterprise_docs`; the legacy PDF stock-report demo is still available with `--data-dir "../data/stock reports"` and requires MinerU.
+Milvus data persists in Docker named volumes (`milvus-data`, `milvus-etcd`), not in the project directory. Re-run `seed_demo.py` anytime — it skips already-completed documents. The default demo corpus is `data/enterprise_docs`; the legacy PDF stock-report demo is still available with `--data-dir "../data/stock reports"` and requires MinerU.
 
 If you change embedding models, reset the Milvus collection and re-process documents:
 
@@ -37,10 +38,10 @@ Use two separate `.env` files:
 - `backend/.env` — backend config (copy from `.env.example`)
 - Frontend reads `VITE_API_TARGET` from `frontend/.env` (defaults to `http://localhost:8010`)
 
-For local backend development on Windows, set:
+For local backend development, set the runtime model path in `backend/.env`:
 
 ```env
-EMBEDDING_MODEL_PATH=/mnt/d/Models/BAAI/bge-m3
+EMBEDDING_MODEL_PATH=/home/hao/models/BAAI/bge-m3
 ```
 
 ```bash
@@ -199,8 +200,8 @@ Required:
 
 | Variable | Description |
 |---|---|
-| `EMBEDDING_MODEL_HOST_PATH` | Host path to the local embedding model for Docker volume mount, e.g. `/mnt/d/Models/BAAI/bge-m3` |
-| `EMBEDDING_MODEL_PATH` | Runtime embedding model path. Docker uses `/models/embedding`; local dev can use `/mnt/d/Models/BAAI/bge-m3` |
+| `EMBEDDING_MODEL_HOST_PATH` | Host path to the local embedding model for Docker volume mount, e.g. `/home/hao/models/BAAI/bge-m3` |
+| `EMBEDDING_MODEL_PATH` | Runtime embedding model path. Docker uses `/models/embedding`; local dev can use `/home/hao/models/BAAI/bge-m3` |
 | `DEEPSEEK_API_KEY` | DeepSeek-compatible API key for chat, HyDE, query expansion, rerank, and evaluation judge |
 | `ZHIPU_API_KEY` | Zhipu AI API key for image description (GLM-4.6V) |
 | `API_TOKEN` | Bearer token for API auth |
