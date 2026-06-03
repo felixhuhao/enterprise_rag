@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-03
 
-Status: scoped. Implementation not started.
+Status: P1 complete. P2 deferred.
 
 ## Goal
 
@@ -515,6 +515,8 @@ Exit criteria:
 
 ### Iteration 6: Validation And Closeout
 
+Status: completed on 2026-06-03.
+
 Purpose: verify with realistic documents and decide whether P2 is worth doing.
 
 Engineering checks:
@@ -540,6 +542,59 @@ Closeout:
 - Confirm document detail remains scannable.
 - Record deferred P2 findings.
 - Mark Phase 13 complete only after manual checks pass.
+
+Engineering validation completed on 2026-06-03:
+
+- `git diff --check`: passed.
+- Backend compile smoke for ingestion, document APIs, and DB modules: passed.
+- Target backend tests:
+  - `backend/tests/unit/test_chunk_quality.py`
+  - `backend/tests/unit/test_ingestion_enrichment.py`
+  - `backend/tests/unit/test_document_service_helpers.py`
+  - `backend/tests/unit/test_retry_safety.py`
+  - `backend/tests/unit/test_database_schema.py`
+  - Result: 51 passed.
+- Full backend unit suite with `MILVUS_URI=http://localhost:19530`: 461 passed.
+- Frontend build: passed.
+  - Existing Vite large-chunk warning remains; not introduced by Phase 13.
+
+Manual validation status:
+
+- Passed: normal Markdown document (`phase13_normal.md`) produced `good`.
+- Passed after parser copy fix: Markdown zip with images
+  (`phase13_md_zip_with_image.zip`) completed and produced `good`.
+- Passed: PDF (`phase13_pdf_policy.pdf`) completed when MinerU was available;
+  it produced a `missing_section_title` warning, expected for the synthetic PDF.
+- Passed: document with intentionally oversized table chunk
+  (`phase13_oversized_table.md`) produced `oversized_chunk`.
+- Passed: document with missing section titles (`phase13_missing_titles.md`)
+  produced `missing_section_title`.
+- Passed: document with duplicate content (`phase13_duplicate.md`) produced
+  `duplicate_chunk`.
+- Passed: low-information synthetic document (`phase13_low_information.md`)
+  produced `low_information_chunk` and `undersized_chunk`.
+- Passed: old completed document without `chunk_quality.json`
+  (`远景能源_03_年度培训计划.md`) returned `quality_report.status=unavailable`
+  and still loaded chunks normally.
+
+Manual validation note:
+
+- `parse_md_zip` originally failed on the local Docker bind mount because
+  `shutil.copy2()` attempted to preserve file timestamps and raised
+  `PermissionError: [Errno 1] Operation not permitted`. The parser now copies
+  file contents without preserving metadata for canonical markdown and image
+  assets.
+
+P2 decision after engineering closeout:
+
+- Do not start P2 immediately.
+- `P2.1 Chunk Diff Report` remains useful only after repeated real reprocessing
+  shows document-shape drift that admins need to compare.
+- `P2.2 Quality Threshold Settings` should wait until manual/demo corpus checks
+  prove the constants are noisy.
+- `P2.3 Reparse/Reindex Action` should wait for a proper job model.
+- `P2.4 Retrieval-To-Quality Cross-Link` should wait until query evaluations
+  repeatedly retrieve chunks marked suspicious by this panel.
 
 ## Acceptance Criteria
 

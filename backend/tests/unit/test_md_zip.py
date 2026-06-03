@@ -118,6 +118,29 @@ def test_images_copied_to_standard_dir(tmp_path, tmp_output):
         assert f.read() == png_data
 
 
+def test_parse_md_zip_does_not_require_metadata_preserving_copy(tmp_path, tmp_output, monkeypatch):
+    png_data = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
+    zip_path = _make_zip_with_bin(
+        tmp_path,
+        files={"document.md": "# Report\n\nChart below:\n\n![](images/chart.png)"},
+        bin_files={"images/chart.png": png_data},
+    )
+
+    def _raise_copy_error(*args, **kwargs):
+        raise PermissionError("metadata copy is not allowed")
+
+    monkeypatch.setattr("app.rag.parsing.mineru_parser.shutil.copy2", _raise_copy_error)
+    monkeypatch.setattr("app.rag.parsing.mineru_parser.shutil.copytree", _raise_copy_error)
+
+    result = parse_md_zip(zip_path, tmp_output)
+
+    assert "Report" in result.markdown_content
+    assert os.path.isfile(os.path.join(tmp_output, "document.md"))
+    assert os.path.isfile(os.path.join(tmp_output, "images", "chart.png"))
+    with open(os.path.join(tmp_output, "images", "chart.png"), "rb") as f:
+        assert f.read() == png_data
+
+
 # ---- Root single .md fallback ----
 
 def test_root_single_md_fallback(tmp_path, tmp_output):

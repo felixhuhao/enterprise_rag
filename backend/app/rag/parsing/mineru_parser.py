@@ -304,13 +304,30 @@ def parse_md_zip(zip_path: str, output_dir: str) -> MinerUParseResult:
 
     # --- copy to standard structure ---
     canonical_md = Path(output_dir) / "document.md"
-    shutil.copy2(selected_md, canonical_md)
+    _copy_file_contents(selected_md, canonical_md)
 
     if images_src:
         dst_images = Path(output_dir) / "images"
-        shutil.copytree(images_src, dst_images, dirs_exist_ok=True)
+        _copy_tree_contents(images_src, dst_images)
 
     return collect_mineru_result(output_dir)
+
+
+def _copy_file_contents(src: Path, dst: Path):
+    """Copy bytes only; avoid copystat/utime on bind mounts that reject metadata changes."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src, dst)
+
+
+def _copy_tree_contents(src: Path, dst: Path):
+    """Copy a directory tree without preserving file or directory metadata."""
+    dst.mkdir(parents=True, exist_ok=True)
+    for item in src.iterdir():
+        target = dst / item.name
+        if item.is_dir():
+            _copy_tree_contents(item, target)
+        elif item.is_file():
+            _copy_file_contents(item, target)
 
 
 def _select_zip_entry_md(raw_root: Path) -> Path | None:
