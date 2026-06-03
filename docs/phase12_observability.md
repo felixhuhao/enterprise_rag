@@ -1,6 +1,10 @@
 # Phase 12: Query Observability And Latency/Cost Profile
 
-Last updated: 2026-06-02
+Last updated: 2026-06-03
+
+Status: complete. P1 is implemented and manually validated; P2 is intentionally
+deferred until query stats volume, token attribution needs, or operational usage
+make the extra scope worthwhile.
 
 ## Goal
 
@@ -496,9 +500,8 @@ Exit criteria:
 
 ### Iteration 6: Validation And Phase Closeout
 
-Status: engineering validation completed on 2026-06-02. Live query/UI manual
-checks should be run after rebuilding the backend image, because the currently
-running backend container may still contain an older image.
+Status: complete. Engineering validation completed on 2026-06-02; live
+query/UI manual checks completed on 2026-06-03 after service rebuild.
 
 Purpose: verify the loop on real query patterns before moving to P2.
 
@@ -533,7 +536,7 @@ Engineering validation completed:
 Validation limits:
 
 - `pytest` is not installed in the local Python environment or the current backend container, so `test_query_stats.py` was not run through pytest.
-- The current backend container did not include `query_observability.py`, indicating it needs a rebuild before live API/UI validation.
+- P2 is deferred by choice, not because P1 is blocked.
 
 Deferred P2 findings:
 
