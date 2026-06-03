@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-03
 
-Status: planned. Implementation not started.
+Status: Phase 1 active. Iteration 1 complete.
 
 ## Goal
 
@@ -124,6 +124,14 @@ retroactively rebuild the entire existing migration history in one pass.
 rebuilds and can create false confidence. Add rollback only after forward
 migrations have proven useful.
 
+**Compatibility rule for existing databases:** if `schema_migrations` does not
+exist, inspect the current schema before stamping the baseline. At minimum, the
+database must contain the required base tables used by the current app:
+`general_documents`, `query_chat_messages`, `query_run_stats`, `users`,
+`document_acl`, `query_feedback`, `jobs`, `entity_aliases`, and
+`structured_tag_overrides`. For each table, verify the current required columns
+exist before marking the baseline as applied.
+
 ---
 
 ### Phase 3 — Local file storage abstraction
@@ -151,6 +159,24 @@ first implementation local-only.
 **Deferred:** S3 compatibility. The current ingestion pipeline still has
 local-path assumptions, especially around parsing, zip/image assets, and source
 preview. Add object storage only after the local abstraction is stable.
+
+**Bounded storage scope:** Phase 3 applies only to project-owned document
+artifacts:
+
+- uploads under `general_uploads/{document_id}/`
+- parsed artifacts under `general_parsed/{document_id}/`
+- chunk quality reports
+- extracted image assets and image metadata
+
+Excluded from Phase 3:
+
+- SQLite database files
+- Milvus data
+- eval result JSONL/summary files
+- logs
+- `.env` or runtime configuration files
+- temporary parser scratch files unless they are produced from a managed
+  `StorageRef`
 
 ---
 
@@ -220,7 +246,7 @@ startup checks without changing product behavior.
 
 ### Iteration 1: SQLite Pragmas
 
-Status: ready.
+Status: implemented on 2026-06-03.
 
 Work:
 
@@ -235,6 +261,11 @@ Exit criteria:
 - Existing DB callers keep the same API.
 - Startup logs the active SQLite pragmas.
 - Unit tests verify pragmas on a new connection.
+
+Validation:
+
+- `PYTHONPATH=backend .venv/bin/python -m pytest backend/tests/unit/test_database_schema.py`
+- `MILVUS_URI=http://localhost:19530 PYTHONPATH=backend .venv/bin/python -m pytest backend/tests/unit`
 
 ### Iteration 2: Startup Storage Guard
 
@@ -278,7 +309,9 @@ Work:
 - Restart backend.
 - Check `/health`.
 - Upload a Markdown document.
-- Run one lightweight eval.
+- Run one lightweight eval:
+  - API/UI: retrieval-only mode with `limit=1`, `concurrency=1`
+  - CLI equivalent: `python backend/scripts/eval_golden_set.py --mode retrieval_only --limit 1 --concurrency 1`
 - Mark Phase 1 complete or record blockers.
 
 Exit criteria:
