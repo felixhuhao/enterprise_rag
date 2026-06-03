@@ -232,8 +232,19 @@ async def process_document(
             raise HTTPException(status_code=400, detail="文档状态为 failed，请使用 /retry 端点重试")
         raise HTTPException(status_code=400, detail=f"文档状态为 {doc['status']}，无法处理")
 
-    background_tasks.add_task(document_service.process_document, document_id)
-    return {"ok": True, "message": "Document processing started"}
+    try:
+        job = await document_service.create_document_job(
+            document_id,
+            job_type=document_service.DOCUMENT_JOB_TYPE_INGESTION,
+            created_by=current_user.user_id,
+            message="queued",
+        )
+    except Exception as exc:
+        await document_service.update_document_status(document_id, "uploaded")
+        raise HTTPException(status_code=500, detail="任务创建失败，请稍后重试") from exc
+
+    background_tasks.add_task(document_service.process_document, document_id, job["job_id"])
+    return {"ok": True, "message": "Document processing started", "job_id": job["job_id"]}
 
 
 MAX_RETRIES = 3
@@ -258,13 +269,28 @@ async def retry_document(
     if retry_count >= MAX_RETRIES:
         raise HTTPException(status_code=429, detail=f"重试次数已达上限({MAX_RETRIES})")
 
+    job = await document_service.create_document_job(
+        document_id,
+        job_type=document_service.DOCUMENT_JOB_TYPE_RETRY,
+        created_by=current_user.user_id,
+        attempt_count=retry_count + 1,
+        message="queued",
+    )
+
     # 重试前清理 Milvus 中可能残留的旧向量——失败则阻断，避免重复向量
     try:
+        await document_service.mark_document_job_retry_cleanup(job["job_id"])
         await asyncio.to_thread(document_service._sync_delete_from_milvus, document_id)
     except Exception as exc:
         from app.errors import classify_error
         code = classify_error(exc)
         await document_service.append_error_event(document_id, "pre_retry_cleanup", code.value, str(exc))
+        await document_service.mark_document_job_failed(
+            job["job_id"],
+            error_code=code.value,
+            error_detail=str(exc),
+            message="pre_retry_cleanup",
+        )
         raise HTTPException(status_code=503, detail="Milvus 向量清理失败，请稍后重试")
 
     await document_service.update_document_status(
@@ -272,8 +298,8 @@ async def retry_document(
         retry_count=retry_count + 1,
         error_msg="", error_code="",
     )
-    background_tasks.add_task(document_service.process_document, document_id)
-    return {"ok": True, "message": "Document retry started"}
+    background_tasks.add_task(document_service.process_document, document_id, job["job_id"])
+    return {"ok": True, "message": "Document retry started", "job_id": job["job_id"]}
 
 
 @router.delete("/documents/{document_id}")

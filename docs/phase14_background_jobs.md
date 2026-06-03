@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-03
 
-Status: P1 started. Iteration 1 implemented.
+Status: P1 in progress. Iterations 1-2 implemented.
 
 ## Goal
 
@@ -371,7 +371,7 @@ Engineering validation:
 
 ### Iteration 2: Document Processing Job Integration
 
-Status: planned.
+Status: implemented on 2026-06-03.
 
 Purpose: make upload/process/retry document work visible as jobs.
 
@@ -389,6 +389,12 @@ Exit criteria:
 - Manual upload shows a document job.
 - Failed document processing has a failed job with error code/detail.
 - Existing document status behavior remains correct.
+
+Engineering validation:
+
+- `backend/tests/unit/test_document_job_api.py`
+- `backend/tests/unit/test_retry_safety.py`
+- `backend/tests/unit/test_jobs.py`
 
 ### Iteration 3: Eval Job Integration
 

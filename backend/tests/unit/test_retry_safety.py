@@ -8,7 +8,7 @@ import json
 import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -304,6 +304,64 @@ class TestProcessDocument:
         assert row["chunker_version"] == "markdown_chunker_v1"
         assert row["enrichment_profile"] == "enterprise_policy"
         assert row["processed_at"] == "2026-06-03T10:00:00"
+
+    def test_updates_job_on_completion(self, db):
+        mark_running = AsyncMock()
+        update_progress = AsyncMock()
+        mark_succeeded = AsyncMock()
+        with patch("app.services.document_service.os.path.isfile", return_value=True), \
+             patch("app.services.document_service._sync_process_document", return_value={
+                 "chunk_count": 5,
+                 "image_count": 1,
+             }), \
+             patch("app.services.document_service._invalidate_entity_cache"), \
+             patch("app.services.document_service.job_service.mark_job_running", mark_running), \
+             patch("app.services.document_service.job_service.update_job_progress", update_progress), \
+             patch("app.services.document_service.job_service.mark_job_succeeded", mark_succeeded):
+            asyncio.run(svc.process_document("doc-4", job_id="job-1"))
+
+        row = db.execute("SELECT status FROM general_documents WHERE document_id = 'doc-4'").fetchone()
+        assert row["status"] == "completed"
+        mark_running.assert_awaited_once_with("job-1", message="processing")
+        mark_succeeded.assert_awaited_once_with("job-1", message="Document processing completed")
+        assert any(
+            call.kwargs.get("message") == "completed"
+            and call.kwargs.get("progress_current") == svc.DOCUMENT_JOB_TOTAL_STEPS
+            for call in update_progress.await_args_list
+        )
+
+    def test_marks_job_failed_on_processing_exception(self, db):
+        mark_failed = AsyncMock()
+        with patch("app.services.document_service.os.path.isfile", return_value=True), \
+             patch("app.services.document_service._sync_process_document", side_effect=RuntimeError("boom")), \
+             patch("app.services.document_service.job_service.mark_job_running", AsyncMock()), \
+             patch("app.services.document_service.job_service.update_job_progress", AsyncMock()), \
+             patch("app.services.document_service.job_service.mark_job_failed", mark_failed):
+            asyncio.run(svc.process_document("doc-4", job_id="job-1"))
+
+        row = db.execute(
+            "SELECT status, error_msg, last_failed_stage FROM general_documents WHERE document_id = 'doc-4'"
+        ).fetchone()
+        assert row["status"] == "failed"
+        assert "boom" in row["error_msg"]
+        assert row["last_failed_stage"] == "processing"
+        mark_failed.assert_awaited_once()
+        assert mark_failed.await_args.kwargs["error_code"] == "UNKNOWN_ERROR"
+        assert "boom" in mark_failed.await_args.kwargs["error_detail"]
+
+    def test_sync_status_updater_updates_document_and_job_progress(self, db):
+        update_progress = AsyncMock()
+        with patch("app.services.document_service.job_service.update_job_progress", update_progress):
+            svc._sync_update_status("doc-4", "chunking", job_id="job-1")
+
+        row = db.execute("SELECT status FROM general_documents WHERE document_id = 'doc-4'").fetchone()
+        assert row["status"] == "chunking"
+        update_progress.assert_awaited_once_with(
+            "job-1",
+            progress_current=4,
+            progress_total=svc.DOCUMENT_JOB_TOTAL_STEPS,
+            message="chunking",
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@ from datetime import datetime
 
 from app.config import settings
 from app.core.database import get_db
-from app.services import document_chunk_query, document_cleanup
+from app.services import document_chunk_query, document_cleanup, job_service
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,23 @@ PROCESSING_STATUSES = (
     "embedding",
     "saving",
 )
+
+DOCUMENT_JOB_TOTAL_STEPS = 7
+DOCUMENT_JOB_STAGE_PROGRESS = {
+    "queued": 0,
+    "processing": 1,
+    "reading": 2,
+    "parsing": 2,
+    "normalizing": 3,
+    "chunking": 4,
+    "enriching": 5,
+    "embedding": 6,
+    "saving": 7,
+    "completed": 7,
+}
+
+DOCUMENT_JOB_TYPE_INGESTION = "document_ingestion"
+DOCUMENT_JOB_TYPE_RETRY = "document_retry"
 
 
 async def create_document_record(
@@ -169,6 +186,102 @@ def _quality_status_update_fields(result: dict) -> dict:
     }
 
 
+async def create_document_job(
+    document_id: str,
+    *,
+    job_type: str = DOCUMENT_JOB_TYPE_INGESTION,
+    created_by: str = "",
+    attempt_count: int = 1,
+    message: str = "queued",
+) -> dict:
+    """Create a durable job record for document processing work."""
+    return await job_service.create_job(
+        job_type=job_type,
+        resource_type="document",
+        resource_id=document_id,
+        created_by=created_by,
+        progress_total=DOCUMENT_JOB_TOTAL_STEPS,
+        message=message,
+        attempt_count=attempt_count,
+    )
+
+
+async def mark_document_job_retry_cleanup(job_id: str):
+    """Mark a retry job as running while pre-cleanup is in progress."""
+    if not job_id:
+        return
+    try:
+        await job_service.mark_job_running(job_id, message="pre_retry_cleanup")
+        await job_service.update_job_progress(
+            job_id,
+            progress_current=0,
+            progress_total=DOCUMENT_JOB_TOTAL_STEPS,
+            message="pre_retry_cleanup",
+        )
+    except Exception:
+        logger.exception("文档 job 更新失败 job_id=%s stage=pre_retry_cleanup", job_id)
+
+
+async def _safe_mark_document_job_running(job_id: str, status: str = "processing"):
+    if not job_id:
+        return
+    try:
+        await job_service.mark_job_running(job_id, message=status)
+        await _safe_update_document_job_progress(job_id, status)
+    except Exception:
+        logger.exception("文档 job 启动状态更新失败 job_id=%s", job_id)
+
+
+async def _safe_update_document_job_progress(job_id: str, status: str):
+    if not job_id:
+        return
+    try:
+        progress = DOCUMENT_JOB_STAGE_PROGRESS.get(status, 1)
+        await job_service.update_job_progress(
+            job_id,
+            progress_current=progress,
+            progress_total=DOCUMENT_JOB_TOTAL_STEPS,
+            message=status,
+        )
+    except Exception:
+        logger.exception("文档 job 进度更新失败 job_id=%s status=%s", job_id, status)
+
+
+async def _safe_mark_document_job_succeeded(job_id: str):
+    if not job_id:
+        return
+    try:
+        await job_service.update_job_progress(
+            job_id,
+            progress_current=DOCUMENT_JOB_TOTAL_STEPS,
+            progress_total=DOCUMENT_JOB_TOTAL_STEPS,
+            message="completed",
+        )
+        await job_service.mark_job_succeeded(job_id, message="Document processing completed")
+    except Exception:
+        logger.exception("文档 job 完成状态更新失败 job_id=%s", job_id)
+
+
+async def mark_document_job_failed(
+    job_id: str,
+    *,
+    error_code: str,
+    error_detail: str,
+    message: str = "",
+):
+    if not job_id:
+        return
+    try:
+        await job_service.mark_job_failed(
+            job_id,
+            error_code=error_code,
+            error_detail=error_detail,
+            message=message,
+        )
+    except Exception:
+        logger.exception("文档 job 失败状态更新失败 job_id=%s", job_id)
+
+
 async def update_document_status(document_id: str, status: str, **kwargs):
     """统一更新文档状态，仅允许白名单字段。"""
     bad = set(kwargs) - _ALLOWED_STATUS_FIELDS
@@ -272,10 +385,17 @@ async def delete_document_record(document_id: str) -> bool:
         return cursor.rowcount > 0
 
 
-async def process_document(document_id: str):
+async def process_document(document_id: str, job_id: str = ""):
     """后台执行通用导入流程。"""
+    await _safe_mark_document_job_running(job_id, "processing")
     doc = await get_document(document_id)
     if not doc:
+        await mark_document_job_failed(
+            job_id,
+            error_code="DOCUMENT_NOT_FOUND",
+            error_detail="Document record not found",
+            message="document_not_found",
+        )
         return
     if not os.path.isfile(doc["source_path"]):
         await update_document_status(
@@ -284,11 +404,18 @@ async def process_document(document_id: str):
             last_failed_stage="pre_check",
         )
         await append_error_event(document_id, "pre_check", "UNKNOWN_ERROR", "文件不存在")
+        await mark_document_job_failed(
+            job_id,
+            error_code="UNKNOWN_ERROR",
+            error_detail="文件不存在",
+            message="pre_check",
+        )
         return
 
     try:
         await update_document_status(document_id, "processing", error_msg="")
-        result = await asyncio.to_thread(_sync_process_document, doc)
+        await _safe_update_document_job_progress(job_id, "processing")
+        result = await asyncio.to_thread(_sync_process_document, doc, job_id)
         await update_document_status(
             document_id,
             "completed",
@@ -297,6 +424,7 @@ async def process_document(document_id: str):
             error_msg="",
             **_quality_status_update_fields(result),
         )
+        await _safe_mark_document_job_succeeded(job_id)
         _invalidate_entity_cache()
     except Exception as exc:
         logger.exception("通用文档处理失败 document_id=%s", document_id)
@@ -311,24 +439,31 @@ async def process_document(document_id: str):
             last_failed_stage=failed_stage,
         )
         await append_error_event(document_id, failed_stage, code.value, str(exc)[:2000])
+        await mark_document_job_failed(
+            job_id,
+            error_code=code.value,
+            error_detail=str(exc)[:2000],
+            message=failed_stage,
+        )
 
 
-def _sync_process_document(doc: dict) -> dict:
+def _sync_process_document(doc: dict, job_id: str = "") -> dict:
     """同步执行导入流程，通过 config 传 status_updater 给 LangGraph 节点。"""
     from app.rag.ingestion.graph import run_ingestion_graph
 
     config = {
         "configurable": {
-            "status_updater": lambda doc_id, status: _sync_update_status(doc_id, status),
+            "status_updater": lambda doc_id, status: _sync_update_status(doc_id, status, job_id=job_id),
         }
     }
     return run_ingestion_graph(doc, entity_name=doc.get("entity_name", ""), config=config)
 
 
-def _sync_update_status(document_id: str, status: str, **kwargs):
+def _sync_update_status(document_id: str, status: str, job_id: str = "", **kwargs):
     """线程内同步更新状态。"""
     async def _update():
         await update_document_status(document_id, status, **kwargs)
+        await _safe_update_document_job_progress(job_id, status)
 
     asyncio.run(_update())
 
