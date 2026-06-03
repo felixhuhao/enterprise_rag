@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-03
 
-Status: Phase 1 active. Iteration 3 complete.
+Status: Phase 1 complete. Later phases deferred.
 
 ## Goal
 
@@ -315,7 +315,7 @@ Validation:
 
 ### Iteration 4: Validation And Closeout
 
-Status: planned.
+Status: completed on 2026-06-03.
 
 Work:
 
@@ -333,3 +333,26 @@ Exit criteria:
 - No regression in document processing or eval.
 - No SQLite lock errors in the smoke path.
 - Remaining phases stay deferred.
+
+Validation completed:
+
+- Rebuilt and restarted the backend Docker service.
+- Verified `/health` returns:
+  - `status=ok`
+  - SQLite `journal_mode=wal`
+  - SQLite `busy_timeout=5000`
+  - writable database/upload/parsed directories
+  - disk-space status
+  - reachable Milvus status
+- Uploaded `manual_test_assets/phase13/phase13_normal.md`.
+- Processed the uploaded document to `completed` with `quality_status=good`.
+- Deleted the smoke document after validation.
+- Ran retrieval-only eval with `limit=1`, `concurrency=1`.
+- Eval succeeded with `Hit@5=100%`, `Hit@10=100%`, and no failures.
+
+Closeout:
+
+- Phase 1 is complete.
+- Phase 2 migration baseline remains deferred.
+- Phase 3 local file-storage abstraction remains deferred.
+- Phase 4 object storage and deeper observability remains deferred.
