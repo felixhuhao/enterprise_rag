@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-03
 
-Status: P1 in progress. Iterations 1-2 implemented.
+Status: P1 in progress. Iterations 1-3 implemented.
 
 ## Goal
 
@@ -398,7 +398,7 @@ Engineering validation:
 
 ### Iteration 3: Eval Job Integration
 
-Status: planned.
+Status: implemented on 2026-06-03.
 
 Purpose: make golden-set eval runs durable and diagnosable.
 
@@ -417,6 +417,11 @@ Exit criteria:
 - Manual eval run appears in job list.
 - Job progress matches completed case count.
 - Eval failure is visible without reading logs.
+
+Engineering validation:
+
+- `backend/tests/unit/test_admin_eval_golden_set.py`
+- `backend/tests/unit/test_jobs.py`
 
 ### Iteration 4: Frontend Job Visibility
 

@@ -1,5 +1,7 @@
+import asyncio
 import json
 import shutil
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -15,8 +17,14 @@ from app.api.admin_eval import (
     _normalize_golden_case_update,
     _normalize_eval_mode,
     _summarize_golden_case,
+    _update_eval_progress,
 )
 from app.api.golden_set_utils import write_jsonl_with_backup
+from app.core.auth import CurrentUser
+
+
+def run(coro):
+    return asyncio.run(coro)
 
 
 def test_load_golden_cases_reads_jsonl(tmp_path):
@@ -255,3 +263,84 @@ def test_normalize_golden_case_update_rejects_invalid_llm_case():
             eval_type="llm_judge",
             expected_points=[],
         ))
+
+
+def test_update_eval_progress_updates_job_progress():
+    update_progress = AsyncMock()
+    with admin_eval._lock:
+        old_state = dict(admin_eval._state)
+        admin_eval._state.update({
+            "total": 0,
+            "current": 0,
+            "current_id": "",
+            "current_question": "",
+            "results_preview": [],
+        })
+
+    try:
+        with patch("app.api.admin_eval.job_service.update_job_progress", update_progress):
+            _update_eval_progress({
+                "type": "case_finished",
+                "index": 1,
+                "total": 3,
+                "row": {
+                    "id": "case_1",
+                    "question": "q",
+                    "final_score": 1.0,
+                },
+            }, job_id="job-1")
+    finally:
+        with admin_eval._lock:
+            admin_eval._state.clear()
+            admin_eval._state.update(old_state)
+
+    update_progress.assert_awaited_once_with(
+        "job-1",
+        progress_current=1,
+        progress_total=3,
+        message="finished case_1",
+    )
+
+
+def test_run_eval_creates_job_and_returns_job_id():
+    created_threads = []
+
+    class FakeThread:
+        def __init__(self, *, target, args, daemon):
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+
+        def start(self):
+            created_threads.append(self)
+
+    create_job = AsyncMock(return_value={"job_id": "job-eval"})
+    req = RunRequest(mode="retrieval_only")
+    user = CurrentUser(user_id="admin", username="Admin", role="admin")
+
+    with admin_eval._lock:
+        old_state = dict(admin_eval._state)
+        admin_eval._state.update({"status": "idle", "job_id": ""})
+
+    try:
+        with patch("app.api.admin_eval.job_service.create_job", create_job), \
+             patch("app.api.admin_eval.threading.Thread", FakeThread):
+            result = run(admin_eval.run_eval(req, current_user=user, authorization="Bearer token-123"))
+    finally:
+        with admin_eval._lock:
+            admin_eval._state.clear()
+            admin_eval._state.update(old_state)
+
+    assert result == {"ok": True, "status": "running", "job_id": "job-eval"}
+    create_job.assert_awaited_once_with(
+        job_type=admin_eval.EVAL_JOB_TYPE,
+        resource_type=admin_eval.EVAL_JOB_RESOURCE_TYPE,
+        resource_id=admin_eval.EVAL_JOB_RESOURCE_ID,
+        created_by="admin",
+        message="queued mode=retrieval_only",
+    )
+    assert len(created_threads) == 1
+    thread = created_threads[0]
+    assert thread.target == admin_eval._runner
+    assert thread.args == ("token-123", req, "job-eval")
+    assert thread.daemon is True

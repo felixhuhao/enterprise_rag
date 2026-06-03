@@ -20,11 +20,15 @@ from app.api.golden_set_utils import (
 )
 from app.core.auth import CurrentUser
 from app.deps import verify_token
+from app.services import job_service
 
 router = APIRouter()
 
 RESULT_DIR = DATA_DIR / "eval_results"
 EVAL_MODES = {"full", "quick", "retrieval_only", "answer_lite"}
+EVAL_JOB_TYPE = "golden_set_eval"
+EVAL_JOB_RESOURCE_TYPE = "eval"
+EVAL_JOB_RESOURCE_ID = "golden_set"
 
 _lock = threading.Lock()
 _state: dict = {
@@ -41,6 +45,7 @@ _state: dict = {
     "current_question": "",
     "results_preview": [],
     "mode": "full",
+    "job_id": "",
 }
 
 
@@ -338,7 +343,65 @@ def _finished_preview_count(preview: list[dict]) -> int:
     return sum(1 for item in preview if item.get("status") != "running")
 
 
-def _update_eval_progress(event: dict) -> None:
+def _run_job_update(coro):
+    try:
+        import asyncio
+        asyncio.run(coro)
+    except Exception:
+        # Job updates are observability; they must not break an eval run.
+        pass
+
+
+def _safe_mark_eval_job_running(job_id: str, *, message: str = "running") -> None:
+    if not job_id:
+        return
+    _run_job_update(job_service.mark_job_running(job_id, message=message))
+
+
+def _safe_update_eval_job_progress(
+    job_id: str,
+    *,
+    progress_current: int | None = None,
+    progress_total: int | None = None,
+    message: str = "",
+) -> None:
+    if not job_id:
+        return
+    _run_job_update(job_service.update_job_progress(
+        job_id,
+        progress_current=progress_current,
+        progress_total=progress_total,
+        message=message,
+    ))
+
+
+def _safe_mark_eval_job_succeeded(job_id: str, *, message: str = "") -> None:
+    if not job_id:
+        return
+    _run_job_update(job_service.mark_job_succeeded(job_id, message=message))
+
+
+def _safe_mark_eval_job_failed(
+    job_id: str,
+    *,
+    error_code: str,
+    error_detail: str,
+    message: str = "",
+) -> None:
+    if not job_id:
+        return
+    _run_job_update(job_service.mark_job_failed(
+        job_id,
+        error_code=error_code,
+        error_detail=error_detail,
+        message=message,
+    ))
+
+
+def _update_eval_progress(event: dict, job_id: str = "") -> None:
+    job_current = None
+    job_total = None
+    job_message = ""
     with _lock:
         _state["total"] = event.get("total", _state.get("total", 0))
         if event.get("type") == "case_started":
@@ -356,6 +419,9 @@ def _update_eval_progress(event: dict) -> None:
             }
             _state["results_preview"] = _upsert_result_preview(_state.get("results_preview", []), item)
             _state["current"] = _finished_preview_count(_state["results_preview"])
+            job_current = _state["current"]
+            job_total = _state["total"]
+            job_message = f"running {event.get('id', '')}".strip()
         elif event.get("type") == "case_finished":
             row = event.get("row", {})
             _state["current_id"] = row.get("id", "")
@@ -363,6 +429,17 @@ def _update_eval_progress(event: dict) -> None:
             item = _eval_result_preview(row, event.get("index"), event.get("total"))
             _state["results_preview"] = _upsert_result_preview(_state.get("results_preview", []), item)
             _state["current"] = _finished_preview_count(_state["results_preview"])
+            job_current = _state["current"]
+            job_total = _state["total"]
+            job_message = f"finished {row.get('id', '')}".strip()
+
+    if job_current is not None:
+        _safe_update_eval_job_progress(
+            job_id,
+            progress_current=job_current,
+            progress_total=job_total,
+            message=job_message,
+        )
 
 
 @router.get("/admin/eval/status")
@@ -486,16 +563,36 @@ async def run_eval(req: RunRequest, current_user: CurrentUser = Depends(verify_t
         _state["current_question"] = ""
         _state["results_preview"] = []
         _state["mode"] = mode
+        _state["job_id"] = ""
+
+    try:
+        job = await job_service.create_job(
+            job_type=EVAL_JOB_TYPE,
+            resource_type=EVAL_JOB_RESOURCE_TYPE,
+            resource_id=EVAL_JOB_RESOURCE_ID,
+            created_by=current_user.user_id,
+            message=f"queued mode={mode}",
+        )
+    except Exception as exc:
+        with _lock:
+            _state["status"] = "failed"
+            _state["finished_at"] = datetime.now(timezone.utc).isoformat()
+            _state["error"] = "评测任务创建失败"
+        raise HTTPException(status_code=500, detail="评测任务创建失败，请稍后重试") from exc
+
+    with _lock:
+        _state["job_id"] = job["job_id"]
 
     token = authorization.removeprefix("Bearer ").strip()
     threading.Thread(
-        target=_runner, args=(token, req), daemon=True,
+        target=_runner, args=(token, req, job["job_id"]), daemon=True,
     ).start()
-    return {"ok": True, "status": "running"}
+    return {"ok": True, "status": "running", "job_id": job["job_id"]}
 
 
-def _runner(token: str, req: RunRequest):
+def _runner(token: str, req: RunRequest, job_id: str = ""):
     try:
+        _safe_mark_eval_job_running(job_id, message="starting")
         # add backend/ to path so scripts can import app.* modules
         sys.path.insert(0, str(_backend))
         from scripts.eval_golden.cases import load_golden_set
@@ -511,6 +608,12 @@ def _runner(token: str, req: RunRequest):
             raise ValueError("未选择基准测试用例")
         with _lock:
             _state["total"] = len(golden)
+        _safe_update_eval_job_progress(
+            job_id,
+            progress_current=0,
+            progress_total=len(golden),
+            message=f"running mode={mode}",
+        )
 
         judge_config = None
         if mode in {"full", "quick"} and req.judge and any(_get_eval_type(case) == "llm_judge" for case in golden):
@@ -529,7 +632,7 @@ def _runner(token: str, req: RunRequest):
             api_base,
             token,
             delay=1.0,
-            progress_callback=_update_eval_progress,
+            progress_callback=lambda event: _update_eval_progress(event, job_id),
             case_timeout_sec=req.case_timeout_sec,
             judge_config=judge_config,
             mode=mode,
@@ -576,9 +679,32 @@ def _runner(token: str, req: RunRequest):
             _state["current"] = len(golden)
             _state["total"] = len(golden)
 
+        final_message = f"results={result_path}; summary={summary_path}"
+        _safe_update_eval_job_progress(
+            job_id,
+            progress_current=len(golden),
+            progress_total=len(golden),
+            message=final_message,
+        )
+        if failed_count:
+            _safe_mark_eval_job_failed(
+                job_id,
+                error_code="EVAL_CASES_FAILED",
+                error_detail=f"{failed_count} 个用例未通过，基准测试集未通过",
+                message=final_message,
+            )
+        else:
+            _safe_mark_eval_job_succeeded(job_id, message=final_message)
+
     except Exception as exc:
         with _lock:
             _state["status"] = "failed"
             _state["finished_at"] = datetime.now(timezone.utc).isoformat()
             _state["summary"] = None
             _state["error"] = str(exc)[:1000]
+        _safe_mark_eval_job_failed(
+            job_id,
+            error_code="EVAL_ERROR",
+            error_detail=str(exc)[:2000],
+            message="eval_failed",
+        )
