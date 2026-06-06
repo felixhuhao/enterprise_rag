@@ -53,11 +53,11 @@ These are the strongest images for the repository landing page.
 |---|---|---|
 | [`query-balanced-answer.png`](images/query-balanced-answer.png) | Query Chat | Citation-grounded cross-document answer. |
 | [`query-discovery-multihop.png`](images/query-discovery-multihop.png) | Query Chat | Multi-hop discovery with visible hop trace. |
+| [`query-strict-evidence.png`](images/query-strict-evidence.png) | Query Chat | Strict evidence answer that avoids inventing an unsupported fact. |
 | [`retrieval-test-recall.png`](images/retrieval-test-recall.png) | Retrieval Test | Query expansion, retrieval trace, Top K chunks, scores, and tags. |
 | [`document-chunks-quality.png`](images/document-chunks-quality.png) | Document Detail | Chunk types, table chunks, quality status, and content previews. |
 | [`eval-baseline-summary.png`](images/eval-baseline-summary.png) | Quality Center | Run-level metrics, failure categories, per-strategy breakdown, and baseline context. |
 | [`eval-case-detail.png`](images/eval-case-detail.png) | Quality Center | Case-level diagnosis: expected evidence, missing citation, answer, retrieval result. |
-| [`query-strict-evidence.png`](images/query-strict-evidence.png) | Query Chat | Strict evidence answer that avoids inventing an unsupported fact. |
 
 README should stay compact. Keep secondary screenshots linked from this guide.
 
@@ -152,10 +152,10 @@ README currently uses seven large screenshots:
 
 - `docs/images/query-balanced-answer.png`
 - `docs/images/query-discovery-multihop.png`
+- `docs/images/query-strict-evidence.png`
 - `docs/images/retrieval-test-recall.png`
 - `docs/images/document-chunks-quality.png`
 - `docs/images/eval-baseline-summary.png`
 - `docs/images/eval-case-detail.png`
-- `docs/images/query-strict-evidence.png`
 
 Avoid adding more large images to README unless one of these is replaced. Put the full gallery in this guide.

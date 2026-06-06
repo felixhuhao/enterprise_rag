@@ -133,6 +133,12 @@ Discovery mode first finds related entities, then uses those entities to continu
 
 ![Multi-hop discovery query](docs/images/query-discovery-multihop.png)
 
+### Strict Evidence Mode
+
+Strict evidence mode keeps the answer conservative when the retrieved context does not support the exact requested fact. It can still summarize nearby supported evidence without inventing the missing value.
+
+![Strict evidence answer](docs/images/query-strict-evidence.png)
+
 ### Retrieval Debugging
 
 The retrieval test bench exposes query expansion, retrieval budget, model selection, latency by stage, Top K chunks, scores, tags, and retrieval paths before answer generation happens.
@@ -156,12 +162,6 @@ The Quality Center turns the golden set into a practical regression loop: run mo
 The Quality Center can drill from aggregate run metrics into one case and show expected evidence, retrieved evidence, missing citations, answer text, and failure categories.
 
 ![Evaluation case detail](docs/images/eval-case-detail.png)
-
-### Strict Evidence Mode
-
-Strict evidence mode keeps the answer conservative when the retrieved context does not support the exact requested fact. It can still summarize nearby supported evidence without inventing the missing value.
-
-![Strict evidence answer](docs/images/query-strict-evidence.png)
 
 Useful demo queries:
 
