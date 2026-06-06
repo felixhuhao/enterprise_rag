@@ -203,9 +203,20 @@ def _normalize_golden_case_update(req: GoldenCaseUpdate) -> dict:
 def _eval_result_preview(row: dict, index: int | None = None, total: int | None = None) -> dict:
     score = row.get("final_score")
     error = row.get("error")
+    not_applicable = (
+        row.get("verdict") == "not_applicable"
+        or (
+            row.get("eval_mode") == "retrieval_only"
+            and score is None
+            and not row.get("hit_metric_applicable")
+        )
+    )
     if error:
         status = "failed"
         label = "失败"
+    elif not_applicable:
+        status = "not_applicable"
+        label = "不适用"
     elif score is None:
         status = "warning"
         label = "待评测"

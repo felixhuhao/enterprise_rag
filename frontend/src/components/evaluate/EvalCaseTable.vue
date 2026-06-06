@@ -6,18 +6,30 @@
         <small>{{ issueCases.length }} 条需要查看</small>
       </div>
       <div v-if="issueCases.length" class="case-table-filters">
-        <a-select v-model="categoryFilter" size="small" class="case-filter-select">
-          <a-option value="">全部原因</a-option>
-          <a-option v-for="item in categoryOptions" :key="item.key" :value="item.key">
+        <div class="case-filter-group" aria-label="按原因筛选">
+          <button
+            v-for="item in categoryFilterOptions"
+            :key="item.key || 'all-categories'"
+            type="button"
+            class="filter-pill"
+            :class="{ active: categoryFilter === item.key }"
+            @click="categoryFilter = item.key"
+          >
             {{ item.label }}
-          </a-option>
-        </a-select>
-        <a-select v-model="flavorFilter" size="small" class="case-filter-select">
-          <a-option value="">全部策略</a-option>
-          <a-option v-for="item in flavorOptions" :key="item.key" :value="item.key">
+          </button>
+        </div>
+        <div class="case-filter-group" aria-label="按策略筛选">
+          <button
+            v-for="item in flavorFilterOptions"
+            :key="item.key || 'all-flavors'"
+            type="button"
+            class="filter-pill"
+            :class="{ active: flavorFilter === item.key }"
+            @click="flavorFilter = item.key"
+          >
             {{ item.label }}
-          </a-option>
-        </a-select>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -85,7 +97,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { EvalCaseResult } from '../../api/adminEval'
 import {
   evalModeLabel,
@@ -129,12 +141,34 @@ const flavorOptions = computed(() => {
   return [...keys].sort().map((key) => ({ key, label: flavorLabel(key) }))
 })
 
+const categoryFilterOptions = computed(() => [
+  { key: '', label: '全部原因' },
+  ...categoryOptions.value,
+])
+
+const flavorFilterOptions = computed(() => [
+  { key: '', label: '全部策略' },
+  ...flavorOptions.value,
+])
+
 const filteredCases = computed(() => {
   return issueCases.value.filter((item) => {
     if (categoryFilter.value && !caseCategories(item).includes(categoryFilter.value)) return false
     if (flavorFilter.value && caseFlavor(item) !== flavorFilter.value) return false
     return true
   })
+})
+
+watch(categoryOptions, (options) => {
+  if (categoryFilter.value && !options.some((item) => item.key === categoryFilter.value)) {
+    categoryFilter.value = ''
+  }
+})
+
+watch(flavorOptions, (options) => {
+  if (flavorFilter.value && !options.some((item) => item.key === flavorFilter.value)) {
+    flavorFilter.value = ''
+  }
 })
 
 function caseCategories(item: EvalCaseResult): string[] {
@@ -196,14 +230,43 @@ function judgeCacheShortLabel(value: string): string {
 }
 
 .case-table-filters {
-  display: grid;
-  grid-template-columns: repeat(2, 140px);
-  gap: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.case-filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
   justify-content: flex-end;
 }
 
-.case-filter-select {
-  width: 140px;
+.filter-pill {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  background: #f8fafc;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.filter-pill:hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: var(--accent);
+}
+
+.filter-pill.active {
+  border-color: var(--accent);
+  background: #dbeafe;
+  color: var(--accent);
 }
 
 .case-table-empty {
@@ -316,6 +379,11 @@ tbody tr:last-child td {
   color: #92400e;
 }
 
+.status-not_applicable {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
 .reason-pill {
   background: #fbfdff;
   border: 1px solid var(--border);
@@ -339,13 +407,12 @@ tbody tr:last-child td {
   }
 
   .case-table-filters {
-    grid-template-columns: minmax(0, 1fr);
     justify-content: flex-start;
     width: 100%;
   }
 
-  .case-filter-select {
-    width: 100%;
+  .case-filter-group {
+    justify-content: flex-start;
   }
 }
 </style>

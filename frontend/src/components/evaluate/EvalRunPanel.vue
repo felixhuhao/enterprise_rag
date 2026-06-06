@@ -50,13 +50,20 @@
         </button>
       </div>
       <div class="run-settings">
-        <label v-if="runScope === 'flavor'" class="run-setting run-setting-select">
+        <label v-if="runScope === 'flavor'" class="run-setting run-setting-flavor">
           <span>策略</span>
-          <a-select v-model="runFlavor" size="small" class="run-flavor-select">
-            <a-option v-for="mode in FLAVOR_KEYS" :key="mode" :value="mode">
+          <span class="run-flavor-pills" role="radiogroup" aria-label="运行策略">
+            <button
+              v-for="mode in FLAVOR_KEYS"
+              :key="mode"
+              type="button"
+              class="run-flavor-pill"
+              :class="{ active: runFlavor === mode }"
+              @click="runFlavor = mode"
+            >
               {{ flavorLabel(mode) }}
-            </a-option>
-          </a-select>
+            </button>
+          </span>
         </label>
         <label v-if="runScope === 'first_n'" class="run-setting">
           <span>数量</span>
@@ -1156,12 +1163,39 @@ onUnmounted(clearPoll)
   white-space: nowrap;
 }
 
-.run-setting-select {
-  min-width: 156px;
+.run-setting-flavor {
+  align-items: flex-start;
 }
 
-.run-flavor-select {
-  width: 108px;
+.run-flavor-pills {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.run-flavor-pill {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  background: #f8fafc;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.run-flavor-pill:hover {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: var(--accent);
+}
+
+.run-flavor-pill.active {
+  border-color: var(--accent);
+  background: #dbeafe;
+  color: var(--accent);
 }
 
 .run-number-input {
@@ -1571,6 +1605,11 @@ onUnmounted(clearPoll)
 .result-queued {
   background: var(--bg-hover);
   color: var(--text-muted);
+}
+
+.result-not_applicable {
+  background: #f1f5f9;
+  color: #64748b;
 }
 
 .result-running {

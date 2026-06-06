@@ -251,6 +251,8 @@ def run_retrieval_only_case(
         row["final_score"] = (
             1.0 if row.get("hit_at_10") else 0.0
         ) if row.get("hit_metric_applicable") else None
+        if row.get("final_score") is None and row.get("eval_type") == "no_answer":
+            row["not_applicable_reason"] = "retrieval_only_no_expected_evidence"
         final_score = row.get("final_score")
         row["verdict"] = _verdict(final_score) if isinstance(final_score, (int, float)) else "not_applicable"
         _apply_failure_category(row)
@@ -531,10 +533,12 @@ def _derive_failure_categories(row: dict) -> list[str]:
         return ["pending_judge"]
     if score is not None and score >= 0.8:
         return []
+    if _is_retrieval_only_not_applicable(row):
+        return []
 
     categories = []
 
-    if row.get("eval_type") == "no_answer":
+    if row.get("eval_type") == "no_answer" and row.get("eval_mode") != "retrieval_only":
         categories.append("no_answer_wrong")
 
     rerank_drop = _has_rerank_drop(row)
@@ -572,6 +576,14 @@ def _derive_failure_categories(row: dict) -> list[str]:
     if not categories:
         categories.append("unknown")
     return _ordered_failure_categories(categories)
+
+
+def _is_retrieval_only_not_applicable(row: dict) -> bool:
+    return (
+        row.get("eval_mode") == "retrieval_only"
+        and row.get("final_score") is None
+        and not row.get("hit_metric_applicable")
+    )
 
 
 def _has_rerank_drop(row: dict) -> bool:

@@ -14,7 +14,7 @@ from scripts.eval_golden import (
     score_citation,
     score_rule,
 )
-from app.api.admin_eval import RunRequest, _failed_case_count, _filter_cases_for_run, _summarize_golden_case
+from app.api.admin_eval import RunRequest, _eval_result_preview, _failed_case_count, _filter_cases_for_run, _summarize_golden_case
 
 
 def test_case_query_config_uses_preferred_flavor_and_strict():
@@ -377,6 +377,39 @@ def test_retrieval_only_scores_no_answer_cases_with_expected_docs(monkeypatch):
     assert row["final_score"] == 1.0
     assert row["failure_category"] == "none"
     assert row["failure_categories"] == []
+
+
+def test_retrieval_only_no_answer_without_expected_evidence_is_not_applicable(monkeypatch):
+    def fake_query_retrieval_only(*_args, **_kwargs):
+        return {
+            "results": [{"file_title": "unrelated.md", "chunk_key": "c1"}],
+            "trace": {"retrieval_wall_ms": 10},
+            "strategy": {"search_mode": "hybrid"},
+            "retrieval_flavor": "balanced",
+            "strict_evidence": False,
+        }
+
+    monkeypatch.setattr(runner, "query_retrieval_only", fake_query_retrieval_only)
+
+    row = run_retrieval_only_case({
+        "id": "no_ans_001",
+        "question": "远景能源的代码发布流程是怎样的？",
+        "eval_type": "no_answer",
+        "expected_behavior": "no_answer",
+        "preferred_flavor": "balanced",
+    }, index=0, total=1)
+    summary = build_summary([row], mode="retrieval_only")
+    preview = _eval_result_preview(row)
+
+    assert row["hit_metric_applicable"] is False
+    assert row["final_score"] is None
+    assert row["verdict"] == "not_applicable"
+    assert row["failure_category"] == "none"
+    assert row["failure_categories"] == []
+    assert summary["failure_categories"] == {}
+    assert summary["unscored"] == 1
+    assert preview["status"] == "not_applicable"
+    assert preview["label"] == "不适用"
 
 
 def test_query_rag_marks_request_as_eval(monkeypatch):

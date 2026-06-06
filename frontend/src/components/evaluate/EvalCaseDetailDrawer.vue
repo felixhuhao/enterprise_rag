@@ -198,7 +198,13 @@ const emit = defineEmits<{
 }>()
 
 const row = computed(() => props.detail?.row ?? null)
-const previewStatus = computed(() => props.detail?.preview?.status || (row.value?.error ? 'failed' : 'warning'))
+const previewStatus = computed(() => props.detail?.preview?.status || (
+  row.value?.error
+    ? 'failed'
+    : row.value?.verdict === 'not_applicable'
+      ? 'not_applicable'
+      : 'warning'
+))
 const previewLabel = computed(() => props.detail?.preview?.label || evalResultStatusLabel(previewStatus.value))
 const expectedPoints = computed(() => listValue(row.value?.expected_points))
 const expectedDocs = computed(() => listValue(row.value?.expected_docs?.length ? row.value.expected_docs : row.value?.expected_documents))
@@ -468,6 +474,11 @@ function normalizeResultRow(item: ObjectRow, index: number) {
 .status-warning {
   background: #fef3c7;
   color: #92400e;
+}
+
+.status-not_applicable {
+  background: #f1f5f9;
+  color: #64748b;
 }
 
 .status-passed {

@@ -41,6 +41,7 @@ export function evalResultStatusLabel(value: string): string {
   if (value === 'failed') return '失败'
   if (value === 'running') return '运行中'
   if (value === 'queued') return '等待'
+  if (value === 'not_applicable') return '不适用'
   return value || '-'
 }
 

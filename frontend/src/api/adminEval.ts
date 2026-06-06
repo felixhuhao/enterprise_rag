@@ -124,7 +124,7 @@ export interface EvalCaseResult {
   question: string
   index?: number | null
   total?: number | null
-  status: 'queued' | 'running' | 'passed' | 'warning' | 'failed'
+  status: 'queued' | 'running' | 'passed' | 'warning' | 'failed' | 'not_applicable'
   label: string
   score?: number | null
   error?: string
