@@ -1,0 +1,126 @@
+# Configuration
+
+The application uses `pydantic-settings` and reads environment variables from `.env` files.
+
+Root `.env` is intended for Docker Compose. `backend/.env` can be used for local backend runs.
+
+## Required For A Useful Demo
+
+| Variable | Description |
+|---|---|
+| `API_TOKEN` | Bearer token used by frontend and API clients. Use a private value outside local demos. |
+| `EMBEDDING_MODEL_HOST_PATH` | Host path to the local embedding model mounted into Docker, e.g. `/home/hao/models/BAAI/bge-m3`. |
+| `EMBEDDING_MODEL_PATH` | Runtime model path. Docker uses `/models/embedding`; local dev can use `/home/hao/models/BAAI/bge-m3`. |
+| `DEEPSEEK_API_KEY` | DeepSeek-compatible API key for chat, HyDE, query expansion, rerank, and judge evaluation. |
+| `ZHIPU_API_KEY` | Zhipu-compatible API key for image descriptions. |
+
+PDF parsing additionally requires:
+
+| Variable | Description |
+|---|---|
+| `MINERU_API_TOKEN` | MinerU token. Markdown and Markdown ZIP ingestion do not require this. |
+
+## Full Environment Reference
+
+### API / App
+
+| Variable | Default | Description |
+|---|---|---|
+| `API_TOKEN` | `enterprise-rag-dev-token` in examples | Bearer token. Keep private for any shared deployment. |
+| `RATE_LIMIT_PER_MINUTE` | `60` | Per-token API rate limit. |
+| `CORS_ORIGINS` | `["http://localhost:5173","http://localhost:4173"]` | Allowed frontend origins. |
+
+### Local Storage
+
+| Variable | Default | Description |
+|---|---|---|
+| `GENERAL_UPLOAD_DIR` | `./data/general_uploads` | Uploaded source artifact directory. |
+| `GENERAL_PARSED_DIR` | `./data/general_parsed` | Parsed markdown, chunks, images, and quality artifacts. |
+| `DATABASE_PATH` | `./data/app.db` | SQLite database path. |
+| `STORAGE_MIN_FREE_MB` | `1024` | Warning threshold for free disk space. |
+
+### LLM Service
+
+| Variable | Default | Description |
+|---|---|---|
+| `DEEPSEEK_API_KEY` | empty | API key for the DeepSeek-compatible chat endpoint. |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com/v1` | OpenAI-compatible chat endpoint base URL. |
+| `CHAT_MODEL` | `deepseek-v4-flash` | Chat model name. |
+| `CHAT_TIMEOUT` | `180` | Chat completion timeout in seconds. |
+| `LOCAL_MODEL_URL` | empty | Optional local/vLLM-compatible model endpoint. |
+| `LOCAL_MODEL_NAME` | empty | Optional local model name. |
+
+### Embedding
+
+| Variable | Default | Description |
+|---|---|---|
+| `EMBEDDING_MODEL_HOST_PATH` | `/home/hao/models/BAAI/bge-m3` in examples | Host path mounted into Docker. |
+| `EMBEDDING_MODEL_NAME` | `bge-m3` | Display name in diagnostics and UI summaries. |
+| `EMBEDDING_MODEL_PATH` | `/models/embedding` | Runtime model path inside backend process. |
+| `EMBEDDING_DIM` | `1024` | Expected dense vector dimension. |
+| `EMBEDDING_BATCH_SIZE` | `4` | Batch size for document embeddings. |
+| `EMBEDDING_MAX_LENGTH` | `8192` | Max token length passed to embedding model. |
+| `EMBEDDING_DEVICE` | `auto` | `auto`, `cuda`, or `cpu`. |
+| `EMBEDDING_USE_FP16` | `true` | Uses fp16 only when CUDA is active. |
+
+### MinerU PDF Parsing
+
+| Variable | Default | Description |
+|---|---|---|
+| `MINERU_BASE_URL` | `https://mineru.net/api/v4` | MinerU API base URL. |
+| `MINERU_API_TOKEN` | empty | Required for PDF parsing. |
+| `MINERU_MODEL_VERSION` | `vlm` | MinerU parser model version. |
+| `MINERU_POLL_INTERVAL` | `3` | Poll interval in seconds. |
+| `MINERU_POLL_TIMEOUT` | `1800` | Poll timeout in seconds. |
+| `MINERU_UPLOAD_TIMEOUT` | `300` | Upload timeout in seconds. |
+| `MINERU_DOWNLOAD_TIMEOUT` | `300` | Download timeout in seconds. |
+
+### Milvus
+
+| Variable | Default | Description |
+|---|---|---|
+| `MILVUS_URI` | `http://localhost:19530` | Milvus connection URI. Docker Compose overrides it to `http://milvus-standalone:19530`. |
+| `MILVUS_REQUIRED_ON_STARTUP` | `false` | If true, backend startup fails when Milvus is unreachable. |
+| `MILVUS_HEALTH_TIMEOUT_SECONDS` | `2.0` | Timeout for Milvus startup and health probes. |
+
+### Upload Limits
+
+| Variable | Default | Description |
+|---|---|---|
+| `MD_ZIP_MAX_SIZE_MB` | `50` | Maximum Markdown ZIP upload size. |
+| `UPLOAD_MAX_SIZE_MB` | `100` | Maximum single upload size. |
+
+### Image Description
+
+| Variable | Default | Description |
+|---|---|---|
+| `ZHIPU_API_KEY` | empty | API key for image descriptions. |
+| `ZHIPU_BASE_URL` | `https://open.bigmodel.cn/api/paas/v4` | Zhipu-compatible API base URL. |
+| `IMAGE_DESCRIPTION_ENABLED` | `true` | Enable image-to-text description during ingestion. |
+| `IMAGE_DESCRIPTION_MODEL` | `glm-4.6v-flash` | Image description model name. |
+| `IMAGE_DESCRIPTION_CONCURRENCY` | `3` | Concurrent image description requests. |
+| `IMAGE_DESCRIPTION_TIMEOUT` | `30` | Per-request timeout in seconds. |
+| `IMAGE_DESCRIPTION_MAX_SIZE_MB` | `10` | Skip image description for images larger than this size. |
+
+## Example Docker `.env`
+
+```env
+API_TOKEN=enterprise-rag-dev-token
+EMBEDDING_MODEL_HOST_PATH=/home/hao/models/BAAI/bge-m3
+EMBEDDING_MODEL_NAME=bge-m3
+EMBEDDING_MODEL_PATH=/models/embedding
+DEEPSEEK_API_KEY=sk-your-deepseek-api-key
+ZHIPU_API_KEY=your-zhipu-api-key
+MINERU_API_TOKEN=
+MILVUS_URI=http://localhost:19530
+```
+
+## Example Local Backend `.env`
+
+```env
+API_TOKEN=enterprise-rag-dev-token
+EMBEDDING_MODEL_PATH=/home/hao/models/BAAI/bge-m3
+DEEPSEEK_API_KEY=sk-your-deepseek-api-key
+ZHIPU_API_KEY=your-zhipu-api-key
+MILVUS_URI=http://localhost:19530
+```

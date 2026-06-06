@@ -1,67 +1,167 @@
 # Enterprise RAG Platform
 
-> Production-grade document intelligence: ingest PDF/Markdown/ZIP, strategy-aware retrieval, streaming Q&A with citations, and built-in quality evaluation.
+Production-shaped enterprise document intelligence: ingest complex documents, build an inspectable knowledge base, retrieve with strategy-aware pipelines, answer with citations, and validate quality through evaluation and observability.
 
-## Quick Start (Docker)
+This repository represents a polished local-first Enterprise RAG baseline. It is not a prompt-only demo: parsing artifacts are persisted, chunks are inspectable, retrieval behavior is testable, answers are citation-validated, and regression quality is measured through a golden-set loop.
 
-**Prerequisites**: Docker Engine or Docker Desktop running, local dense embedding model files (tested with `BAAI/bge-m3`), a DeepSeek-compatible chat API key, a Zhipu image-description API key, and optionally a [MinerU token](https://mineru.net/) for PDF parsing.
+## Highlights
 
-```bash
-# 1. Configure
-cp .env.example .env
-# Edit .env — set EMBEDDING_MODEL_HOST_PATH, DEEPSEEK_API_KEY, ZHIPU_API_KEY, and MINERU_API_TOKEN (for PDF)
-# Linux example: EMBEDDING_MODEL_HOST_PATH=/home/hao/models/BAAI/bge-m3
+- **Document intelligence pipeline**: PDF via MinerU, Markdown, Markdown ZIP, image-to-text descriptions, table-aware chunking, deterministic metadata enrichment, local dense embeddings, and Milvus indexing.
+- **Inspectable retrieval**: balanced, exact, recall, and discovery strategies with resolved budgets, entity routing, fallback policy, query expansion, HyDE, RRF, rerank, and context expansion.
+- **Citation-grounded answers**: streaming chat with numbered evidence, source validation, strict-evidence mode, groundedness checks, and refusal behavior for unsupported facts.
+- **Retrieval test bench**: run retrieval without answer generation, inspect Top K chunks, scores, retrieval paths, entity distribution, expansion queries, rerank candidates, and strategy summary.
+- **Evaluation loop**: retrieval-only, answer-lite, and full modes over a curated enterprise golden set, with rule scoring, LLM judge, no-answer cases, smoke subset, baseline deltas, and failure categories.
+- **Operational visibility**: query records, per-stage latency, token usage, fallback details, error classification, durable background jobs, storage health checks, and chunk quality reports.
+- **Admin controls**: runtime settings, entity aliases, structured tag visibility, retrieval tuning, golden-set editing, feedback-to-case drafting, and job tracking.
 
-# 2. Launch
-docker compose up -d --build
+## Architecture
 
-# 3. Seed demo data (fast Markdown enterprise corpus by default)
-docker compose exec backend python scripts/seed_demo.py
-
-# 4. Open
-# http://localhost:5173  —  default token: enterprise-rag-dev-token
+```text
+                          Vue 3 Frontend
+        Query Chat · Documents · Retrieval Test · Quality Center
+                                     │
+                              HTTP / SSE
+                                     ▼
+                              FastAPI Backend
+                                     │
+     ┌───────────────────────────────┼───────────────────────────────┐
+     ▼                               ▼                               ▼
+Ingestion Workflow              Query Pipeline                  Admin / Ops
+  LangGraph nodes                 Strategy planner                Settings
+  parsing/chunking                hybrid retrieval                Eval runs
+  quality reports                 rerank/citations                Jobs/health
+     │                               │                               │
+     └───────────────┬───────────────┴───────────────┬───────────────┘
+                     ▼                               ▼
+                SQLite state                    Milvus vectors
+                     │                               │
+                     └───────────────┬───────────────┘
+                                     ▼
+                    Local embeddings + external LLM APIs
 ```
 
-Milvus data persists in Docker named volumes (`milvus-data`, `milvus-etcd`), not in the project directory. Re-run `seed_demo.py` anytime — it skips already-completed documents. The default demo corpus is `data/enterprise_docs`; the legacy PDF stock-report demo is still available with `--data-dir "../data/stock reports"` and requires MinerU.
+More detail: [docs/architecture.md](docs/architecture.md).
 
-If you change embedding models, reset the Milvus collection and re-process documents:
+## What The System Can Do
 
-```bash
-docker compose exec backend python scripts/reset_milvus_collection.py
-docker compose exec backend python scripts/seed_demo.py
+### 1. Build A Knowledge Base
+
+The ingestion flow turns enterprise documents into traceable retrieval units:
+
+```text
+upload
+  -> validate
+  -> parse PDF / Markdown / ZIP
+  -> describe images as text
+  -> normalize markdown
+  -> chunk text and tables
+  -> enrich keywords, structured tags, search_text
+  -> embed with local dense model
+  -> upsert to Milvus
+  -> write chunk quality report
 ```
 
-## Local Development
+The document detail view exposes parsed artifacts, chunk metadata, warning tags, table chunks, image references, and quality summaries so bad retrieval can be traced back to parsing or chunking problems.
 
-Use two separate `.env` files:
+### 2. Retrieve With Explicit Strategies
 
-- `backend/.env` — backend config (copy from `.env.example`)
-- Frontend reads `VITE_API_TARGET` from `frontend/.env` (defaults to `http://localhost:8010`)
+Users choose intent-level strategies instead of raw switches:
 
-For local backend development, set the runtime model path in `backend/.env`:
+| UI Strategy | Internal Flavor | Intended Use | Behavior |
+|---|---|---|---|
+| 标准问答 | `balanced` | normal Q&A and synthesis | hybrid retrieval, optional HyDE, RRF, rerank, context expansion |
+| 精确查找 | `exact` | clauses, numbers, policy source lookup | smaller budget, no HyDE/query expansion, no entity fallback |
+| 全面查找 | `recall` | vague or synonym-heavy questions | query expansion, parallel searches, RRF, rerank |
+| 关联查找 | `discovery` | related people/entities must be discovered first | bounded multi-hop retrieval with traceable hops |
 
-```env
-EMBEDDING_MODEL_PATH=/home/hao/models/BAAI/bge-m3
+This is a product-facing control, not just an internal parameter. The same knowledge base can be queried as a precise policy lookup, a broad recall task, a normal synthesis question, or a bounded discovery flow.
+
+`strict_evidence` is independent from retrieval flavor. It makes the answer conservative and blocks risky inference or broad fallback when the source material does not support the target fact.
+
+### 3. Answer With Citations
+
+Chat responses stream over SSE and return:
+
+- final answer text
+- numbered citations
+- source document and chunk metadata
+- image evidence when image descriptions were used
+- groundedness signal
+- query trace and latency profile
+
+The system can answer normal policy questions, synthesize across documents, compare entities, discover related people, and refuse unsupported facts under strict evidence.
+
+### 4. Test Retrieval Without Spending LLM Tokens
+
+The retrieval test page is a knowledge-base debugging tool. It lets you ask:
+
+- Which chunks were retrieved?
+- Which path found them: dense, sparse, HyDE, query expansion, table expansion, fallback, rerank?
+- Did the right document appear before generation?
+- Did entity filtering help or hurt?
+- What budget and policy did the planner resolve?
+
+This is the fastest way to debug recall before tuning prompts.
+
+### 5. Evaluate Regressions
+
+The baseline test set lives in:
+
+```text
+data/challenge_golden_set_v1.jsonl
 ```
 
-```bash
-# Terminal 1 — Backend
-cd backend
-pip install -r requirements.txt
-uvicorn app.main:app --host 127.0.0.1 --port 8010 --reload
+It covers balanced Q&A, exact numeric lookup, recall/vague questions, discovery multi-hop, and strict-evidence refusal. The UI can run retrieval-only, answer-lite, or full judge-based evaluation, then compare metrics against an accepted baseline.
 
-# Terminal 2 — Frontend
-cd frontend
-npm install
-npm run dev
-```
+Latest tested demo status during project closeout: the full enterprise set completed with one known warning case. Treat this as a regression loop, not a public benchmark.
 
-Start a local Milvus instance first (or point `MILVUS_URI` to an existing one).
+More detail: [docs/evaluation.md](docs/evaluation.md).
 
-## Demo Scope
+## Demo Evidence
 
-The default demo corpus is a curated enterprise Markdown knowledge base under `data/enterprise_docs`.
-It covers HR, reimbursement, procurement, information security, API specs, incident runbooks, SLA, project management, meeting notes, and two demo entities: `星辰科技` and `远景能源`.
+The default demo corpus is a curated enterprise Markdown knowledge base under `data/enterprise_docs`. It covers HR, reimbursement, procurement, information security, API specs, incident runbooks, SLA, project management, meeting notes, and two demo entities: `星辰科技` and `远景能源`.
+
+### Citation-Grounded Chat
+
+Cross-document synthesis returns a structured answer with numbered evidence and visible retrieval trace.
+
+![Citation-grounded enterprise answer](docs/images/query-balanced-answer.png)
+
+### Multi-Hop Discovery
+
+Discovery mode first finds related entities, then uses those entities to continue retrieval. This makes multi-hop behavior visible instead of hiding it inside one opaque vector search.
+
+![Multi-hop discovery query](docs/images/query-discovery-multihop.png)
+
+### Retrieval Debugging
+
+The retrieval test bench exposes query expansion, retrieval budget, model selection, latency by stage, Top K chunks, scores, tags, and retrieval paths before answer generation happens.
+
+![Retrieval test with recall expansion](docs/images/retrieval-test-recall.png)
+
+### Document And Chunk Inspection
+
+Document detail pages expose chunk types, table chunks, content previews, quality status, and parsed artifact paths. This keeps ingestion and retrieval problems debuggable.
+
+![Document chunk quality inspection](docs/images/document-chunks-quality.png)
+
+### Evaluation Loop
+
+The Quality Center turns the golden set into a practical regression loop: run mode selection, smoke subset, Hit@K, answer pass rate, failure categories, per-strategy breakdown, and baseline comparison.
+
+![Evaluation baseline summary](docs/images/eval-baseline-summary.png)
+
+### Evaluation Diagnostics
+
+The Quality Center can drill from aggregate run metrics into one case and show expected evidence, retrieved evidence, missing citations, answer text, and failure categories.
+
+![Evaluation case detail](docs/images/eval-case-detail.png)
+
+### Strict Evidence Mode
+
+Strict evidence mode keeps the answer conservative when the retrieved context does not support the exact requested fact. It can still summarize nearby supported evidence without inventing the missing value.
+
+![Strict evidence answer](docs/images/query-strict-evidence.png)
 
 Useful demo queries:
 
@@ -71,241 +171,66 @@ Useful demo queries:
 | Vague recall | `电脑丢了应该怎么处理？` | 全面查找 |
 | Cross-document synthesis | `星辰科技的安全事件报告和运维故障响应有什么关联和区别？` | 标准问答 |
 | Multi-hop discovery | `API v1什么时候下线？迁移指南由谁负责？这个人还负责什么工作？` | 关联查找 |
-| Strict evidence / missing fact | `星辰科技的API日调用量上限是多少？` with “仅基于资料回答” enabled; expected to cite per-minute limits and refuse a daily cap | 标准问答 |
+| Strict evidence / missing fact | `星辰科技的API日调用量上限是多少？` with “仅基于资料回答” enabled | 标准问答 |
 
-## Retrieval Strategies
-
-The UI exposes user intent, not low-level switches:
-
-| Strategy | Internal Flavor | Use For | Main Behavior |
-|---|---|---|---|
-| 标准问答 | `balanced` | Daily Q&A and synthesis | Hybrid search + optional HyDE + RRF + rerank + context expansion |
-| 精确查找 | `exact` | Clauses, numbers, standards, source lookup | Smaller budget, HyDE off, entity fallback disabled |
-| 全面查找 | `recall` | Vague wording or synonym-heavy questions | Query expansion, parallel search, RRF merge, rerank |
-| 关联查找 | `discovery` | Questions that must discover related people/entities first | Constrained multi-hop retrieval with traceable hops |
-
-`strict_evidence` is independent from retrieval flavor. When enabled, the answer must stay conservative and refuse unsupported facts instead of inferring them.
-
-## Architecture
-
-```
-┌──────────┐     SSE      ┌──────────┐
-│  Vue 3   │◄────────────►│  FastAPI │
-│ Frontend │              │ Backend  │
-└──────────┘              └────┬─────┘
-      │  ┌───────────────────┼──────────────────┐
-      │  │                   │                  │
-      ▼  ▼                   ▼                  ▼
-  ┌───────┐          ┌──────────┐        ┌──────────┐        ┌──────────┐
-  │ SQLite│          │  Milvus  │        │  Local   │        │ LLM APIs│
-  │ state │          │ vectors  │        │embedding │        │ + MinerU│
-  └───────┘          └──────────┘        └──────────┘        └──────────┘
-```
-
-### Ingestion Pipeline
-
-```
-upload → parse (MinerU / Markdown / ZIP) → image-to-text → chunk
-  → enrich search metadata → embed → Milvus
-```
-
-### Query Pipeline
-
-```
-entity_confirm → query_plan → rewrite
-  → direct search / query expansion / multi-hop discovery
-  → RRF → table_expand → rerank → diversify_context
-  → context_expand → build_prompt → generate → validate_citations → groundedness
-```
+Full screenshot gallery and recording checklist: [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md).
 
 ## Tech Stack
 
-| Layer | Technology |
+| Layer | Stack |
 |---|---|
-| Backend | FastAPI, LangGraph, SQLite, Pydantic |
-| Vector Store | Milvus (dense + BM25 sparse) |
-| Embedding | Local dense embedding model (tested with BAAI/bge-m3) |
+| Frontend | Vue 3, TypeScript, Vite, Arco Design Vue |
+| API | FastAPI, SSE |
+| Workflows | LangGraph-style ingestion and retrieval nodes |
+| State | SQLite with WAL, startup storage guards, query/job/eval records |
+| Vector Store | Milvus dense vectors + sparse/BM25 fields |
+| Embeddings | Local dense embedding model, tested with BAAI/bge-m3 |
 | LLM | DeepSeek-compatible chat API |
 | PDF Parsing | MinerU Online API |
 | Image-to-Text | Zhipu GLM-4.6V-compatible API |
-| Frontend | Vue 3, TypeScript, Arco Design Vue |
+| Evaluation | Golden-set runner, rule scoring, LLM judge, accepted baselines |
+| Packaging | Docker Compose |
 
-## Features
+## Quick Start
 
-- **Multi-format ingestion** — PDF (via MinerU), Markdown, Markdown ZIP
-- **Text-first multimodal** — images described and indexed as text, no separate VL embedding space
-- **Table-aware chunking** — small tables as full chunks, large tables as row groups
-- **Metadata enrichment** — deterministic enterprise-policy tags and search text for better sparse recall
-- **Chunk quality governance** — deterministic quality reports, document-level status, and chunk warning tags
-- **Strategy-aware retrieval** — balanced, exact, recall, and discovery flavors with resolved budgets
-- **Hybrid retrieval** — dense + BM25 sparse, RRF fusion, HyDE, query expansion, multi-hop discovery, LLM rerank
-- **Small-to-big context** — final anchor chunks can include neighboring chunks from the same section
-- **Retrieval testing** — inspect Top K chunks, trace, budgets, expansion queries, tags, and rerank scores without answer generation
-- **Streaming answers with citations** — numbered citations, image evidence, source validation
-- **Observability** — structured query payloads, per-stage latency, token usage, fallback details, and error classification
-- **Quality center** — query records, answer feedback, stats by retrieval flavor, baseline evaluation, and accepted-baseline deltas
-- **Evaluation** — retrieval-only, smoke subset, answer-lite, and full regression runs with rule / LLM-judge / no-answer scoring
-- **Background jobs** — document ingestion and golden-set evaluation are tracked through durable job records
-- **Storage health** — SQLite WAL pragmas, startup storage guards, disk checks, Milvus policy, and `/health` diagnostics
-- **Admin tuning** — entity aliases, runtime settings, retrieval strategy tuning, and structured tag controls
-
-## Project Structure
-
-```
-enterprise_rag/
-├── docker-compose.yml
-├── .env.example
-├── backend/
-│   ├── app/
-│   │   ├── api/                  # auth, admin, documents, query, stats, eval, jobs, settings, system
-│   │   ├── config.py             # pydantic-settings configuration
-│   │   ├── core/                 # auth helpers, database, health, runtime settings
-│   │   ├── deps.py               # request dependencies
-│   │   ├── errors.py             # shared error classification
-│   │   ├── models/               # Pydantic request/response schemas
-│   │   ├── rag/
-│   │   │   ├── chunking/         # markdown/table chunker + enrichment tags
-│   │   │   ├── embeddings/       # local dense embedding client
-│   │   │   ├── ingestion/        # LangGraph ingestion workflow
-│   │   │   ├── parsing/          # MinerU, Markdown, image describer, ZIP
-│   │   │   ├── query/            # search, fusion, rerank, prompt, citations
-│   │   │   └── vectorstores/     # Milvus collection management
-│   │   ├── services/             # document, eval, jobs, retrieval test, query stats
-│   │   └── utils/                # small shared helpers
-│   ├── scripts/
-│   │   ├── eval_golden/          # golden-set runner modules
-│   │   ├── eval_golden_set.py    # baseline evaluation CLI wrapper
-│   │   ├── reset_milvus_collection.py
-│   │   ├── seed_demo.py          # idempotent demo data seeding
-│   │   └── smoke_test_embedding.py
-│   └── tests/
-├── frontend/
-│   └── src/
-│       ├── api/
-│       ├── components/           # admin, common, documents, evaluate, feedback, layout, query-chat, retrieval-test, settings
-│       ├── composables/
-│       ├── router/
-│       ├── stores/
-│       ├── styles/
-│       └── utils/
-└── data/
-    ├── enterprise_docs/           # Fast Markdown demo corpus + .entity file
-    ├── challenge_golden_set_v1.jsonl # Enterprise baseline test set
-    └── stock reports/             # Legacy PDF demo corpus
-```
-
-## Configuration
-
-Required:
-
-| Variable | Description |
-|---|---|
-| `EMBEDDING_MODEL_HOST_PATH` | Host path to the local embedding model for Docker volume mount, e.g. `/home/hao/models/BAAI/bge-m3` |
-| `EMBEDDING_MODEL_PATH` | Runtime embedding model path. Docker uses `/models/embedding`; local dev can use `/home/hao/models/BAAI/bge-m3` |
-| `DEEPSEEK_API_KEY` | DeepSeek-compatible API key for chat, HyDE, query expansion, rerank, and evaluation judge |
-| `ZHIPU_API_KEY` | Zhipu AI API key for image description (GLM-4.6V) |
-| `API_TOKEN` | Bearer token for API auth |
-
-Optional:
-
-| Variable | Default | Description |
-|---|---|---|
-| `RATE_LIMIT_PER_MINUTE` | `60` | Per-token API rate limit |
-| `CORS_ORIGINS` | `["http://localhost:5173","http://localhost:4173"]` | Allowed frontend origins |
-| `DATABASE_PATH` | `./data/app.db` | SQLite database path |
-| `GENERAL_UPLOAD_DIR` | `./data/general_uploads` | Uploaded source artifact directory |
-| `GENERAL_PARSED_DIR` | `./data/general_parsed` | Parsed/chunk artifact directory |
-| `UPLOAD_MAX_SIZE_MB` | `100` | Maximum single upload size |
-| `MD_ZIP_MAX_SIZE_MB` | `50` | Maximum Markdown ZIP upload size |
-| `CHAT_MODEL` | `deepseek-v4-flash` | LLM model name |
-| `CHAT_TIMEOUT` | `180` | Chat completion timeout in seconds |
-| `EMBEDDING_MODEL_NAME` | `bge-m3` | Display name for the embedding model in diagnostics |
-| `MINERU_API_TOKEN` | — | Required for PDF parsing |
-| `MILVUS_URI` | `http://localhost:19530` | Milvus connection |
-| `MILVUS_REQUIRED_ON_STARTUP` | `false` | If true, startup fails when Milvus is unreachable |
-| `MILVUS_HEALTH_TIMEOUT_SECONDS` | `2.0` | Timeout for Milvus startup and health probes |
-| `STORAGE_MIN_FREE_MB` | `1024` | Warn when available storage on the data volume drops below this threshold |
-| `EMBEDDING_BATCH_SIZE` | `4` | Embedding batch size |
-| `EMBEDDING_DEVICE` | `auto` | `auto`, `cuda`, or `cpu` |
-| `IMAGE_DESCRIPTION_ENABLED` | `true` | Enable image-to-text |
-| `IMAGE_DESCRIPTION_MODEL` | `glm-4.6v-flash` | Image description model name |
-
-Full list in `.env.example`.
-
-## Verification
+The fastest path is Docker Compose:
 
 ```bash
-# Health
-curl http://127.0.0.1:8010/health
-
-# Backend
-cd backend
-python -m pytest tests/unit -q
-
-# Frontend
-cd frontend
-npm run build
-```
-
-## Baseline Evaluation
-
-Run the enterprise baseline test set after retrieval, prompt, tag, or chunking changes:
-
-```bash
-cd backend
-python scripts/eval_golden_set.py \
-  --golden-set ../data/challenge_golden_set_v1.jsonl \
-  --api-base http://127.0.0.1:8010/api \
-  --mode retrieval_only \
-  --concurrency 4 \
-  --output ../data/challenge_golden_set_v1_results.jsonl
-```
-
-Use answer-capable modes when generation behavior matters:
-
-```bash
-python scripts/eval_golden_set.py \
-  --golden-set ../data/challenge_golden_set_v1.jsonl \
-  --api-base http://127.0.0.1:8010/api \
-  --mode full \
-  --judge \
-  --output ../data/challenge_golden_set_v1_results.jsonl
-```
-
-The same cases can also be managed from the Quality Center. The UI exposes three run modes: `仅检索`, `轻答案`, and `完整`; the smoke set is a stable subset filter for quick checks. Feedback can be turned into draft baseline cases, edited, enabled/disabled, and run from the UI.
-
-## Rebuilding The Index
-
-Rebuild Milvus when indexed fields or chunk content change:
-
-- embedding model or embedding dimension changes
-- chunking rules change
-- table chunking changes
-- `search_text`, structured tag extraction, or enrichment profile changes
-- parsed artifacts are regenerated
-
-Code-only changes to rerank, prompt, budgets, query planning, evaluation scoring, frontend labels, or baseline expectations do not require rebuilding the index.
-
-```bash
-docker compose exec backend python scripts/reset_milvus_collection.py
+cp .env.example .env
+# edit .env: EMBEDDING_MODEL_HOST_PATH, API_TOKEN, LLM keys
+docker compose up -d --build
 docker compose exec backend python scripts/seed_demo.py
 ```
 
-## Admin Tag Tuning
+Open:
 
-Structured tags are deterministic ingestion-time metadata used for retrieval debugging and sparse recall. Admins can:
+```text
+Frontend: http://localhost:5173
+Backend:  http://localhost:8010/health
+```
 
-- view registered tags and chunk distribution in System Settings
-- hide tags from UI without changing retrieval behavior
-- enable/disable a tag rule; disabling an indexed tag requires reprocessing documents
-- preview tag extraction on pasted text or existing parsed chunks
+Detailed setup, local venv notes, reset commands, eval commands, and troubleshooting live in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). Full environment variable reference lives in [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
-Tags are intentionally coarse and limited. They are not a user-editable free-form taxonomy.
+## Beyond Current Version
+
+The current system is a strong document-centric RAG foundation. The most valuable future directions are not more prompt tricks, but product hardening:
+
+- **Tag and ACL governance**: turn current tags and document filters into credible data governance.
+- **Storage maturity**: baseline migration stamping, file-storage abstraction, object storage readiness, and deeper health metrics.
+- **Reparse / reindex workflows**: controlled completed-document rebuilds with job tracking.
+- **Evidence trust productization**: richer support checks showing whether generated claims are actually supported by retrieved chunks.
+- **Deployment readiness**: lock files, runtime profiles, production Docker images, rate limits, auth policy, and operational runbooks.
+- **Connector boundary**: keep enterprise connectors out of this repo until identity, ACL sync, and source-specific governance are first-class requirements.
+
+Longer roadmap context: [FUTURE_PLAN.md](FUTURE_PLAN.md).
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) — system diagrams and data flow details
-- [Evaluation](docs/evaluation.md) — baseline test set design, scoring, and UI workflow
-- [Smoke Test](docs/smoke_test.md) — manual regression checklist for demo paths
-- [Project Market Evaluation](docs/project_market_evaluation.md) — current product/market assessment
-- [Storage Layer Maturity](docs/storage_layer_maturity.md) — storage hardening status and deferred storage roadmap
+- [Architecture](docs/architecture.md) — system diagrams, ingestion, retrieval, data flow.
+- [Development Guide](docs/DEVELOPMENT.md) — Docker, local development, commands, verification.
+- [Configuration](docs/CONFIGURATION.md) — complete environment variable reference.
+- [Demo Guide](docs/DEMO_GUIDE.md) — demo path, screenshots, recording checklist.
+- [Evaluation](docs/evaluation.md) — golden set design, modes, scoring, UI workflow.
+- [Smoke Test](docs/smoke_test.md) — manual regression checklist.
+- [Project Market Evaluation](docs/project_market_evaluation.md) — product/market assessment.
+- [Storage Layer Maturity](docs/storage_layer_maturity.md) — storage hardening and deferred roadmap.
