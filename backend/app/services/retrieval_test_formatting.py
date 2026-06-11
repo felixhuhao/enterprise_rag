@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from app.rag.query.config import QueryConfig
+from app.rag.query.fallback import fallback_was_used
 
 
 def format_result(row: dict, rank: int, *, use_rerank: bool) -> dict:
@@ -49,8 +50,6 @@ def strategy_summary(
 ) -> dict:
     search_mode = state.get("search_mode", "")
     hyde_mode = state.get("search_mode_hyde", "")
-    expanded_modes = state.get("search_modes_expanded", []) or []
-    fallback_info = state.get("fallback_info", {}) or {}
     return {
         "top_k": cfg.rerank_max_top_k,
         "hybrid": use_hybrid,
@@ -58,10 +57,7 @@ def strategy_summary(
         "query_expansion": bool(state.get("query_plan", {}).get("use_query_expansion", False)),
         "rerank": cfg.use_rerank,
         "table_expand": cfg.use_table_expand,
-        "fallback": bool(fallback_info.get("used"))
-        or "fallback" in search_mode
-        or "fallback" in hyde_mode
-        or any("fallback" in mode for mode in expanded_modes),
+        "fallback": fallback_was_used(state),
         "search_mode": search_mode,
         "search_mode_hyde": hyde_mode,
         "retrieval_flavor": state.get("query_plan", {}).get("retrieval_flavor", "balanced"),
