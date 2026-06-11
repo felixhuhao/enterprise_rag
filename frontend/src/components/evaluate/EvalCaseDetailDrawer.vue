@@ -500,7 +500,7 @@ function normalizeResultRow(item: ObjectRow, index: number) {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 3px 7px;
-  background: #fbfdff;
+  background: var(--bg-subtle);
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 600;
@@ -530,7 +530,7 @@ function normalizeResultRow(item: ObjectRow, index: number) {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 8px 10px;
-  background: #fbfdff;
+  background: var(--bg-subtle);
 }
 
 .score-card span {
@@ -541,7 +541,10 @@ function normalizeResultRow(item: ObjectRow, index: number) {
 
 .score-card strong {
   color: var(--text-primary);
-  font-size: 16px;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
 }
 
@@ -589,7 +592,7 @@ function normalizeResultRow(item: ObjectRow, index: number) {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 8px 10px;
-  background: #fbfdff;
+  background: var(--bg-subtle);
 }
 
 .expect-grid span {
@@ -640,7 +643,7 @@ function normalizeResultRow(item: ObjectRow, index: number) {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 8px 10px;
-  background: #fbfdff;
+  background: var(--bg-subtle);
 }
 
 .hit-detail-card header {
@@ -688,7 +691,7 @@ function normalizeResultRow(item: ObjectRow, index: number) {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 10px 12px;
-  background: #fbfdff;
+  background: var(--bg-subtle);
   color: var(--text-primary);
   font-size: 13px;
   line-height: 1.6;
@@ -739,7 +742,7 @@ table {
 
 th,
 td {
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border);
   padding: 8px 9px;
   vertical-align: top;
 }
@@ -805,7 +808,7 @@ tbody tr:last-child td {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 9px 10px;
-  background: #fbfdff;
+  background: var(--bg-subtle);
 }
 
 .kv-grid dt {

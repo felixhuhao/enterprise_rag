@@ -248,7 +248,7 @@ function judgeCacheShortLabel(value: string): string {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 3px 8px;
-  background: #f8fafc;
+  background: var(--bg-subtle);
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 11px;
@@ -258,14 +258,14 @@ function judgeCacheShortLabel(value: string): string {
 }
 
 .filter-pill:hover {
-  border-color: #93c5fd;
-  background: #eff6ff;
+  border-color: var(--accent-dim);
+  background: var(--accent-subtle);
   color: var(--accent);
 }
 
 .filter-pill.active {
   border-color: var(--accent);
-  background: #dbeafe;
+  background: var(--bg-active);
   color: var(--accent);
 }
 
@@ -296,7 +296,7 @@ table {
 
 th,
 td {
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border);
   padding: 9px 10px;
   vertical-align: top;
 }
@@ -385,7 +385,7 @@ tbody tr:last-child td {
 }
 
 .reason-pill {
-  background: #fbfdff;
+  background: var(--bg-subtle);
   border: 1px solid var(--border);
   color: var(--text-secondary);
 }
