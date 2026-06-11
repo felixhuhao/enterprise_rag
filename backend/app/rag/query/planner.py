@@ -9,6 +9,7 @@ from typing import Literal
 from langgraph.graph.state import RunnableConfig
 
 from app.rag.query.config import QueryConfig, get_query_config
+from app.rag.query.intent_markers import has_synthesis_marker
 from app.rag.query.state import QueryState, require_query
 
 RetrievalFlavor = Literal["balanced", "exact", "recall", "discovery"]
@@ -18,9 +19,6 @@ VALID_FLAVORS = {"balanced", "exact", "recall", "discovery"}
 MAX_SEARCH_LIMIT = 40
 MAX_RERANK_CANDIDATES = 30
 MAX_CONTEXT_CHARS = 16000
-SYNTHESIS_QUERY_MARKERS = (
-    "比较", "关联", "区别", "异同", "一致", "不同", "分别", "各自", "对比",
-)
 
 
 @dataclass(frozen=True)
@@ -233,4 +231,4 @@ def _prompt_template(flavor: RetrievalFlavor, entity_mode: str) -> str:
 
 
 def _needs_synthesis_budget(query: str) -> bool:
-    return any(marker in query for marker in SYNTHESIS_QUERY_MARKERS)
+    return has_synthesis_marker(query)

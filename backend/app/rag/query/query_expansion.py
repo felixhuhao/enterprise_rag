@@ -35,7 +35,8 @@ _expansion_llm = ChatOpenAI(
     base_url=settings.DEEPSEEK_BASE_URL,
     timeout=30,
     max_retries=2,
-    temperature=0.3,
+    temperature=settings.QUERY_EXPANSION_TEMPERATURE,
+    max_tokens=settings.QUERY_EXPANSION_MAX_TOKENS,
 )
 
 

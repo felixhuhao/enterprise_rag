@@ -7,6 +7,7 @@ import logging
 from langgraph.graph.state import RunnableConfig
 
 from app.rag.query.config import QueryConfig, get_query_config
+from app.rag.query.intent_markers import has_synthesis_marker
 from app.rag.query.planner import get_query_plan, plan_budget
 from app.rag.query.state import QueryState, effective_query
 
@@ -85,11 +86,6 @@ STRICT_EVIDENCE_INSTRUCTION = (
     "然后再明确说明缺少的信息；不要根据比例、时间单位或常识推断缺失数值。"
 )
 
-SYNTHESIS_QUERY_MARKERS = (
-    "比较", "关联", "区别", "异同", "一致", "不同", "分别", "各自", "对比",
-)
-
-
 def build_prompt_node(state: QueryState, config: RunnableConfig) -> dict:
     """组装编号上下文 [C1]/[C2]... + 构建 prompt。表格按三层策略标注。"""
     cfg = get_query_config(config)
@@ -148,7 +144,7 @@ def build_prompt_node(state: QueryState, config: RunnableConfig) -> dict:
 
 
 def _needs_synthesis_instruction(query: str) -> bool:
-    return any(marker in query for marker in SYNTHESIS_QUERY_MARKERS)
+    return has_synthesis_marker(query)
 
 
 def _truncate_context_parts(

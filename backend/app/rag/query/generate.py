@@ -15,6 +15,8 @@ _chat_llm = ChatOpenAI(
     base_url=settings.DEEPSEEK_BASE_URL,
     timeout=settings.CHAT_TIMEOUT,
     max_retries=3,
+    temperature=settings.CHAT_TEMPERATURE,
+    max_tokens=settings.CHAT_MAX_TOKENS,
 )
 
 

@@ -95,6 +95,8 @@ def groundedness_check_node(state: QueryState, config: RunnableConfig) -> dict:
             base_url=settings.DEEPSEEK_BASE_URL,
             timeout=cfg.groundedness_timeout_sec,
             max_retries=1,
+            temperature=settings.GROUNDEDNESS_TEMPERATURE,
+            max_tokens=settings.GROUNDEDNESS_MAX_TOKENS,
         )
         response = judge_llm.invoke(
             [
