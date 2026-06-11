@@ -49,7 +49,7 @@ Inferred (deterministic in Design 1; hybrid classifier in Design 2):
   needs_synthesis          # bool
   needs_discovery          # bool
   needs_multi_hop          # bool
-  requested_format         # table | bullets | prose | null  (explicit user ask)
+  requested_format         # table | bullets | prose | null  — Design 2 only; always null in D1
   confidence               # (Design 2; in Design 1 always "high"/deterministic)
   reasons                  # list[str]
 
@@ -57,10 +57,11 @@ Derived (RoutingDecision — the strategy object):
   use_hyde
   use_query_expansion
   use_multi_hop
-  budget_tier              # tight | standard | wide
+  use_entity_fallback      # entity→global fallback when entity-filtered search is empty
+  budget_profile           # explicit limit set; see §3.3 mapping table
   prompt_variant
-  answer_shape             # requested_format or derive(needs_synthesis)
-  steps                    # execution path, e.g. ["multi_hop"]
+  answer_shape             # derive(needs_synthesis) in D1; requested_format override in D2
+  steps                    # execution path, e.g. ["multi_hop"], ["multi_entity"]
   reasons
   vetoes
 
@@ -80,7 +81,10 @@ Every knob lands in **exactly one** tier; nothing straddles.
 In Design 1 the *inferred* tier is populated by today's deterministic keyword/entity logic,
 **refactored into one place** — not newly invented. `confidence` is present in the contract but
 fixed (deterministic = trusted) until Design 2 introduces the hybrid classifier and the
-3-level ladder.
+3-level ladder. `requested_format` is reserved in the contract but **always `null` in Design 1**
+— scanning the query for "give me a table" / "列出" is *new* inference and belongs to Design 2;
+in Design 1 `answer_shape` derives solely from `needs_synthesis`, reproducing today's
+template-driven shape.
 
 ---
 
@@ -113,11 +117,12 @@ use_multi_hop = needs_multi_hop          # intent: requested
   not invent `needs_multi_hop = true`** if intent did not infer it.
 - `enable_* = false` (infra) can always veto.
 
-### 3.2 Breadth-owned strategy — `use_hyde`, `use_query_expansion`
+### 3.2 Breadth-owned strategy — `use_hyde`, `use_query_expansion`, `use_entity_fallback`
 
 ```
 use_hyde            = breadth_sets_hyde       && enable_hyde
 use_query_expansion = breadth_sets_expansion  && enable_query_expansion
+use_entity_fallback = breadth_allows_fallback && not strict_evidence    # two independent suppressors
 ```
 
 These were **never intent's to request** — breadth is their legitimate *source*, not a vetoer.
@@ -125,32 +130,67 @@ Breadth turning expansion on is not "forcing intent" because there is no intent 
 **Intent never touches these features.** There are deliberately no `needs_hyde` /
 `needs_expansion` fields.
 
+`use_entity_fallback` (retry global search when an entity-filtered search returns nothing) is a
+**retrieval-width** behavior, so it is breadth-owned — `precise` suppresses it. It has a *second*
+independent suppressor, `strict_evidence` (the answer contract); either can turn it off. This is
+the §4 split made concrete: breadth owns retrieval width, `strict_evidence` owns answering.
+
 This dichotomy is what makes "breadth veto-only" precise rather than ambiguous.
 
-### 3.3 Budget — shaped, not gated — `budget_tier`
+**Breadth profile (grounded in current `planner.py` branches, behavior-preserving):**
 
-```
-budget_tier = f(retrieval_breadth, entity_scope, needs_synthesis)  # tight | standard | wide
-```
+| breadth | hyde | query_expansion | entity_fallback | permits multi-hop | from current flavor |
+|---|---|---|---|---|---|
+| `precise` | off | off | suppressed | no | `exact` |
+| `balanced` | on (`enable_hyde`) | off | allowed unless `strict_evidence` | yes | `balanced` |
+| `broad` | off | on (`enable_query_expansion`) | allowed unless `strict_evidence` | yes | `recall` |
 
-`budget_tier` is neither an intent-requested step nor a pure breadth feature: it is a magnitude
-*shaped* by both breadth (the dominant input) and intent-derived adaptiveness
-(`entity_scope=broad` or `needs_synthesis=true` widen it). The veto-vs-force dichotomy does not
-apply — there is no step to toggle, only a tier to select. This reproduces today's adaptive
-budget; breadth sets the baseline tier and intent can widen it within what breadth permits, but
-neither can exceed the global `model_limits` caps (infra).
+(`broad` doing *less* HyDE than `balanced` mirrors today's `recall`, which substitutes query
+expansion for HyDE; preserved as-is.)
+
+### 3.3 Budget — shaped, not gated — `budget_profile`
+
+Budget is neither an intent-requested step nor a pure breadth feature: it is a limit set
+*shaped* by breadth (dominant) and intent-derived adaptiveness (`entity_scope` / `needs_synthesis`
+widen it within what breadth permits). The veto-vs-force dichotomy does not apply — there is no
+step to toggle. To make the §7 acceptance gate testable, the profile is an **explicit mapping
+table** reproducing each current `planner.py` branch exactly (not three vague tiers). Limits are
+the current symbolic values; `cfg.*` = today's `QueryConfig` defaults:
+
+| `(breadth, scope, synthesis)` → profile | search | hyde | rrf_top_k | rerank_cand | final_k | ctx_chars | per_entity_min_k | current branch |
+|---|---|---|---|---|---|---|---|---|
+| `precise`, any | 8 | 0 | 8 | 8 | 3 | 5000 | 3 | `exact` |
+| `balanced`, single/none, no-synth | `cfg.search_limit` | `cfg.hyde_limit` | `cfg.rrf_max_results` | `cfg.rerank_max_top_k` | `cfg.rerank_max_top_k` | 8000 | 5 | balanced default |
+| `balanced`, scope=broad | `min(cfg.search_limit*2,24)` | `cfg.hyde_limit` | `min(cfg.rrf_max_results*2,32)` | `min(cfg.rerank_max_top_k*2,24)` | `min(cfg.rerank_max_top_k*2,8)` | 12000 | balanced broad |
+| `balanced`, needs_synthesis | `min(max(cfg.search_limit*2,20),24)` | `cfg.hyde_limit` | 32 | `min(max(cfg.rerank_max_top_k*2,20),24)` | `cfg.rerank_max_top_k` | 10000 | 5 | balanced synthesis |
+| `broad`, any | 20 | 0 | 40 | 30 | 8 | 14000 | 8 | `recall` |
+
+**Modifier:** `entity_scope=multi` (today's `multi_explicit`) sets `per_entity_min_k=8`,
+overriding the cell value — applied after profile selection, matching
+[planner.py:159-160](backend/app/rag/query/planner.py#L159-L160).
+
+All cells pass through the existing global `_clamp_budget` caps (search≤40, rrf≤40,
+rerank≤30, final≤30, ctx≤16000) = `model_limits` (infra). When `balanced`+broad and
+`balanced`+synthesis both apply, broad wins (matches current precedence at
+[planner.py:125-136](backend/app/rag/query/planner.py#L125-L136)).
+
+The `tight | standard | wide` labels survive only as human-readable names for these rows; the
+**table is the contract**.
 
 ---
 
 ## 4. Knob changes
 
 ### Gone
-- **`discovery` flavor.** Discovery/multi-hop is inferred from the query, not selected as a
-  breadth. (See §7 exception #1.)
+- **`discovery` flavor** as a user-selectable knob. Discovery/multi-hop becomes inferred (Design
+  2). Legacy `discovery` configs are **not silently remapped** — they resolve to
+  `retrieval_breadth=broad` **plus** `legacy_flavor_origin="discovery"`, and a named compat block
+  reproduces the old bundle exactly until a later measured migration removes it (§7, §8). No
+  observable change in Design 1.
 - **`entity_mode = "multi_hop"`** as a field value. Execution path moves to
   `RoutingDecision.steps`. `entity_scope` describes the question's scope only.
 - **Per-branch budget arithmetic** (`*2`, `min(…, 24)`, `min(…, 32)` scattered through the
-  planner). Replaced by named tiers.
+  planner). Replaced by the explicit `budget_profile` table (§3.3).
 
 ### Changed
 - **`retrieval_flavor` → `retrieval_breadth`** (`precise | balanced | broad`). A pure
@@ -158,21 +198,25 @@ neither can exceed the global `model_limits` caps (infra).
   wins on width.
 - **`use_hyde` / `use_query_expansion` / `use_multi_hop` → `enable_*` kill-switches** with
   veto-only semantics. They can suppress but never force; single authority per feature.
-- **Budget → named tiers** (`tight | standard | wide`). Exact limits live behind the tier; the
-  planner speaks in named policy. Tier selection is `f(breadth, entity_scope, needs_synthesis)`,
-  reproducing today's adaptive-budget behavior.
+- **Budget → explicit `budget_profile` mapping table** (§3.3). Concrete limits live in the
+  table, keyed on `(breadth, entity_scope, needs_synthesis)`, reproducing each current branch
+  exactly. The `tight/standard/wide` labels are names for table rows, not the contract.
 - **`entity_mode` split** into `entity_scope` (classification: single | multi | broad | none)
-  and `steps` (execution path, in the trace).
+  and `steps` (execution path, in the trace). Today's `multi_explicit` → `entity_scope=multi`
+  + `steps=["multi_entity"]` (see §8 for the full compatibility shape).
 
 ### Separate & preserved
-- **`strict_evidence`** stays a distinct **answer-contract** knob, orthogonal to breadth:
-  `breadth = precise` means "prefer narrow retrieval"; `strict_evidence = true` means "do not
-  answer beyond supported evidence." They often correlate but are not the same promise.
-  **Documentation note:** today's `exact` flavor suppresses entity→global fallback, which
-  overlaps `strict_evidence`. The spec documents the split explicitly — breadth controls
-  retrieval narrowness; `strict_evidence` controls answer fallback. The new `precise` breadth
-  carries the retrieval-narrowness half; the fallback-on-no-evidence half stays with
-  `strict_evidence`.
+- **`strict_evidence`** stays a distinct **answer-contract** knob: "do not answer beyond
+  supported evidence." It is **not** the owner of entity→global fallback — that fallback is a
+  *retrieval-width* behavior owned by **breadth** (`precise` suppresses it; see §3.2). The two
+  are independent suppressors of `use_entity_fallback`: either `precise` *or* `strict_evidence`
+  turns it off. This corrects the earlier framing — today's `exact` disables fallback
+  *unconditionally* ([planner.py:79](backend/app/rag/query/planner.py#L79)), independent of
+  `strict_evidence`, so mapping `exact→precise` only stays behavior-preserving **because
+  `precise` itself suppresses fallback**. Without that rule, old `exact` queries with
+  `strict_evidence=false` would begin falling back globally — a regression. `breadth=precise`
+  means "prefer narrow retrieval (no global widening)"; `strict_evidence=true` means "refuse to
+  answer without evidence." They often correlate but are different promises.
 
 ---
 
@@ -183,10 +227,11 @@ RoutingDecision {
   use_hyde
   use_query_expansion
   use_multi_hop
-  budget_tier            # tight | standard | wide
+  use_entity_fallback    # breadth-owned; precise suppresses; strict_evidence also suppresses
+  budget_profile         # explicit limit set from the §3.3 table
   prompt_variant
-  answer_shape           # requested_format or derive(needs_synthesis)
-  steps                  # e.g. ["multi_hop"] — execution path taken
+  answer_shape           # derive(needs_synthesis) in D1
+  steps                  # e.g. ["multi_hop"], ["multi_entity"] — execution path taken
   reasons
   vetoes                 # e.g. ["precise breadth suppresses multi-hop"]
 }
@@ -203,9 +248,10 @@ This replaces the if/else ladder in `backend/app/rag/query/planner.py` (`build_q
 roughly lines 71–181). The function applies the authority chain (§3), records every suppression
 in `vetoes`, and records why each feature is on/off in `reasons`.
 
-`answer_shape` is **derived, not classified**: `requested_format or derive(needs_synthesis)`.
-`requested_format` is a deterministic, high-precision extraction that lives in the *inferred*
-tier, so the derived stage never re-scans the question (preserving "classify once").
+`answer_shape` is **derived, not classified**. In Design 1 it is `derive(needs_synthesis)`
+(reproducing today's template-driven shape). In Design 2 an explicit `requested_format` from the
+*inferred* tier overrides it — `requested_format or derive(needs_synthesis)` — so even the
+override is classified once, never re-scanned in the derived stage.
 
 ---
 
@@ -228,9 +274,10 @@ infra:
 
 routing_decision:
   use_multi_hop: false
-  budget_tier: tight
+  use_entity_fallback: false
+  budget_profile: precise
   steps: ["retrieve_precise"]
-  reasons: ["multi_hop vetoed by precise breadth"]
+  reasons: ["multi_hop vetoed by precise breadth", "fallback suppressed by precise breadth"]
 ```
 
 This is the part-1 observability object (`docs/prompt_reliability_implementation_plan.md`
@@ -244,41 +291,67 @@ This is the part-1 observability object (`docs/prompt_reliability_implementation
   invent).
 - `enable_multi_hop=false` + inferred `needs_multi_hop=true` + `broad` →
   `routing_decision.use_multi_hop=false` (infra veto).
-- synthesis-marker query → `budget_tier` widens; no-marker single-entity query → `standard`.
+- `precise` → `use_entity_fallback=false` regardless of `strict_evidence`; `balanced`+`strict_evidence=true`
+  → `use_entity_fallback=false`; `balanced`+`strict_evidence=false` → `true`.
+- synthesis-marker query → `budget_profile` = balanced-synthesis row; no-marker single-entity query
+  → balanced-default row; `entity_scope=multi` → `per_entity_min_k=8`.
+- `legacy_flavor_origin="discovery"` → the discovery compat bundle (hyde off, expansion off,
+  fallback off, 8000-char budget, broad prompt) regardless of native `broad` defaults.
 
 ---
 
 ## 7. Behavior-preservation contract
 
-> **Design 1 is behavior-preserving except for explicitly listed force-semantics removed by the
-> new authority chain. Any current flavor behavior that forces execution without inferred intent
-> must either become an inferred intent rule or be listed as a measured behavior change.**
+> **Design 1 is behavior-preserving. It introduces zero intended observable behavior changes.**
+> Any current flavor behavior that a single `retrieval_breadth` cannot reproduce is preserved by
+> a named, deletable `legacy_flavor_origin` compatibility block, not silently dropped or remapped.
+> Behavior deltas are deferred to a later, separately-measured migration — never smuggled into
+> Design 1's renames.
 
-### Exception list (complete after a full flavor audit — one item)
+### Exception list — empty
 
-1. **`discovery` flavor's forced `multi_hop=True` is removed.** Multi-hop now requires inferred
-   discovery intent (the deterministic discovery-keyword gate in Design 1). Queries that
-   selected `discovery` flavor but contain no discovery signal will no longer force multi-hop.
-   Measured case-by-case on the golden set.
+There are no accepted behavior changes in Design 1. (The earlier "discovery loses forced
+multi-hop" entry was withdrawn: it was based on reading plan flags rather than the execution
+path. See the audit below.)
 
-### Flavor audit (basis for the one-item list)
+### Flavor audit — traced through to execution
 
-Rule applied: *does the current flavor force an execution step that intent would not otherwise
-request?* Suppression and budget-setting are compatible with the new model; forcing an
-intent-requested step is not.
+The audit traces each flavor through *plan flag → pipeline gate → search/execution*, not the
+plan flag alone — the earlier draft's mistake. `use_multi_hop` on the plan does **not** force
+execution: `_should_run_multi_hop` ([search_pipeline.py:88-91](backend/app/rag/query/search_pipeline.py#L88-L91))
+also requires `_decide_multi_hop` ([multi_hop.py:32-36](backend/app/rag/query/multi_hop.py#L32-L36))
+to pass (broad/none scope **and** a keyword).
 
-| Flavor | Force-vs-veto verdict |
-|---|---|
-| `exact` → `precise` | All suppression + tight budget. Fallback suppression overlaps `strict_evidence` (documented in §4). No force. |
-| `discovery` | Forces `multi_hop=True`. **Exception #1.** |
-| `recall` → `broad` | Enables expansion = *breadth-owned* strategy, not a forced intent step. Wide budget. No force. |
-| `balanced` | Adaptive budget driven by synthesis marker / broad entity = intent-derived `budget_tier`, preserved via tier mapping. No force. |
+| Flavor | Maps to | Reproducible by breadth alone? |
+|---|---|---|
+| `exact` | `precise` | **Yes.** hyde off, expansion off, fallback off (permanent `precise` semantic — §4), multi-hop suppressed, tight budget, default prompt. No tag. |
+| `recall` | `broad` | **Yes.** hyde off, expansion on(`cfg`), fallback-unless-strict, recall-wide budget. No tag. |
+| `balanced` | `balanced` | **Yes.** Adaptive budget = `budget_profile` table rows keyed on scope/synthesis. No tag. |
+| `discovery` | `broad` **+ tag** | **No.** Bundle (hyde off, expansion off, fallback off, *8000* budget, *broad* prompt, multi-hop config-gate bypass) maps to no single breadth → `legacy_flavor_origin="discovery"` compat block reproduces it. |
+
+**Correction recorded:** `discovery` flavor never *forced multi-hop execution* — execution was
+always keyword-gated by `_decide_multi_hop`. Its only multi-hop effect was bypassing the
+`cfg.use_multi_hop` config gate; under the new model the `enable_multi_hop` infra veto would
+instead apply. That difference (and the hyde/expansion/fallback/budget/prompt deltas of moving
+`discovery` to *native* `broad`) is precisely what the compat block freezes and the deferred
+migration measures.
+
+### Deferred: legacy-discovery migration (NOT in Design 1)
+
+A later, separately-measured change deletes the `legacy_flavor_origin="discovery"` compat block,
+promoting legacy-discovery configs to *native* `broad`. Each delta is measured before promotion:
+budget (8000 → recall-wide), expansion (off → on), fallback (off → on-unless-strict), prompt
+(broad → default), multi-hop gating (config-bypass → infra-veto). Until then **native `broad` and
+legacy-discovery-origin `broad` are intentionally different** — see the §8 caveat. Design 2's
+inferred discovery may also change where discovery-type queries "land," so the eventual target is
+revisited there.
 
 ### Acceptance gate
 
-- Golden-set **retrieval-only** Hit@5 / Hit@10 **identical** before/after.
+- Golden-set **retrieval-only** Hit@5 / Hit@10 **identical** before/after — **no permitted delta**.
 - Golden-set **full** pass rate **identical** before/after.
-- The **sole** permitted delta is the exception-#1 case set, explained case-by-case.
+- A targeted test exercises a stored `discovery` config and asserts the compat bundle reproduces
+  pre-refactor routing exactly.
 - All existing planner/observability unit tests pass; new tests assert the §6 trace shape.
 
 ---
@@ -287,11 +360,19 @@ intent-requested step is not.
 
 | Unit | Responsibility | Depends on |
 |---|---|---|
-| `retrieval_breadth` resolution | map config → `precise/balanced/broad`; back-compat shim for old `retrieval_flavor` values (`exact→precise`, `recall→broad`, `discovery→broad`, `balanced→balanced`) | config |
-| deterministic inferred-signal module | fold `_BROAD_SIGNALS`, `SYNTHESIS_QUERY_MARKERS`, `DISCOVERY_KEYWORDS`/`RESPONSIBILITY_HOP_KEYWORDS`, `requested_format` extraction, entity grounding into one function emitting the inferred tier | entity_confirm output |
-| `budget_tier` resolver | `f(breadth, entity_scope, needs_synthesis) → tight/standard/wide`; tiers hold the concrete limits | inferred + breadth |
-| `derive_routing_decision` | pure function applying the §3 authority chain → `RoutingDecision` | inferred, breadth, infra config |
-| trace builder | emit the §6 three-section trace into the observability payload | RoutingDecision + tiers |
+| `resolve_breadth` | `config → (retrieval_breadth, legacy_flavor_origin)`. Maps `exact→precise`, `recall→broad`, `balanced→balanced` with **no** tag; maps `discovery→broad` **with** `legacy_flavor_origin="discovery"`. The new model reads **only** `retrieval_breadth`. | config |
+| legacy compat block | keyed on `legacy_flavor_origin=="discovery"`, reproduces the discovery bundle (hyde off, expansion off, fallback off, 8000 budget, broad prompt, multi-hop config-bypass). Named and isolated so a later migration deletes it wholesale. | `resolve_breadth` |
+| deterministic inferred-signal module | fold `_BROAD_SIGNALS`, `SYNTHESIS_QUERY_MARKERS`, `DISCOVERY_KEYWORDS`/`RESPONSIBILITY_HOP_KEYWORDS`, entity grounding into one function emitting the inferred tier. `requested_format` is **out of scope in Design 1** (always null). | entity_confirm output |
+| `budget_profile` resolver | select the §3.3 table row from `(breadth, entity_scope, needs_synthesis)`; apply the `entity_scope=multi` per-entity modifier; pass through `_clamp_budget`. Row values are the contract. | inferred + breadth |
+| `entity_scope` compatibility | today's `multi_explicit` → `entity_scope=multi` + `steps=["multi_entity"]`; from it derive per-entity search ([search.py:48](backend/app/rag/query/search.py#L48)), HyDE-disable ([hyde_search.py:52](backend/app/rag/query/hyde_search.py#L52)), `multi_entity` prompt, and `per_entity_min_k=8` — preserving all four current effects of `multi_explicit` | entity_confirm output |
+| `derive_routing_decision` | pure function applying the §3 authority chain → `RoutingDecision` (incl. legacy compat block) | inferred, breadth, `legacy_flavor_origin`, infra config |
+| trace builder | emit the §6 three-section trace into the observability payload | RoutingDecision |
+
+> **Caveat — do not collapse the compat block.** Native `broad` and legacy-discovery-origin
+> `broad` resolve to the *same* `retrieval_breadth` but are **intentionally different** during the
+> shim (the discovery bundle vs clean broad). A future reader must not "simplify" by deleting the
+> `legacy_flavor_origin` branch on the grounds that both are `broad`. The branch is removed only
+> by the deferred, measured migration in §7.
 
 The deterministic inferred-signal module and `derive_routing_decision` are the two new pure
 units; everything else is renaming/relocation. Three of the keyword sites collapse into one,
@@ -303,9 +384,14 @@ so the change is net-simplifying.
 
 - No `QueryIntent` dataclass, no LLM classifier, no confidence ladder, no decision table beyond
   the deterministic `derive_routing_decision` (all Design 2).
-- No retrieval-strategy retuning. Budget tiers must reproduce today's effective limits.
+- No retrieval-strategy retuning. The `budget_profile` table must reproduce today's effective
+  limits exactly.
 - No new keyword lists. The existing keyword sites are consolidated, not expanded.
-- No UI redesign beyond surfacing `retrieval_breadth` in place of `retrieval_flavor`.
+- No `requested_format` extraction (Design 2). `answer_shape` derives from `needs_synthesis` only.
+- No deletion of the `legacy_flavor_origin="discovery"` compat block — that is the deferred,
+  separately-measured migration (§7), not part of Design 1.
+- No UI redesign beyond surfacing `retrieval_breadth` in place of `retrieval_flavor` (legacy
+  `discovery` selections continue to resolve via the compat path).
 - No change to `strict_evidence` semantics or to model temperature/max-token settings
   (`9e43b2c`).
 
