@@ -12,6 +12,7 @@ from scripts.eval_golden import (
     run_retrieval_only_case,
     score_answer_lite,
     score_citation,
+    score_no_answer,
     score_rule,
 )
 from app.api.admin_eval import RunRequest, _eval_result_preview, _failed_case_count, _filter_cases_for_run, _summarize_golden_case
@@ -377,6 +378,17 @@ def test_retrieval_only_scores_no_answer_cases_with_expected_docs(monkeypatch):
     assert row["final_score"] == 1.0
     assert row["failure_category"] == "none"
     assert row["failure_categories"] == []
+
+
+def test_no_answer_accepts_common_not_found_refusal_phrase():
+    result = score_no_answer(
+        "根据检索到的上下文，未找到关于星辰科技年度体检安排的相关信息。",
+        {"no_answer_type": "missing_actual_value"},
+    )
+
+    assert result["verdict"] == "pass"
+    assert result["score"] == 1.0
+    assert result["has_refusal_signal"] is True
 
 
 def test_retrieval_only_no_answer_without_expected_evidence_is_not_applicable(monkeypatch):
