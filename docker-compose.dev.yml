@@ -1,0 +1,33 @@
+# Development override: run app code from the working tree.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Do not use `--build` for normal source edits. Rebuild only when Dockerfiles,
+# requirements.txt, package.json, or package-lock.json change.
+services:
+  backend:
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8010"
+      - --reload
+      - --reload-dir
+      - /app/app
+      - --reload-dir
+      - /app/scripts
+    volumes:
+      - ./backend/app:/app/app:ro
+      - ./backend/scripts:/app/scripts:ro
+      - ./data:/app/data
+      - ${EMBEDDING_MODEL_HOST_PATH:?Set EMBEDDING_MODEL_HOST_PATH in .env}:/models/embedding:ro
+
+  frontend:
+    volumes:
+      - ./frontend/index.html:/app/index.html:ro
+      - ./frontend/src:/app/src:ro
+      - ./frontend/public:/app/public:ro
+      - ./frontend/vite.config.ts:/app/vite.config.ts:ro
