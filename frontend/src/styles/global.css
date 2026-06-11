@@ -3,13 +3,13 @@
    ============================================ */
 
 :root {
-  /* Brand */
-  --accent: #2563eb;
-  --accent-hover: #1d4ed8;
-  --accent-active: #1e40af;
-  --accent-subtle: #eff6ff;
-  --accent-glow: rgba(37, 99, 235, 0.14);
-  --accent-dim: #93c5fd;
+  /* Brand — deep cobalt (richer than generic SaaS blue) */
+  --accent: #2a43d0;
+  --accent-hover: #1f33b0;
+  --accent-active: #16258a;
+  --accent-subtle: #eceffc;
+  --accent-glow: rgba(42, 67, 208, 0.16);
+  --accent-dim: #aab6f5;
 
   /* Surfaces */
   --bg-base: #f6f8fb;
@@ -17,18 +17,18 @@
   --bg-elevated: #ffffff;
   --bg-subtle: #f1f5f9;
   --bg-hover: #f8fafc;
-  --bg-active: #e0ecff;
+  --bg-active: #dbe1f8;
 
   /* Borders */
   --border: #e5e7eb;
   --border-hover: #cbd5e1;
-  --border-accent: #bfdbfe;
+  --border-accent: #cdd4f7;
 
   /* Text */
   --text-primary: #111827;
   --text-secondary: #4b5563;
   --text-muted: #8a94a6;
-  --text-accent: #1d4ed8;
+  --text-accent: #1f33b0;
 
   /* Semantic */
   --success: #16a34a;
@@ -60,16 +60,16 @@
 }
 
 :root {
-  --arcoblue-1: #eff6ff;
-  --arcoblue-2: #dbeafe;
-  --arcoblue-3: #bfdbfe;
-  --arcoblue-4: #93c5fd;
-  --arcoblue-5: #60a5fa;
-  --arcoblue-6: #2563eb;
-  --arcoblue-7: #1d4ed8;
-  --arcoblue-8: #1e40af;
-  --arcoblue-9: #1e3a8a;
-  --arcoblue-10: #172554;
+  --arcoblue-1: #eceffc;
+  --arcoblue-2: #dbe1f8;
+  --arcoblue-3: #cdd4f7;
+  --arcoblue-4: #aab6f5;
+  --arcoblue-5: #6c80e6;
+  --arcoblue-6: #2a43d0;
+  --arcoblue-7: #1f33b0;
+  --arcoblue-8: #16258a;
+  --arcoblue-9: #122089;
+  --arcoblue-10: #0d1660;
 }
 
 html,
@@ -136,17 +136,25 @@ body {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  box-shadow: none;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Numeric-heavy console: align all figures on a tabular grid */
+.arco-table,
+.arco-statistic-value,
+.arco-descriptions-item-value {
+  font-variant-numeric: tabular-nums;
 }
 
 .arco-table {
   color: var(--text-primary);
 }
 .arco-table-th {
-  background: #f8fafc !important;
+  background: #f6f7f9 !important;
   color: var(--text-secondary);
   font-weight: 600;
   font-size: 12px;
+  letter-spacing: 0.01em;
 }
 .arco-table-td {
   border-bottom-color: var(--border) !important;
@@ -188,6 +196,7 @@ body {
   color: var(--accent) !important;
   background: var(--accent-subtle) !important;
   font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 .arco-menu-light .arco-menu-item:hover {
   color: var(--accent) !important;
