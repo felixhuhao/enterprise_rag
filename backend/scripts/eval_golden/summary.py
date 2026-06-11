@@ -5,7 +5,7 @@ from collections import Counter
 
 from app.utils.schema import ensure_dict
 
-from .common import FAILURE_CATEGORIES, _boolish, normalize_eval_mode
+from .common import FAILURE_CATEGORIES, _boolish, _verdict, normalize_eval_mode
 from .runner import _row_failure_categories
 
 
@@ -167,8 +167,8 @@ def build_summary(
         "case_count": len(results),
         "scored_count": len(scored),
         "unscored": len(results) - len(scored),
-        "passed": sum(1 for s in scores if s >= 0.8),
-        "warning": sum(1 for s in scores if 0.5 <= s < 0.8),
+        "passed": sum(1 for s in scores if _verdict(s) == "pass"),
+        "warning": sum(1 for s in scores if _verdict(s) == "warn"),
         "failed": _summary_failed_count(results),
         "timeout_count": _summary_timeout_count(results),
         "failure_categories": _failure_category_counts(results),
@@ -216,7 +216,7 @@ def _summary_failed_count(results: list[dict]) -> int:
         score = row.get("final_score")
         if row.get("error"):
             failed += 1
-        elif score is not None and score < 0.5:
+        elif score is not None and score < 0.6:
             failed += 1
     return failed
 

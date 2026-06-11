@@ -136,6 +136,18 @@ def test_summary_exposes_compact_run_metrics_and_paths():
     assert summary["summary_path"] == "/tmp/summary.json"
 
 
+def test_summary_score_buckets_match_row_verdict_thresholds():
+    summary = build_summary([
+        {"id": "fail", "final_score": 0.55, "eval_type": "rule", "preferred_flavor": "balanced"},
+        {"id": "warn", "final_score": 0.6, "eval_type": "rule", "preferred_flavor": "balanced"},
+        {"id": "pass", "final_score": 0.8, "eval_type": "rule", "preferred_flavor": "balanced"},
+    ])
+
+    assert summary["passed"] == 1
+    assert summary["warning"] == 1
+    assert summary["failed"] == 1
+
+
 def test_baseline_delta_compares_current_summary_to_accepted_baseline(tmp_path):
     baseline_summary = build_summary([
         {
