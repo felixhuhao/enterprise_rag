@@ -137,7 +137,7 @@ collapses into this one derivation — the invariant requires it.
 ```
 use_hyde            = breadth_sets_hyde       && enable_hyde && entity_scope != multi
 use_query_expansion = breadth_sets_expansion  && enable_query_expansion
-use_entity_fallback = breadth_allows_fallback && not strict_evidence    # two independent suppressors
+use_entity_fallback = entity_scope == single  && breadth_allows_fallback && not strict_evidence
 ```
 
 Breadth is the *source* for these — **intent never sets them as a quality preference**; there are
@@ -157,6 +157,15 @@ pass at [search.py:84](backend/app/rag/query/search.py#L84) and the post-rerank 
 **retrieval-width** behavior, so it is breadth-owned — `precise` suppresses it. It has a *second*
 independent suppressor, `strict_evidence` (the answer contract); either can turn it off. This is
 the §4 split made concrete: breadth owns retrieval width, `strict_evidence` owns answering.
+
+**Applicable only when `entity_scope=single`** — the `entity_scope == single` term is a structural
+guard, not a preference. Entity→global fallback needs an entity filter to fall back *from*, and
+only `single` carries one: `multi_explicit` routes to per-entity search with no combined filter
+([entity_confirm.py:79](backend/app/rag/query/entity_confirm.py#L79),
+[search.py:48](backend/app/rag/query/search.py#L48)), and `broad`/`none` have no filter at all; the
+post-rerank fallback path also requires a filter ([search_pipeline.py:198](backend/app/rag/query/search_pipeline.py#L198)).
+For `multi | broad | none`, `use_entity_fallback` is a **no-op** regardless of breadth — the
+formula returns `false`, matching today.
 
 This dichotomy is what makes "breadth veto-only" precise rather than ambiguous.
 
@@ -281,7 +290,7 @@ RoutingDecision {
   use_hyde
   use_query_expansion
   use_multi_hop
-  use_entity_fallback    # breadth-owned; precise suppresses; strict_evidence also suppresses
+  use_entity_fallback    # entity_scope=single only; precise + strict_evidence each suppress
   budget_profile         # explicit limit set from the §3.3 table
   prompt_variant
   answer_shape           # derive(needs_synthesis) in D1
@@ -345,8 +354,9 @@ This is the part-1 observability object (`docs/prompt_reliability_implementation
   invent).
 - `enable_multi_hop=false` + inferred `needs_multi_hop=true` + `broad` →
   `routing_decision.use_multi_hop=false` (infra veto).
-- `precise` → `use_entity_fallback=false` regardless of `strict_evidence`; `balanced`+`strict_evidence=true`
-  → `use_entity_fallback=false`; `balanced`+`strict_evidence=false` → `true`.
+- `use_entity_fallback`: `single`+`balanced`+`strict_evidence=false` → `true`; `single`+`precise`
+  → `false` (breadth); `single`+`balanced`+`strict_evidence=true` → `false` (answer contract);
+  `multi`/`broad`/`none` → `false` regardless of breadth (no filter to fall back from).
 - synthesis-marker query → `budget_profile` = balanced-synthesis row; no-marker single-entity query
   → balanced-default row; `entity_scope=multi` → `per_entity_min_k=8`.
 - `retrieval_breadth=discovery` → the discovery profile (hyde off, expansion off, fallback off,
@@ -380,7 +390,7 @@ to pass (broad/none scope **and** a keyword).
 
 | Flavor | Maps to | Behavior-preserving? |
 |---|---|---|
-| `exact` | `precise` | **Yes, exactly.** hyde off, expansion off, fallback off (permanent `precise` semantic — §4), multi-hop suppressed, tight budget, default prompt. |
+| `exact` | `precise` | **Yes, exactly.** hyde off, expansion off, fallback off (permanent `precise` semantic — §4), multi-hop suppressed, tight budget, prompt per §3.4 (`default` unless `entity_scope`=multi/broad). |
 | `recall` | `broad` | **Yes, exactly.** hyde off, expansion on(`cfg`), fallback-unless-strict, recall-wide budget. |
 | `balanced` | `balanced` | **Yes, exactly.** Adaptive budget = `budget_profile` rows keyed on scope/synthesis. |
 | `discovery` | `discovery` *(deprecated)* | **Yes, exactly** — retained as its own breadth profile (§3.2, §3.3), including the `enable_multi_hop`-bypass impurity, kept verbatim. |
