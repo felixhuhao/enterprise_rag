@@ -76,7 +76,9 @@ docs/*
 !docs/project_market_evaluation.md
 !docs/prompt_reliability_implementation_plan.md
 !docs/query_flavor_roadmap.md
+!docs/query_intent_routing_design_stub.md
 !docs/refactoring_plan.md
+!docs/retrieval_control_model_design.md
 !docs/smoke_test.md
 !docs/storage_layer_maturity.md
 !docs/images/
