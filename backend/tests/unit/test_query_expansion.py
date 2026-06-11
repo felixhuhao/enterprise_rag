@@ -101,3 +101,23 @@ def test_parse_filters_empty_numbering_duplicates_and_original():
     )
 
     assert parsed == ["差旅报销标准", "住宿额度"]
+
+
+def test_parse_accepts_common_list_separators():
+    parsed = _parse_expanded_queries(
+        "1. 差旅标准；2. 差旅报销标准，3. 住宿额度、4. 交通补贴",
+        "差旅标准",
+        3,
+    )
+
+    assert parsed == ["差旅报销标准", "住宿额度", "交通补贴"]
+
+
+def test_parse_keeps_numeric_commas_inside_query():
+    parsed = _parse_expanded_queries(
+        "超过1,000元审批标准；预算审批流程",
+        "审批标准",
+        3,
+    )
+
+    assert parsed == ["超过1,000元审批标准", "预算审批流程"]
