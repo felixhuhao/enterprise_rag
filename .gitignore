@@ -74,6 +74,7 @@ docs/*
 !docs/phase13_chunk_quality.md
 !docs/phase14_background_jobs.md
 !docs/project_market_evaluation.md
+!docs/prompt_reliability_implementation_plan.md
 !docs/query_flavor_roadmap.md
 !docs/refactoring_plan.md
 !docs/smoke_test.md
