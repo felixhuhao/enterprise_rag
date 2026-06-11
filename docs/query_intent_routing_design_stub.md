@@ -110,11 +110,12 @@ its own parts):
 ```
 RoutingDecision = {
   use_hyde, use_query_expansion, use_multi_hop,   # derived, then infra-vetoed
-  budget_tier,                                     # tight | standard | wide
+  use_entity_fallback,                             # breadth-owned (precise/strict_evidence suppress)
+  budget_profile,                                  # explicit limit set (Design 1 §3.3 table)
   prompt_variant,
   answer_shape,                                    # requested_format or derive(needs_synthesis)
-  steps,                                           # e.g. ["multi_hop"] — execution path
-  reasons,
+  steps,                                           # e.g. ["multi_hop"], ["multi_entity"]
+  reasons, vetoes,
 }
 ```
 
@@ -179,12 +180,21 @@ Measured as expected-route accuracy vs the current keyword baseline — not trac
 ## Dependencies on Design 1 (Retrieval Control Model)
 
 This design assumes Design 1 has already delivered:
-- `retrieval_breadth` (precise | balanced | broad), `discovery` flavor removed.
-- `enable_*` kill-switches with veto-only semantics.
-- Named budget tiers (`tight | standard | wide`).
-- `entity_scope` separated from execution label; `routing_decision.steps` for execution path.
-- `strict_evidence` kept separate from breadth.
+- `retrieval_breadth` (precise | balanced | broad | **discovery, deprecated transitional**).
+  Design 1 does **not** remove `discovery` — it retains it verbatim as a labelled deprecated
+  breadth value with an `enable_multi_hop`-bypass impurity. **Retiring `discovery` is this
+  design's (Design 2) job**, once inferred `needs_discovery`/`needs_multi_hop` can replace it;
+  each delta (budget/expansion/fallback/prompt/multi-hop-veto) is measured before the value is
+  deleted.
+- `enable_*` kill-switches with veto-only semantics (`discovery` is the one documented exception
+  that bypasses `enable_multi_hop`, removed as part of discovery retirement).
+- `budget_profile` as an explicit `(breadth, entity_scope, needs_synthesis) → limits` mapping
+  table (not three vague tiers).
+- `entity_scope` separated from execution label; `routing_decision.steps` for execution path;
+  `multi_explicit → entity_scope=multi + steps=["multi_entity"]`.
+- `strict_evidence` kept separate from breadth; `use_entity_fallback` owned by breadth (`precise`
+  suppresses), with `strict_evidence` as a second independent suppressor.
 
-Open question inherited from Design 1: whether `retrieval_breadth` is a **vetoer** of
-intent-derived steps (e.g. `precise` suppresses multi-hop) or only a **shaper** of
-strategy/budget. The kill-switch formula above assumes vetoer; confirm once Design 1 decides.
+Design-1 decision now settled (was an open question): `retrieval_breadth` is a one-way **vetoer**
+of intent-derived steps — `precise` may suppress (e.g. multi-hop), `broad` permits but never
+invents. The kill-switch formula above reflects this.

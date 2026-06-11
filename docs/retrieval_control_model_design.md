@@ -41,7 +41,7 @@ intent *and* config in the same breath to decide a route must fail a test.
 
 ```
 User/admin config (preference):
-  retrieval_breadth        # precise | balanced | broad
+  retrieval_breadth        # precise | balanced | broad | discovery(deprecated transitional)
   strict_evidence          # bool — answer contract, NOT retrieval width
 
 Inferred (deterministic in Design 1; hybrid classifier in Design 2):
@@ -76,7 +76,13 @@ Infra caps (config, NEVER routing — veto-only):
   model_limits
 ```
 
-Every knob lands in **exactly one** tier; nothing straddles.
+Every knob lands in **exactly one** tier; nothing straddles — with one named, visible exception:
+`retrieval_breadth` carries a fourth **deprecated transitional** value, `discovery`. `precise |
+balanced | broad` are clean breadth values (pure precision↔recall width). `discovery` is a
+**preserved legacy task-profile** — it bundles task-type behavior that is not pure width — kept
+verbatim so Design 1 changes nothing, and scheduled for removal in Design 2 once inferred
+`needs_discovery` / `needs_multi_hop` exists to replace it (§7). We keep this one impurity
+*visible* rather than hiding it behind a compatibility adapter.
 
 In Design 1 the *inferred* tier is populated by today's deterministic keyword/entity logic,
 **refactored into one place** — not newly invented. `confidence` is present in the contract but
@@ -144,9 +150,17 @@ This dichotomy is what makes "breadth veto-only" precise rather than ambiguous.
 | `precise` | off | off | suppressed | no | `exact` |
 | `balanced` | on (`enable_hyde`) | off | allowed unless `strict_evidence` | yes | `balanced` |
 | `broad` | off | on (`enable_query_expansion`) | allowed unless `strict_evidence` | yes | `recall` |
+| `discovery` *(deprecated)* | off | off | suppressed | **yes, bypassing `enable_multi_hop`** | `discovery` |
 
 (`broad` doing *less* HyDE than `balanced` mirrors today's `recall`, which substitutes query
 expansion for HyDE; preserved as-is.)
+
+**The one visible impurity:** `discovery` permits multi-hop *and ignores the `enable_multi_hop`
+infra veto* — the only place a breadth overrides infra, reproducing today's `discovery` flavor
+forcing `use_multi_hop=True` past `cfg.use_multi_hop`. It is still subject to the
+`_decide_multi_hop` keyword/scope gate (multi-hop does not run on a keyword-less query). This
+breach of the authority chain is exactly why `discovery` is marked deprecated and removed in
+Design 2 — we keep it labelled rather than hidden.
 
 ### 3.3 Budget — shaped, not gated — `budget_profile`
 
@@ -164,6 +178,10 @@ the current symbolic values; `cfg.*` = today's `QueryConfig` defaults:
 | `balanced`, scope=broad | `min(cfg.search_limit*2,24)` | `cfg.hyde_limit` | `min(cfg.rrf_max_results*2,32)` | `min(cfg.rerank_max_top_k*2,24)` | `min(cfg.rerank_max_top_k*2,8)` | 12000 | balanced broad |
 | `balanced`, needs_synthesis | `min(max(cfg.search_limit*2,20),24)` | `cfg.hyde_limit` | 32 | `min(max(cfg.rerank_max_top_k*2,20),24)` | `cfg.rerank_max_top_k` | 10000 | 5 | balanced synthesis |
 | `broad`, any | 20 | 0 | 40 | 30 | 8 | 14000 | 8 | `recall` |
+| `discovery`, any *(deprecated)* | `cfg.search_limit` | 0 | `cfg.rrf_max_results` | `cfg.rerank_max_top_k` | `cfg.rerank_max_top_k` | 8000 | 5 | `discovery` |
+
+`discovery` is its own profile row (prompt variant = `broad`), distinct from `broad` — that is
+why it must remain a separate breadth value, not be folded into `broad`.
 
 **Modifier:** `entity_scope=multi` (today's `multi_explicit`) sets `per_entity_min_k=8`,
 overriding the cell value — applied after profile selection, matching
@@ -182,20 +200,16 @@ The `tight | standard | wide` labels survive only as human-readable names for th
 ## 4. Knob changes
 
 ### Gone
-- **`discovery` flavor** as a user-selectable knob. Discovery/multi-hop becomes inferred (Design
-  2). Legacy `discovery` configs are **not silently remapped** — they resolve to
-  `retrieval_breadth=broad` **plus** `legacy_flavor_origin="discovery"`, and a named compat block
-  reproduces the old bundle exactly until a later measured migration removes it (§7, §8). No
-  observable change in Design 1.
 - **`entity_mode = "multi_hop"`** as a field value. Execution path moves to
   `RoutingDecision.steps`. `entity_scope` describes the question's scope only.
 - **Per-branch budget arithmetic** (`*2`, `min(…, 24)`, `min(…, 32)` scattered through the
   planner). Replaced by the explicit `budget_profile` table (§3.3).
 
 ### Changed
-- **`retrieval_flavor` → `retrieval_breadth`** (`precise | balanced | broad`). A pure
-  precision↔recall dial. This is the one knob a user/admin still owns; explicit breadth always
-  wins on width.
+- **`retrieval_flavor` → `retrieval_breadth`** (`precise | balanced | broad | discovery`). The
+  first three are a pure precision↔recall dial; `discovery` is a **deprecated transitional**
+  value retained verbatim (§2, §3.2). This is the one knob a user/admin still owns; explicit
+  breadth always wins on width.
 - **`use_hyde` / `use_query_expansion` / `use_multi_hop` → `enable_*` kill-switches** with
   veto-only semantics. They can suppress but never force; single authority per feature.
 - **Budget → explicit `budget_profile` mapping table** (§3.3). Concrete limits live in the
@@ -295,63 +309,62 @@ This is the part-1 observability object (`docs/prompt_reliability_implementation
   → `use_entity_fallback=false`; `balanced`+`strict_evidence=false` → `true`.
 - synthesis-marker query → `budget_profile` = balanced-synthesis row; no-marker single-entity query
   → balanced-default row; `entity_scope=multi` → `per_entity_min_k=8`.
-- `legacy_flavor_origin="discovery"` → the discovery compat bundle (hyde off, expansion off,
-  fallback off, 8000-char budget, broad prompt) regardless of native `broad` defaults.
+- `retrieval_breadth=discovery` → the discovery profile (hyde off, expansion off, fallback off,
+  8000-char budget, broad prompt) and multi-hop permitted *even with* `enable_multi_hop=false`
+  (the documented deprecated impurity), still gated by `_decide_multi_hop`.
 
 ---
 
 ## 7. Behavior-preservation contract
 
 > **Design 1 is behavior-preserving. It introduces zero intended observable behavior changes.**
-> Any current flavor behavior that a single `retrieval_breadth` cannot reproduce is preserved by
-> a named, deletable `legacy_flavor_origin` compatibility block, not silently dropped or remapped.
-> Behavior deltas are deferred to a later, separately-measured migration — never smuggled into
-> Design 1's renames.
+> Every current flavor maps 1:1 to a `retrieval_breadth` value (`discovery` is retained verbatim
+> as a deprecated value), so no behavior is dropped, remapped, or smuggled into a rename. The one
+> non-orthogonal current behavior — `discovery`'s task-type bundle — is kept *visible* as a
+> labelled deprecated breadth, not hidden behind a compatibility adapter. Its retirement is
+> Design 2 work, because removing it depends on the inferred `needs_discovery` that replaces it.
 
 ### Exception list — empty
 
-There are no accepted behavior changes in Design 1. (The earlier "discovery loses forced
-multi-hop" entry was withdrawn: it was based on reading plan flags rather than the execution
-path. See the audit below.)
+There are no accepted behavior changes in Design 1. The four current flavors map one-to-one:
+`exact→precise`, `balanced→balanced`, `recall→broad`, `discovery→discovery`.
 
 ### Flavor audit — traced through to execution
 
 The audit traces each flavor through *plan flag → pipeline gate → search/execution*, not the
-plan flag alone — the earlier draft's mistake. `use_multi_hop` on the plan does **not** force
+plan flag alone (the earlier draft's mistake). `use_multi_hop` on the plan does **not** force
 execution: `_should_run_multi_hop` ([search_pipeline.py:88-91](backend/app/rag/query/search_pipeline.py#L88-L91))
 also requires `_decide_multi_hop` ([multi_hop.py:32-36](backend/app/rag/query/multi_hop.py#L32-L36))
 to pass (broad/none scope **and** a keyword).
 
-| Flavor | Maps to | Reproducible by breadth alone? |
+| Flavor | Maps to | Behavior-preserving? |
 |---|---|---|
-| `exact` | `precise` | **Yes.** hyde off, expansion off, fallback off (permanent `precise` semantic — §4), multi-hop suppressed, tight budget, default prompt. No tag. |
-| `recall` | `broad` | **Yes.** hyde off, expansion on(`cfg`), fallback-unless-strict, recall-wide budget. No tag. |
-| `balanced` | `balanced` | **Yes.** Adaptive budget = `budget_profile` table rows keyed on scope/synthesis. No tag. |
-| `discovery` | `broad` **+ tag** | **No.** Bundle (hyde off, expansion off, fallback off, *8000* budget, *broad* prompt, multi-hop config-gate bypass) maps to no single breadth → `legacy_flavor_origin="discovery"` compat block reproduces it. |
+| `exact` | `precise` | **Yes, exactly.** hyde off, expansion off, fallback off (permanent `precise` semantic — §4), multi-hop suppressed, tight budget, default prompt. |
+| `recall` | `broad` | **Yes, exactly.** hyde off, expansion on(`cfg`), fallback-unless-strict, recall-wide budget. |
+| `balanced` | `balanced` | **Yes, exactly.** Adaptive budget = `budget_profile` rows keyed on scope/synthesis. |
+| `discovery` | `discovery` *(deprecated)* | **Yes, exactly** — retained as its own breadth profile (§3.2, §3.3), including the `enable_multi_hop`-bypass impurity, kept verbatim. |
 
 **Correction recorded:** `discovery` flavor never *forced multi-hop execution* — execution was
-always keyword-gated by `_decide_multi_hop`. Its only multi-hop effect was bypassing the
-`cfg.use_multi_hop` config gate; under the new model the `enable_multi_hop` infra veto would
-instead apply. That difference (and the hyde/expansion/fallback/budget/prompt deltas of moving
-`discovery` to *native* `broad`) is precisely what the compat block freezes and the deferred
-migration measures.
+always keyword-gated by `_decide_multi_hop`. Its only multi-hop effect is bypassing the
+`cfg.use_multi_hop` config gate (now `enable_multi_hop`). Retaining `discovery` as a breadth
+preserves that bypass verbatim; the impurity is documented in §3.2, not silently changed.
 
-### Deferred: legacy-discovery migration (NOT in Design 1)
+### Deferred to Design 2: discovery retirement
 
-A later, separately-measured change deletes the `legacy_flavor_origin="discovery"` compat block,
-promoting legacy-discovery configs to *native* `broad`. Each delta is measured before promotion:
-budget (8000 → recall-wide), expansion (off → on), fallback (off → on-unless-strict), prompt
-(broad → default), multi-hop gating (config-bypass → infra-veto). Until then **native `broad` and
-legacy-discovery-origin `broad` are intentionally different** — see the §8 caveat. Design 2's
-inferred discovery may also change where discovery-type queries "land," so the eventual target is
-revisited there.
+Removing the `discovery` breadth value is Design 2 work, because it requires inferred
+`needs_discovery` / `needs_multi_hop` to take over. When that lands, `discovery` selections become
+*native* breadth + inferred intent, and each resulting delta is measured before the value is
+deleted: budget (8000 → ?), expansion (off → ?), fallback (off → ?), prompt (broad → ?), and the
+`enable_multi_hop` bypass (removed — the infra veto begins to apply). None of that happens in
+Design 1.
 
 ### Acceptance gate
 
 - Golden-set **retrieval-only** Hit@5 / Hit@10 **identical** before/after — **no permitted delta**.
-- Golden-set **full** pass rate **identical** before/after.
-- A targeted test exercises a stored `discovery` config and asserts the compat bundle reproduces
-  pre-refactor routing exactly.
+- Golden-set **full** pass rate **identical** before/after, including the active `discovery`
+  golden cases (`data/challenge_golden_set_v1.jsonl`).
+- A targeted test exercises a `discovery`-breadth query and asserts the profile + `enable_multi_hop`
+  bypass reproduce pre-refactor routing exactly.
 - All existing planner/observability unit tests pass; new tests assert the §6 trace shape.
 
 ---
@@ -360,23 +373,23 @@ revisited there.
 
 | Unit | Responsibility | Depends on |
 |---|---|---|
-| `resolve_breadth` | `config → (retrieval_breadth, legacy_flavor_origin)`. Maps `exact→precise`, `recall→broad`, `balanced→balanced` with **no** tag; maps `discovery→broad` **with** `legacy_flavor_origin="discovery"`. The new model reads **only** `retrieval_breadth`. | config |
-| legacy compat block | keyed on `legacy_flavor_origin=="discovery"`, reproduces the discovery bundle (hyde off, expansion off, fallback off, 8000 budget, broad prompt, multi-hop config-bypass). Named and isolated so a later migration deletes it wholesale. | `resolve_breadth` |
+| `resolve_breadth` | `config → retrieval_breadth`. Renames the four flavor values 1:1: `exact→precise`, `recall→broad`, `balanced→balanced`, `discovery→discovery`. No tag, no tuple, no compat block. | config |
 | deterministic inferred-signal module | fold `_BROAD_SIGNALS`, `SYNTHESIS_QUERY_MARKERS`, `DISCOVERY_KEYWORDS`/`RESPONSIBILITY_HOP_KEYWORDS`, entity grounding into one function emitting the inferred tier. `requested_format` is **out of scope in Design 1** (always null). | entity_confirm output |
 | `budget_profile` resolver | select the §3.3 table row from `(breadth, entity_scope, needs_synthesis)`; apply the `entity_scope=multi` per-entity modifier; pass through `_clamp_budget`. Row values are the contract. | inferred + breadth |
 | `entity_scope` compatibility | today's `multi_explicit` → `entity_scope=multi` + `steps=["multi_entity"]`; from it derive per-entity search ([search.py:48](backend/app/rag/query/search.py#L48)), HyDE-disable ([hyde_search.py:52](backend/app/rag/query/hyde_search.py#L52)), `multi_entity` prompt, and `per_entity_min_k=8` — preserving all four current effects of `multi_explicit` | entity_confirm output |
-| `derive_routing_decision` | pure function applying the §3 authority chain → `RoutingDecision` (incl. legacy compat block) | inferred, breadth, `legacy_flavor_origin`, infra config |
+| `derive_routing_decision` | pure function applying the §3 authority chain → `RoutingDecision`; the `discovery` breadth row carries the documented `enable_multi_hop`-bypass impurity | inferred, breadth, infra config |
 | trace builder | emit the §6 three-section trace into the observability payload | RoutingDecision |
 
-> **Caveat — do not collapse the compat block.** Native `broad` and legacy-discovery-origin
-> `broad` resolve to the *same* `retrieval_breadth` but are **intentionally different** during the
-> shim (the discovery bundle vs clean broad). A future reader must not "simplify" by deleting the
-> `legacy_flavor_origin` branch on the grounds that both are `broad`. The branch is removed only
-> by the deferred, measured migration in §7.
+> **Caveat — `discovery` is a real breadth value, not an alias for `broad`.** It has its own
+> profile row (§3.2, §3.3) and its own `enable_multi_hop`-bypass behavior. A future reader must
+> not "simplify" by folding `discovery` into `broad` — they are intentionally different. The
+> value is removed only by the Design 2 discovery retirement (§7), after its inferred replacement
+> exists and each delta is measured.
 
 The deterministic inferred-signal module and `derive_routing_decision` are the two new pure
 units; everything else is renaming/relocation. Three of the keyword sites collapse into one,
-so the change is net-simplifying.
+so the change is net-simplifying. There is **no** compatibility adapter — the single impurity
+(`discovery`) lives as a labelled breadth value, visible in config, trace, and tests.
 
 ---
 
@@ -388,10 +401,10 @@ so the change is net-simplifying.
   limits exactly.
 - No new keyword lists. The existing keyword sites are consolidated, not expanded.
 - No `requested_format` extraction (Design 2). `answer_shape` derives from `needs_synthesis` only.
-- No deletion of the `legacy_flavor_origin="discovery"` compat block — that is the deferred,
-  separately-measured migration (§7), not part of Design 1.
-- No UI redesign beyond surfacing `retrieval_breadth` in place of `retrieval_flavor` (legacy
-  `discovery` selections continue to resolve via the compat path).
+- No removal of the `discovery` breadth value — its retirement is Design 2 work (§7), once
+  inferred discovery replaces it. Design 1 keeps it as a labelled deprecated value.
+- No UI redesign beyond renaming `retrieval_flavor` → `retrieval_breadth` (the same four values,
+  `discovery` now marked deprecated).
 - No change to `strict_evidence` semantics or to model temperature/max-token settings
   (`9e43b2c`).
 
