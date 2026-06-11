@@ -124,6 +124,14 @@ use_multi_hop = needs_multi_hop          # intent: requested
 - `enable_* = false` (infra) can always veto — **except** the deprecated `discovery` breadth,
   which bypasses `enable_multi_hop` (the one documented impurity, §3.2; removed in Design 2).
 
+**Classify once, derive once — no second execution gate.** In Design 1, the deterministic
+`needs_multi_hop` **is** today's `_decide_multi_hop` logic ([multi_hop.py:32-36](backend/app/rag/query/multi_hop.py#L32-L36)),
+scope and keyword gates included — that logic moves into the *inferred* tier where it belongs.
+`RoutingDecision.use_multi_hop` (the formula above) is then the **single** execution flag; the
+pipeline reads it directly. Today's separate downstream gate (plan flag **and** a re-run of
+`_decide_multi_hop` at [search_pipeline.py:88-91](backend/app/rag/query/search_pipeline.py#L88-L91))
+collapses into this one derivation — the invariant requires it.
+
 ### 3.2 Breadth-owned strategy — `use_hyde`, `use_query_expansion`, `use_entity_fallback`
 
 ```
@@ -166,10 +174,11 @@ expansion for HyDE; preserved as-is.)
 
 **The one visible impurity:** `discovery` permits multi-hop *and ignores the `enable_multi_hop`
 infra veto* — the only place a breadth overrides infra, reproducing today's `discovery` flavor
-forcing `use_multi_hop=True` past `cfg.use_multi_hop`. It is still subject to the
-`_decide_multi_hop` keyword/scope gate (multi-hop does not run on a keyword-less query). This
-breach of the authority chain is exactly why `discovery` is marked deprecated and removed in
-Design 2 — we keep it labelled rather than hidden.
+forcing `use_multi_hop=True` past `cfg.use_multi_hop`. It remains subject to `needs_multi_hop`
+(which folds in today's `_decide_multi_hop` scope+keyword logic — §3.1): multi-hop still does not
+run on a keyword-less query, because `needs_multi_hop=false` there. This breach of the authority
+chain is exactly why `discovery` is marked deprecated and removed in Design 2 — we keep it
+labelled rather than hidden.
 
 ### 3.3 Budget — shaped, not gated — `budget_profile`
 
@@ -183,18 +192,22 @@ the current symbolic values; `cfg.*` = today's `QueryConfig` defaults:
 | `(breadth, scope, synthesis)` → profile | search | hyde | rrf_top_k | rerank_cand | final_k | ctx_chars | per_entity_min_k | current branch |
 |---|---|---|---|---|---|---|---|---|
 | `precise`, any | 8 | 0 | 8 | 8 | 3 | 5000 | 3 | `exact` |
-| `balanced`, single/none, no-synth | `cfg.search_limit` | `cfg.hyde_limit` | `cfg.rrf_max_results` | `cfg.rerank_max_top_k` | `cfg.rerank_max_top_k` | 8000 | 5 | balanced default |
+| `balanced`, single/multi/none, no-synth | `cfg.search_limit` | `cfg.hyde_limit` | `cfg.rrf_max_results` | `cfg.rerank_max_top_k` | `cfg.rerank_max_top_k` | 8000 | 5 | balanced default |
 | `balanced`, scope=broad | `min(cfg.search_limit*2,24)` | `cfg.hyde_limit` | `min(cfg.rrf_max_results*2,32)` | `min(cfg.rerank_max_top_k*2,24)` | `min(cfg.rerank_max_top_k*2,8)` | 12000 | 5 | balanced broad |
 | `balanced`, needs_synthesis | `min(max(cfg.search_limit*2,20),24)` | `cfg.hyde_limit` | 32 | `min(max(cfg.rerank_max_top_k*2,20),24)` | `cfg.rerank_max_top_k` | 10000 | 5 | balanced synthesis |
 | `broad`, any | 20 | 0 | 40 | 30 | 8 | 14000 | 8 | `recall` |
 | `discovery`, any *(deprecated)* | `cfg.search_limit` | 0 | `cfg.rrf_max_results` | `cfg.rerank_max_top_k` | `cfg.rerank_max_top_k` | 8000 | 5 | `discovery` |
 
-`discovery` is its own profile row (prompt variant = `broad`), distinct from `broad` — that is
-why it must remain a separate breadth value, not be folded into `broad`.
+`discovery` is its own profile row, distinct from `broad` — that is why it must remain a separate
+breadth value, not be folded into `broad`. (Its prompt variant is `broad` *only when*
+`entity_scope != multi`; see §3.4 for the precedence.)
 
 **Modifier:** `entity_scope=multi` (today's `multi_explicit`) sets `per_entity_min_k=8`,
-overriding the cell value — applied after profile selection, matching
-[planner.py:159-160](backend/app/rag/query/planner.py#L159-L160).
+overriding whichever row's cell value — applied *after* profile selection, matching
+[planner.py:159-160](backend/app/rag/query/planner.py#L159-L160). `entity_scope` values are
+mutually exclusive (`single | multi | broad | none`), so a query selects exactly one budget row;
+`scope=multi` co-occurring with `needs_synthesis` selects the synthesis row and *then* takes the
+`per_entity_min_k=8` modifier. `scope=broad` and `scope=multi` cannot co-occur.
 
 All cells pass through the existing global `_clamp_budget` caps (search≤40, rrf≤40,
 rerank≤30, final≤30, ctx≤16000) = `model_limits` (infra). When `balanced`+broad and
@@ -203,6 +216,23 @@ rerank≤30, final≤30, ctx≤16000) = `model_limits` (infra). When `balanced`+
 
 The `tight | standard | wide` labels survive only as human-readable names for these rows; the
 **table is the contract**.
+
+### 3.4 Prompt variant — derived by precedence
+
+`prompt_variant` is derived from `(entity_scope, breadth)` by a strict precedence that reproduces
+[`_prompt_template`](backend/app/rag/query/planner.py#L225) exactly — **`entity_scope=multi` wins
+first**:
+
+```
+prompt_variant = multi_entity   if entity_scope == multi
+               = broad          elif breadth == discovery or entity_scope == broad
+               = default        otherwise
+```
+
+The ordering matters and is easy to get wrong: a `discovery`-breadth query that *also* resolved
+two explicit entities (`entity_scope=multi`) currently gets the **`multi_entity`** prompt, not
+`broad` — and active `discovery` golden cases include exactly these two-entity comparisons. A
+naive "discovery → broad" rule would regress them.
 
 ---
 
@@ -320,8 +350,9 @@ This is the part-1 observability object (`docs/prompt_reliability_implementation
 - synthesis-marker query → `budget_profile` = balanced-synthesis row; no-marker single-entity query
   → balanced-default row; `entity_scope=multi` → `per_entity_min_k=8`.
 - `retrieval_breadth=discovery` → the discovery profile (hyde off, expansion off, fallback off,
-  8000-char budget, broad prompt) and multi-hop permitted *even with* `enable_multi_hop=false`
-  (the documented deprecated impurity), still gated by `_decide_multi_hop`.
+  8000-char budget, `broad` prompt **unless `entity_scope=multi`** — §3.4) and multi-hop permitted
+  *even with* `enable_multi_hop=false` (the documented deprecated impurity), but only when
+  `needs_multi_hop` is true (which folds in today's `_decide_multi_hop` scope+keyword logic).
 
 ---
 
