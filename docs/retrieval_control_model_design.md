@@ -57,7 +57,7 @@ Derived (RoutingDecision — the strategy object):
   use_hyde
   use_query_expansion
   use_multi_hop
-  use_entity_fallback      # entity→global fallback when entity-filtered search is empty
+  use_entity_fallback      # entity→global fallback when entity-filtered results are scarce or low-confidence
   budget_profile           # explicit limit set; see §3.3 mapping table
   prompt_variant
   answer_shape             # derive(needs_synthesis) in D1; requested_format override in D2
@@ -65,7 +65,7 @@ Derived (RoutingDecision — the strategy object):
   reasons
   vetoes
 
-Infra caps (config, NEVER routing — veto-only):
+Infra caps (config, NEVER routing — veto-only; one exception: deprecated discovery bypasses enable_multi_hop, §3.2):
   enable_rerank
   enable_table_expand
   enable_context_expand
@@ -121,22 +121,31 @@ use_multi_hop = needs_multi_hop          # intent: requested
 - `balanced` permits normal inferred steps.
 - `broad` permits wider retrieval / larger budget / expansion / discovery behavior, **but does
   not invent `needs_multi_hop = true`** if intent did not infer it.
-- `enable_* = false` (infra) can always veto.
+- `enable_* = false` (infra) can always veto — **except** the deprecated `discovery` breadth,
+  which bypasses `enable_multi_hop` (the one documented impurity, §3.2; removed in Design 2).
 
 ### 3.2 Breadth-owned strategy — `use_hyde`, `use_query_expansion`, `use_entity_fallback`
 
 ```
-use_hyde            = breadth_sets_hyde       && enable_hyde
+use_hyde            = breadth_sets_hyde       && enable_hyde && entity_scope != multi
 use_query_expansion = breadth_sets_expansion  && enable_query_expansion
 use_entity_fallback = breadth_allows_fallback && not strict_evidence    # two independent suppressors
 ```
 
-These were **never intent's to request** — breadth is their legitimate *source*, not a vetoer.
-Breadth turning expansion on is not "forcing intent" because there is no intent to force.
-**Intent never touches these features.** There are deliberately no `needs_hyde` /
-`needs_expansion` fields.
+Breadth is the *source* for these — **intent never sets them as a quality preference**; there are
+deliberately no `needs_hyde` / `needs_expansion` fields. The one scope coupling is **structural,
+not preference**: `entity_scope=multi` (multi-entity retrieval) suppresses HyDE because HyDE
+cannot be split per entity ([hyde_search.py:52](backend/app/rag/query/hyde_search.py#L52),
+`disabled_multi`). This is an **execution-compatibility veto** — a hard structural constraint
+expressed as an explicit term in the formula above, *not* breadth or intent choosing HyDE off for
+quality. Preserving today's `multi_explicit` behavior requires it; omitting it would let an
+implementer keep the "clean" `use_hyde = breadth && enable` rule and silently regress multi-entity
+retrieval.
 
-`use_entity_fallback` (retry global search when an entity-filtered search returns nothing) is a
+`use_entity_fallback` (retry global search when entity-filtered results are **scarce or
+low-confidence** — `REASON_LOW_SCORE_OR_INSUFFICIENT_HITS`, covering both the initial filtered
+pass at [search.py:84](backend/app/rag/query/search.py#L84) and the post-rerank low-score path at
+[search_pipeline.py](backend/app/rag/query/search_pipeline.py), not only the empty case) is a
 **retrieval-width** behavior, so it is breadth-owned — `precise` suppresses it. It has a *second*
 independent suppressor, `strict_evidence` (the answer contract); either can turn it off. This is
 the §4 split made concrete: breadth owns retrieval width, `strict_evidence` owns answering.
@@ -175,7 +184,7 @@ the current symbolic values; `cfg.*` = today's `QueryConfig` defaults:
 |---|---|---|---|---|---|---|---|---|
 | `precise`, any | 8 | 0 | 8 | 8 | 3 | 5000 | 3 | `exact` |
 | `balanced`, single/none, no-synth | `cfg.search_limit` | `cfg.hyde_limit` | `cfg.rrf_max_results` | `cfg.rerank_max_top_k` | `cfg.rerank_max_top_k` | 8000 | 5 | balanced default |
-| `balanced`, scope=broad | `min(cfg.search_limit*2,24)` | `cfg.hyde_limit` | `min(cfg.rrf_max_results*2,32)` | `min(cfg.rerank_max_top_k*2,24)` | `min(cfg.rerank_max_top_k*2,8)` | 12000 | balanced broad |
+| `balanced`, scope=broad | `min(cfg.search_limit*2,24)` | `cfg.hyde_limit` | `min(cfg.rrf_max_results*2,32)` | `min(cfg.rerank_max_top_k*2,24)` | `min(cfg.rerank_max_top_k*2,8)` | 12000 | 5 | balanced broad |
 | `balanced`, needs_synthesis | `min(max(cfg.search_limit*2,20),24)` | `cfg.hyde_limit` | 32 | `min(max(cfg.rerank_max_top_k*2,20),24)` | `cfg.rerank_max_top_k` | 10000 | 5 | balanced synthesis |
 | `broad`, any | 20 | 0 | 40 | 30 | 8 | 14000 | 8 | `recall` |
 | `discovery`, any *(deprecated)* | `cfg.search_limit` | 0 | `cfg.rrf_max_results` | `cfg.rerank_max_top_k` | `cfg.rerank_max_top_k` | 8000 | 5 | `discovery` |
@@ -211,7 +220,8 @@ The `tight | standard | wide` labels survive only as human-readable names for th
   value retained verbatim (§2, §3.2). This is the one knob a user/admin still owns; explicit
   breadth always wins on width.
 - **`use_hyde` / `use_query_expansion` / `use_multi_hop` → `enable_*` kill-switches** with
-  veto-only semantics. They can suppress but never force; single authority per feature.
+  veto-only semantics. They can suppress but never force; single authority per feature (the lone
+  exception is deprecated `discovery` bypassing `enable_multi_hop`, §3.2).
 - **Budget → explicit `budget_profile` mapping table** (§3.3). Concrete limits live in the
   table, keyed on `(breadth, entity_scope, needs_synthesis)`, reproducing each current branch
   exactly. The `tight/standard/wide` labels are names for table rows, not the contract.
