@@ -12,7 +12,7 @@ This repository represents a polished local-first Enterprise RAG baseline. It is
 - **Retrieval test bench**: run retrieval without answer generation, inspect Top K chunks, scores, retrieval paths, entity distribution, expansion queries, rerank candidates, and strategy summary.
 - **Evaluation loop**: retrieval-only, answer-lite, and full modes over a curated enterprise golden set, with rule scoring, LLM judge, no-answer cases, smoke subset, baseline deltas, and failure categories.
 - **Operational visibility**: query records, per-stage latency, token usage, fallback details, error classification, durable background jobs, storage health checks, and chunk quality reports.
-- **Admin controls**: runtime settings, entity aliases, structured tag visibility, retrieval tuning, golden-set editing, feedback-to-case drafting, and job tracking.
+- **Admin controls**: runtime settings, entity aliases, optional structured tag visibility, retrieval tuning, golden-set editing, feedback-to-case drafting, and job tracking.
 
 ## Architecture
 

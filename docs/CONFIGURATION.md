@@ -30,6 +30,12 @@ PDF parsing additionally requires:
 | `RATE_LIMIT_PER_MINUTE` | `60` | Per-token API rate limit. |
 | `CORS_ORIGINS` | `["http://localhost:5173","http://localhost:4173"]` | Allowed frontend origins. |
 
+### Frontend Feature Flags
+
+| Variable | Default | Description |
+|---|---|---|
+| `VITE_ENABLE_TAG_GOVERNANCE` | `false` | Show the experimental structured tag governance settings tab. Hidden by default while rule-based chunk enrichment is disabled pending redesign. |
+
 ### Local Storage
 
 | Variable | Default | Description |
@@ -132,6 +138,7 @@ DEEPSEEK_API_KEY=sk-your-deepseek-api-key
 ZHIPU_API_KEY=your-zhipu-api-key
 MINERU_API_TOKEN=
 MILVUS_URI=http://localhost:19530
+VITE_ENABLE_TAG_GOVERNANCE=false
 ```
 
 ## Example Local Backend `.env`

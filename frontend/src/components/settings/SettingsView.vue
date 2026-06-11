@@ -58,7 +58,7 @@
           />
         </a-tab-pane>
 
-        <a-tab-pane key="tags" title="标签治理">
+        <a-tab-pane v-if="isTagGovernanceEnabled" key="tags" title="标签治理">
           <TagGovernancePanel
             v-model:preview-document-id="previewDocumentId"
             v-model:preview-section-title="previewSectionTitle"
@@ -139,6 +139,7 @@ interface CapabilityStatus {
 }
 
 const authStore = useAuthStore()
+const isTagGovernanceEnabled = import.meta.env.VITE_ENABLE_TAG_GOVERNANCE === 'true'
 const loading = ref(false)
 const saving = ref(false)
 const tokenSaving = ref(false)
@@ -286,9 +287,13 @@ async function loadSettings() {
     applySettings(settingsData)
     if (authStore.isAdmin) {
       await Promise.all([
-        loadTagRecords(),
-        loadTagMetrics(),
-        loadPreviewDocuments(),
+        ...(isTagGovernanceEnabled
+          ? [
+              loadTagRecords(),
+              loadTagMetrics(),
+              loadPreviewDocuments(),
+            ]
+          : []),
         loadRecentJobs(),
       ])
     }
@@ -302,7 +307,7 @@ async function loadSettings() {
 }
 
 async function loadTagRecords() {
-  if (!authStore.isAdmin) return
+  if (!authStore.isAdmin || !isTagGovernanceEnabled) return
   tagLoading.value = true
   try {
     const data = await listStructuredTags()
@@ -315,7 +320,7 @@ async function loadTagRecords() {
 }
 
 async function loadTagMetrics() {
-  if (!authStore.isAdmin) return
+  if (!authStore.isAdmin || !isTagGovernanceEnabled) return
   tagMetricsLoading.value = true
   try {
     tagMetrics.value = await getStructuredTagMetrics()
@@ -327,7 +332,7 @@ async function loadTagMetrics() {
 }
 
 async function loadPreviewDocuments() {
-  if (!authStore.isAdmin) return
+  if (!authStore.isAdmin || !isTagGovernanceEnabled) return
   previewDocsLoading.value = true
   try {
     allDocuments.value = await listDocuments()
@@ -429,6 +434,7 @@ async function saveToken() {
 }
 
 function openTagEditor(record: StructuredTagRecord) {
+  if (!isTagGovernanceEnabled) return
   selectedTag.value = record
   tagForm.label = record.label
   tagForm.description = record.description
@@ -438,6 +444,7 @@ function openTagEditor(record: StructuredTagRecord) {
 }
 
 async function saveTagEditor() {
+  if (!isTagGovernanceEnabled) return
   if (!selectedTag.value) return
   const label = tagForm.label.trim()
   if (!label) {
@@ -466,6 +473,7 @@ async function saveTagEditor() {
 }
 
 async function resetTag(record: StructuredTagRecord) {
+  if (!isTagGovernanceEnabled) return
   try {
     const result = await resetStructuredTag(record.tag_key)
     Message.success('已恢复内置默认值')
@@ -479,6 +487,7 @@ async function resetTag(record: StructuredTagRecord) {
 }
 
 async function runTagPreview() {
+  if (!isTagGovernanceEnabled) return
   const documentId = previewDocumentId.value
   const text = previewText.value.trim()
   if (!documentId && !text) {
@@ -501,6 +510,7 @@ async function runTagPreview() {
 }
 
 function clearTagPreview() {
+  if (!isTagGovernanceEnabled) return
   previewDocumentId.value = ''
   previewSectionTitle.value = ''
   previewText.value = ''
