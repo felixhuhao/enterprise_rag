@@ -170,7 +170,7 @@ function numberValue(key: string) {
 
 .fixed-note {
   color: var(--text-secondary);
-  background: #f8fafc;
+  background: var(--bg-subtle);
   border: 1px solid var(--border);
 }
 
@@ -241,7 +241,7 @@ function numberValue(key: string) {
   padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: #fbfdff;
+  background: var(--bg-subtle);
 }
 
 .metric-item span {
@@ -282,7 +282,7 @@ function numberValue(key: string) {
   padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: #fbfdff;
+  background: var(--bg-subtle);
 }
 
 .parameter-field span {
@@ -395,7 +395,7 @@ function numberValue(key: string) {
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: #fbfdff;
+  background: var(--bg-subtle);
 }
 
 .settings-actions {

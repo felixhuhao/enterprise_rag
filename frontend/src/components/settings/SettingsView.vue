@@ -641,6 +641,7 @@ onMounted(loadSettings)
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   padding: 14px 18px 18px;
 }
 

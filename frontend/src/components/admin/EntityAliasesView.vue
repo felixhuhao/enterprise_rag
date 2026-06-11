@@ -47,7 +47,7 @@
                 <a-tag size="small">{{ record.source }}</a-tag>
               </template>
             </a-table-column>
-            <a-table-column title="创建时间" data-index="created_at" :width="aliasColumns.columnWidth('created_at')" />
+            <a-table-column title="创建时间" data-index="created_at" :width="aliasColumns.columnWidth('created_at')" :ellipsis="true" />
             <a-table-column title="操作" data-index="actions" :width="aliasColumns.columnWidth('actions')" align="right">
               <template #cell="{ record }">
                 <a-popconfirm content="删除这条别名映射？" @ok="onDelete(record.id)">
@@ -88,7 +88,7 @@ const aliasColumns = useAutoFitColumns('enterprise-rag:entity-aliases:auto-v1', 
   alias: { width: 180, minWidth: 120, maxWidth: 240 },
   canonical_entity: { width: 360, minWidth: 200, flex: true },
   source: { width: 90, minWidth: 70, maxWidth: 110 },
-  created_at: { width: 180, minWidth: 140, maxWidth: 190 },
+  created_at: { width: 184, minWidth: 168, maxWidth: 196 },
   actions: { width: 90, minWidth: 72, maxWidth: 110 },
 }, { minWidth: 60 })
 
@@ -185,6 +185,7 @@ function parseBatchInput(value: string): EntityAliasBatchItem[] {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   padding: 16px;
   height: 100%;
   overflow-y: auto;

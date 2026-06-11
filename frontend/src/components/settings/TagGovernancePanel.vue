@@ -320,7 +320,7 @@ function tagProfileLabel(profile: string) {
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: #fbfdff;
+  background: var(--bg-subtle);
 }
 
 .tag-metric-card span,
@@ -473,7 +473,7 @@ function tagProfileLabel(profile: string) {
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: #fbfdff;
+  background: var(--bg-subtle);
 }
 
 .preview-item-head {
