@@ -139,8 +139,9 @@ body {
   box-shadow: var(--shadow-sm);
 }
 
-/* Numeric-heavy console: align all figures on a tabular grid */
-.arco-table,
+/* Numeric-heavy console: align figures on a tabular grid. Scoped to statistic
+   and descriptions values — NOT generic tables, whose columns are auto-fit to a
+   fixed width and would wrap when tabular figures widen the text. */
 .arco-statistic-value,
 .arco-descriptions-item-value {
   font-variant-numeric: tabular-nums;

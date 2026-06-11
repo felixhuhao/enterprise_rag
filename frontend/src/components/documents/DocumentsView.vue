@@ -117,7 +117,7 @@
 
           <a-table-column title="上传时间" data-index="created_at" :width="documentColumns.columnWidth('created_at')">
             <template #cell="{ record }">
-              {{ formatTime(record.created_at) }}
+              <span class="cell-time">{{ formatTime(record.created_at) }}</span>
             </template>
           </a-table-column>
 
@@ -221,7 +221,7 @@ const documentColumns = useAutoFitColumns('enterprise-rag:documents:auto-v1', {
   entity_name: { width: 90, minWidth: 76, maxWidth: 140 },
   chunk_count: { width: 65, minWidth: 58, maxWidth: 80 },
   image_count: { width: 60, minWidth: 52, maxWidth: 72 },
-  created_at: { width: 180, minWidth: 142, maxWidth: 190 },
+  created_at: { width: 184, minWidth: 168, maxWidth: 196 },
   actions: { width: 140, minWidth: 96, maxWidth: 160 },
 }, { minWidth: 52 })
 
@@ -597,6 +597,10 @@ onUnmounted(() => {
 }
 .entity-text {
   font-size: 12px;
+  color: var(--text-secondary);
+}
+.cell-time {
+  white-space: nowrap;
   color: var(--text-secondary);
 }
 

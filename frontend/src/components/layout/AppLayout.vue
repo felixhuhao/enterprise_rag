@@ -318,7 +318,7 @@ function saveCustomToken() {
 /* ---- Content ---- */
 .content {
   background: var(--bg-base) !important;
-  padding: 18px;
+  padding: 14px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
