@@ -150,24 +150,32 @@ onUnmounted(clearImageUrls)
 .citation-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  background: #f8fafc;
+  gap: 7px;
+  padding: 9px 12px;
+  background: var(--bg-hover);
   font-size: 12px;
   color: var(--text-secondary);
   cursor: pointer;
   user-select: none;
-  transition: color 0.2s;
+  transition: color 0.2s, background 0.2s;
 }
 .citation-header:hover {
   color: var(--accent);
+  background: var(--accent-subtle);
 }
 .citation-header .rotated {
   transform: rotate(180deg);
 }
 .citation-header span {
-  font-family: var(--font-display);
-  font-weight: 700;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.citation-header > :last-child {
+  margin-left: auto;
+  transition: transform 0.2s var(--ease-out);
 }
 
 .citation-list {
@@ -193,12 +201,13 @@ onUnmounted(clearImageUrls)
 .citation-id {
   font-weight: 600;
   color: var(--accent);
-  font-family: var(--font-display);
+  font-family: var(--font-mono);
   font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 999px;
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
   background: var(--accent-subtle);
   border: 1px solid var(--border-accent);
+  flex-shrink: 0;
 }
 
 .citation-field {

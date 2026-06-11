@@ -95,17 +95,18 @@ function claimTypeLabel(type?: string): string {
 .gr-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  background: #f0fdf4;
+  gap: 7px;
+  padding: 9px 12px;
+  background: #eef9f0;
+  border-left: 3px solid #86efac;
   font-size: 12px;
-  color: var(--text-secondary);
+  color: #166534;
   cursor: pointer;
   user-select: none;
-  transition: color 0.2s;
+  transition: color 0.2s, background 0.2s;
 }
 .gr-header:hover {
-  color: var(--text-primary);
+  background: #e6f6ea;
 }
 .gr-header .rotated {
   transform: rotate(180deg);
@@ -113,8 +114,10 @@ function claimTypeLabel(type?: string): string {
 
 .gr-summary {
   flex: 1;
-  font-family: var(--font-display);
-  font-weight: 700;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .gr-body {
@@ -134,7 +137,7 @@ function claimTypeLabel(type?: string): string {
 
 .gr-claim {
   padding: 6px 0;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border);
 }
 .gr-claim:last-child {
   border-bottom: none;
@@ -204,11 +207,12 @@ function claimTypeLabel(type?: string): string {
 }
 
 .gr-cid {
+  font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 600;
   color: var(--accent);
-  padding: 0 4px;
-  border-radius: 999px;
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
   background: var(--accent-subtle);
   border: 1px solid var(--border-accent);
 }

@@ -79,8 +79,8 @@ async function submitFeedback() {
 .feedback-row {
   display: flex;
   align-items: center;
-  gap: 4px;
-  margin-top: 8px;
+  gap: 5px;
+  margin-top: 12px;
 }
 .feedback-label {
   font-size: 12px;
@@ -91,12 +91,13 @@ async function submitFeedback() {
   border: 1px solid var(--border);
   background: var(--bg-surface);
   color: var(--text-muted);
-  border-radius: 4px;
-  padding: 2px 6px;
+  border-radius: var(--radius-md);
+  padding: 3px 8px;
   cursor: pointer;
   font-size: 14px;
   display: flex;
   align-items: center;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
 .fb-btn:not(:disabled):hover { color: var(--accent); border-color: var(--border-accent); }
 .fb-btn.active { color: var(--accent); border-color: var(--border-accent); background: var(--accent-subtle); }

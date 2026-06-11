@@ -68,10 +68,14 @@
       </div>
 
       <div v-if="traceRows.length" class="trace-panel">
+        <div class="trace-caption">阶段耗时 · TRACE</div>
         <div class="trace-row" v-for="row in traceRows" :key="row.label">
           <span class="trace-label">{{ row.label }}</span>
-          <span v-if="row.value" class="trace-value">{{ row.value }}</span>
-          <span v-if="row.ms != null" class="trace-ms">{{ row.ms }}ms</span>
+          <span class="trace-value" :title="row.value">{{ row.value }}</span>
+          <span class="trace-meter">
+            <span class="trace-meter-fill" :style="{ width: meterWidth(row.ms) }"></span>
+          </span>
+          <span class="trace-ms">{{ row.ms }}ms</span>
         </div>
         <div class="trace-divider"></div>
         <div class="trace-row" v-if="trace?.retrieval_wall_ms != null">
@@ -260,24 +264,36 @@ const traceRows = computed<TraceRow[]>(() => {
   if (t.build_prompt_ms != null) rows.push({ label: 'Prompt 构建', ms: t.build_prompt_ms })
   return rows
 })
+
+/** 阶段耗时条：相对最慢阶段的比例宽度 */
+const maxTraceMs = computed(() =>
+  traceRows.value.reduce((max, row) => (row.ms != null && row.ms > max ? row.ms : max), 0),
+)
+function meterWidth(ms: number | undefined): string {
+  if (ms == null || maxTraceMs.value <= 0 || ms <= 0) return '0%'
+  const pct = Math.max(3, Math.round((ms / maxTraceMs.value) * 100))
+  return `${pct}%`
+}
 </script>
 
 <style scoped>
 .retrieval-info {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .tag {
-  font-size: 11px;
-  padding: 3px 8px;
-  border-radius: 999px;
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  padding: 3px 9px;
+  border-radius: var(--radius-sm);
   background: var(--bg-surface);
   border: 1px solid var(--border);
-  color: var(--text-muted);
-  font-family: var(--font-display);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
 }
 .tag.accent {
   color: var(--accent);
@@ -286,22 +302,25 @@ const traceRows = computed<TraceRow[]>(() => {
 }
 .tag.warn {
   color: var(--warning);
-  border-color: #fed7aa;
+  border-color: #fcd9b0;
   background: #fff7ed;
 }
 .tag.blocked {
   color: #991b1b;
-  border-color: #fecaca;
-  background: #fef2f2;
+  border-color: #f3c0c0;
+  background: #fdf1f1;
 }
 .tag.clickable {
   cursor: pointer;
   user-select: none;
+  border-style: dashed;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
 .tag.clickable:hover {
   color: var(--accent);
   border-color: var(--border-accent);
   background: var(--accent-subtle);
+  border-style: solid;
 }
 
 /* Trace panel */
@@ -386,44 +405,73 @@ const traceRows = computed<TraceRow[]>(() => {
 .trace-panel {
   width: 100%;
   margin-top: 4px;
-  padding: 8px 12px;
+  padding: 11px 14px 12px;
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
 
+.trace-caption {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 7px;
+}
+
 .trace-row {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 2px 0;
-  font-family: var(--font-display);
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2.5px 0;
+  font-family: var(--font-body);
   font-size: 12px;
 }
 
 .trace-label {
+  flex: 0 0 150px;
   color: var(--text-secondary);
-  min-width: 140px;
-  flex-shrink: 0;
 }
 .trace-label.total {
   font-weight: 600;
   color: var(--text-primary);
 }
 
+/* value text fills the gap between label and the fixed meter column,
+   ellipsizing when long so the meter stays aligned across rows */
 .trace-value {
+  flex: 1 1 0;
+  min-width: 0;
   color: var(--text-muted);
-  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* telemetry meter bar — fixed column so every bar shares the same axis */
+.trace-meter {
+  flex: 0 0 150px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-hover);
+  overflow: hidden;
+}
+.trace-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+  transition: width 0.4s var(--ease-out);
+}
+
 .trace-ms {
-  color: var(--text-muted);
+  flex: 0 0 58px;
+  text-align: right;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
-  margin-left: auto;
-  flex-shrink: 0;
 }
 .trace-ms.total {
   font-weight: 600;
@@ -433,7 +481,7 @@ const traceRows = computed<TraceRow[]>(() => {
 .trace-divider {
   height: 1px;
   background: var(--border);
-  margin: 6px 0;
+  margin: 7px 0;
 }
 
 /* Rerank table */
@@ -447,12 +495,13 @@ const traceRows = computed<TraceRow[]>(() => {
   width: 100%;
   border-collapse: collapse;
   font-size: 11px;
-  font-family: var(--font-display);
+  font-family: var(--font-body);
+  font-variant-numeric: tabular-nums;
 }
 
 .rerank-table th,
 .rerank-table td {
-  padding: 3px 6px;
+  padding: 4px 8px;
   border-bottom: 1px solid var(--border);
   text-align: left;
   white-space: nowrap;
@@ -460,11 +509,17 @@ const traceRows = computed<TraceRow[]>(() => {
 
 .rerank-table th {
   color: var(--text-muted);
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 9.5px;
 }
 
 .rerank-table td {
   color: var(--text-secondary);
+}
+.rerank-table tbody tr:hover td {
+  background: var(--bg-hover);
 }
 
 .cell-ellipsis {
