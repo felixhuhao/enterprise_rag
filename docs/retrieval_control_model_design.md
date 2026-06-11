@@ -243,6 +243,25 @@ two explicit entities (`entity_scope=multi`) currently gets the **`multi_entity`
 `broad` — and active `discovery` golden cases include exactly these two-entity comparisons. A
 naive "discovery → broad" rule would regress them.
 
+### 3.5 `entity_scope` structural constraints
+
+`entity_scope` is an *inferred* classification, but it also carries **structural** constraints
+that several derived features must honor — not preferences, but hard facts about what the
+retrieval machinery can do. They are collected here so an implementer sees them together; each is
+an explicit term in its feature's derivation, and **omitting any one silently regresses a current,
+golden-tested behavior** (the recurring trap this spec guards against):
+
+| Feature | Constraint | Why (structural) | Defined in |
+|---|---|---|---|
+| `use_hyde` | `… && entity_scope != multi` | HyDE cannot be split per entity (`disabled_multi`) | §3.2 |
+| `use_entity_fallback` | `entity_scope == single && …` | only `single` carries an entity filter to fall back *from*; `multi/broad/none` have none | §3.2 |
+| `prompt_variant` | `multi_entity` when `entity_scope == multi` (wins first) | multi-entity answers need the multi-entity template | §3.4 |
+| `budget_profile` | `entity_scope == multi` → `per_entity_min_k=8` modifier | per-entity coverage floor for multi-entity retrieval | §3.3 |
+
+These are the *only* places `entity_scope` reaches past pure classification into derivation. They
+are structural compatibility terms, distinct from breadth (policy) and intent (preference); the
+authority chain is unaffected.
+
 ---
 
 ## 4. Knob changes
