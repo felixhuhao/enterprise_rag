@@ -17,6 +17,30 @@ def test_rewrite_skips_multi_entity_mode():
     assert result["rewritten_query"] == state["query"]
 
 
+def test_rewrite_replaces_explicit_single_entity_pronouns():
+    state = {
+        "query": "该公司的审批流程是什么？它的预算规则是什么？",
+        "confirmed_entity": "实体A",
+        "entity_mode": "single",
+    }
+
+    result = rewrite_query_node(state, {"configurable": {"query_config": QueryConfig()}})
+
+    assert result["rewritten_query"] == "实体A的审批流程是什么？实体A的预算规则是什么？"
+
+
+def test_rewrite_does_not_replace_bare_ambiguous_pronouns():
+    state = {
+        "query": "其中审批流程是什么？其预算规则是否不同？它是否需要复核？",
+        "confirmed_entity": "实体A",
+        "entity_mode": "single",
+    }
+
+    result = rewrite_query_node(state, {"configurable": {"query_config": QueryConfig()}})
+
+    assert result["rewritten_query"] == state["query"]
+
+
 def test_build_prompt_includes_entity_name_in_context():
     state = {
         "query": "实体A和实体B分别怎么处理审批？",
