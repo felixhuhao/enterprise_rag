@@ -59,15 +59,23 @@ deterministic — **measured, not assumed**; (3) nonzero divergence is recorded,
 
 ## Stage 2B — Hybrid LLM classifier (input source)
 
-**Still shadow-only, zero active behavior change.**
+**Spec:** `query_intent_2b_design.md`. **Offline-replay shadow; zero live-path change.**
 
-Adds the temp-0 LLM escalation that runs **only where deterministic confidence is below `high`**:
-strict JSON schema, timeout/error fallback to the deterministic intent (`fallback_used=true`,
-`source` tagging), and disagreement logging (deterministic vs LLM intent, and shadow vs active
-routing — `diverged` can now become true).
+Builds the **real, reusable** temp-0 LLM classifier (strict JSON, timeout/error fallback to the
+deterministic intent, `source`/`fallback_used` tagging) and the merge that combines LLM markers with
+the deterministic, authoritative `entity_scope`. The LLM owns only the fuzzy marker dimensions
+(`needs_synthesis`, `needs_discovery`); `needs_multi_hop` is re-derived; `entity_scope` stays
+deterministic.
 
-This stage answers **"does LLM escalation improve intent classification enough to matter?"** It
-explicitly does **not** answer "can it drive production routing yet?" — that is 2C.
+**Execution = offline replay**, not inline: the live request path stays pure-2A deterministic
+(zero added latency/cost). A batch script replays the `{medium, low}` confidence bucket (plus a
+`high` control sample) from logged `query_run_stats` and emits disagreement/divergence metrics.
+
+This stage answers **"does LLM escalation improve intent classification enough to matter?"** — it
+**measures impact, it does not judge correctness** (that needs 2C's labels) and it does not answer
+"can it drive production routing yet?". The **activatable-divergence rate** (high-confidence LLM
+routes that differ from Design 1) is the headline go/no-go number into 2C. The classifier built
+here is production-ready; 2C wires it inline behind the trust gate.
 
 ---
 
