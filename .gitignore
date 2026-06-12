@@ -79,6 +79,7 @@ docs/*
 !docs/query_intent_routing_design_stub.md
 !docs/refactoring_plan.md
 !docs/retrieval_control_model_design.md
+!docs/retrieval_control_model_plan.md
 !docs/smoke_test.md
 !docs/storage_layer_maturity.md
 !docs/images/
