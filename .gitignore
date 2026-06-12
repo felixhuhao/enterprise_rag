@@ -40,6 +40,7 @@ data/*
 !data/enterprise_docs/.entity
 !data/enterprise_docs_v1.jsonl
 !data/challenge_golden_set_v1.jsonl
+!data/routing_golden_set_v1.jsonl
 !data/eval_results/
 data/eval_results/*
 !data/eval_results/.gitkeep
