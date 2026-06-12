@@ -207,7 +207,7 @@ Enrich `routing_trace` with intent provenance and the `shadow_routing` section, 
 **Files:**
 - Modify: `backend/app/rag/query/control/routing.py` (`build_routing_trace`)
 - Modify: `backend/app/rag/query/planner.py` (`query_plan_node`)
-- Test: `backend/tests/unit/test_control_routing.py`
+- Test: `backend/tests/unit/test_control_routing.py`, `backend/tests/unit/test_query_stats.py`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -246,6 +246,27 @@ def test_trace_shadow_records_forced_divergence_but_active_unchanged():
     trace = build_routing_trace(inferred, "balanced", cfg, active, would_be)
     assert trace["shadow_routing"]["diverged"] is True                       # recorded
     assert trace["routing_decision"]["use_multi_hop"] == active.use_multi_hop  # active unchanged
+```
+
+Append to `backend/tests/unit/test_query_stats.py` (asserts the new keys *survive persistence*, not
+just trace construction — Design 1 already surfaces `routing_trace` into `resolved_settings`):
+
+```python
+def test_2a_intent_provenance_and_shadow_survive_into_resolved_settings():
+    from app.services.query_observability import build_query_observability_payload
+    state = {
+        "query_plan": {"retrieval_flavor": "balanced", "retrieval_breadth": "balanced",
+                       "budget": {}, "fallback_policy": {}},
+        "routing_trace": {
+            "intent": {"confidence": "medium", "source": "deterministic", "fallback_used": False},
+            "shadow_routing": {"would_be_decision": {"use_multi_hop": False},
+                               "trust_gated": True, "diverged": False},
+        },
+    }
+    rt = build_query_observability_payload(state=state)["resolved_settings"]["routing_trace"]
+    assert rt["intent"]["source"] == "deterministic"
+    assert rt["intent"]["fallback_used"] is False
+    assert rt["shadow_routing"]["diverged"] is False
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -346,9 +367,14 @@ Expected: PASS. If any test calls `build_routing_trace` with the old 4-arg signa
 - [ ] **Step 6: Commit**
 
 ```bash
-git add backend/app/rag/query/control/routing.py backend/app/rag/query/planner.py backend/tests/unit/test_control_routing.py
+git add backend/app/rag/query/control/routing.py backend/app/rag/query/planner.py backend/tests/unit/test_control_routing.py backend/tests/unit/test_query_stats.py
 git commit -m "feat(2A): shadow_routing trace section wired at the planner seam"
 ```
+
+> Note: the `test_query_stats.py` persistence test is a **passthrough guard** — it passes
+> immediately because Design 1 already surfaces `routing_trace` into `resolved_settings`. It locks
+> in that the *new* `intent.source`/`fallback_used`/`shadow_routing.diverged` keys are carried
+> through, so a future change to the observability filter can't silently drop them.
 
 ---
 
@@ -367,7 +393,13 @@ Run (stack up):
 ```bash
 docker compose exec -T backend sh -lc 'PYTHONPATH=/app python scripts/eval_golden_set.py --golden-set /app/data/challenge_golden_set_v1.jsonl --api-base http://127.0.0.1:8010/api --mode retrieval_only --concurrency 2 --delay 0 --case-timeout 240 --output /app/data/intent_2a_retrieval_only.jsonl'
 ```
-Expected: Hit@5 / Hit@10 identical to the current accepted Design 1 baseline. Diff against `data/control_model_retrieval_only_20260612*.json`.
+This writes two artifacts: `data/intent_2a_retrieval_only.jsonl` (per-case) and
+`data/intent_2a_retrieval_only_summary.json` (aggregates). Expected: **identical** to the accepted
+Design 1 baseline — retrieval is unaffected by trace-only changes.
+- Compare `Hit@5`/`Hit@10` in `data/intent_2a_retrieval_only_summary.json` against
+  `data/control_model_retrieval_only_20260612_summary.json` (both must be `1.0`).
+- Confirm per-case parity: the retrieved doc ids in `data/intent_2a_retrieval_only.jsonl` match
+  `data/control_model_retrieval_only_20260612.jsonl`. Retrieval-only **must remain identical**.
 
 - [ ] **Step 3: Golden-set full (active-unchanged gate)**
 
@@ -375,17 +407,26 @@ Run:
 ```bash
 docker compose exec -T backend sh -lc 'PYTHONPATH=/app python scripts/eval_golden_set.py --golden-set /app/data/challenge_golden_set_v1.jsonl --api-base http://127.0.0.1:8010/api --mode full --judge --concurrency 2 --delay 0 --case-timeout 300 --output /app/data/intent_2a_full_judge.jsonl'
 ```
-Expected: full pass rate identical to the Design 1 baseline (0.9355). No case changes — 2A is trace-only.
+Expected: full pass rate (in `data/intent_2a_full_judge_summary.json`) matches the accepted Design 1
+baseline (≈0.9355). Because 2A is trace-only it should not change any answer, **but the LLM judge can
+vary** — so do not treat per-case status as a hard equality gate. Any case-level status change vs
+`data/control_model_full_judge_20260612.jsonl` **must be investigated** (re-run the case; confirm the
+answer text and citations are unchanged) rather than assumed to be a regression or accepted as noise.
+The retrieval-only gate (Step 2) is the hard identity check; full-judge is the pass-rate + investigate gate.
 
-- [ ] **Step 4: Spot-check the shadow record persists**
+- [ ] **Step 4: End-to-end spot-check (the unit test in Task 3 is the primary guarantee)**
 
-After a query through the stack, confirm `query_run_stats.settings_json` contains `routing_trace.intent.confidence` and `routing_trace.shadow_routing.diverged` (the latter `false`). This proves the §5 persistence path without a schema change.
+The persistence path is already asserted by `test_2a_intent_provenance_and_shadow_survive_into_resolved_settings`
+(Task 3). As a final end-to-end confirmation, after one real query through the stack, confirm
+`query_run_stats.settings_json` contains `routing_trace.intent.source`,
+`routing_trace.intent.fallback_used`, and `routing_trace.shadow_routing.diverged` (the latter
+`false`) — proving the §5 path live, without a schema change.
 
 ---
 
 ## Self-Review (completed by plan author)
 
-**Spec coverage:** graded confidence ladder v1 (§3 → Task 1) · `source`/`fallback_used` provenance, deterministic in 2A (§2 → Task 1) · `trust_gate` pure function, safe-default ≡ Design 1 route, one-decision-both-args in 2A (§4 → Task 2) · `shadow_routing` with normalized-dict `diverged`, planner-local at `_resolve_routing` seam, no new node (§5 → Task 3) · persistence via existing `routing_trace`→`settings_json`, no schema change (§5 → Tasks 3, 4) · active-unchanged + shadow-inert + forced-divergence-recorded tests (§7 → Tasks 1, 3, 4). Non-goals (no LLM, no `requested_format`, no golden set/metrics/activation, no discovery retirement, no rename) all honored.
+**Spec coverage:** graded confidence ladder v1 (§3 → Task 1) · `source`/`fallback_used` provenance, deterministic in 2A (§2 → Task 1) · `trust_gate` pure function, safe-default ≡ Design 1 route, one-decision-both-args in 2A (§4 → Task 2) · `shadow_routing` with normalized-dict `diverged`, planner-local at `_resolve_routing` seam, no new node (§5 → Task 3) · persistence of the new keys via existing `routing_trace`→`settings_json`, asserted by a unit test (Task 3) + e2e spot-check (Task 4), no schema change (§5) · active-unchanged + shadow-inert + forced-divergence-recorded tests (§7 → Tasks 1, 3, 4). Non-goals (no LLM, no `requested_format`, no golden set/metrics/activation, no discovery retirement, no rename) all honored.
 
 **Placeholder scan:** none — every code step shows full code; every run step shows the command + expected result.
 
