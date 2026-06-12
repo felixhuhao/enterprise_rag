@@ -30,6 +30,7 @@
 - `backend/app/services/retrieval_test_service.py:159` — its **duplicate** `_should_run_multi_hop` reads the single flag too (Task 6).
 - `backend/tests/unit/test_query_planner.py` — migrate to add `retrieval_breadth` assertions; update the one `use_multi_hop` assertion that becomes effective (Task 5).
 - `backend/app/services/query_observability.py` — *additively* surface `retrieval_breadth` + `routing_trace`; **keep** reading `retrieval_flavor` (Task 7).
+- `backend/app/rag/query/graph.py:14` — add `"routing_trace"` to `_OBSERVABILITY_STATE_KEYS` so the trace persists (Task 7); its line-74 `retrieval_flavor` read is **unchanged**.
 
 **Untouched — read `query_plan["retrieval_flavor"]` (retained, legacy values) or budget/flags (unchanged):** `build_prompt.py`, `search.py`, `hyde_search.py`, `rerank.py`, `diversify_context.py`, `query_expansion.py`, `rrf_fusion.py`, `direct_search.py`, `graph.py:74`, `validate_citations.py:46` (`== "discovery"` still works — legacy value retained), `query_chat.py:337,506`, `retrieval_test_formatting.py:63`, `retrieval_test_service.py:91`, `query_stats_service.py` (`FLAVORS` enum unchanged). **None of these change** because `retrieval_flavor` keeps its legacy value.
 
@@ -38,6 +39,13 @@
 ## Task 0: Characterization safety net
 
 Lock current planner output before refactoring, so any drift is caught.
+
+> **One named exception (Finding 2):** every value pinned here stays identical **except** the
+> `query_plan["use_multi_hop"]` *recorded* value for keyword-less queries with multi-hop enabled
+> in config (e.g. `recall`+`use_multi_hop=True`, or `discovery`), which becomes the *effective*
+> flag (`False`) after the fold. Multi-hop *execution* is unchanged. This net therefore pins
+> `use_multi_hop` only for cases where old recorded == new effective (e.g. discovery **with** a
+> keyword → `True`); the flipping cases are asserted at their new value in Task 5 Step 3b, not here.
 
 **Files:**
 - Test: `backend/tests/unit/test_planner_characterization.py` (create)
@@ -770,7 +778,7 @@ git commit -m "feat: add RoutingDecision authority chain and three-section trace
 
 ## Task 5: Integrate into `planner.build_query_plan` (behavior-preserving)
 
-Rewrite the planner internals to delegate to `control/`, mapping `RoutingDecision` onto the existing `QueryPlan`/`query_plan` dict so consumers are unchanged. Rename `retrieval_flavor`→`retrieval_breadth` on `QueryPlan`. Stash the trace under a new key.
+Rewrite the planner internals to delegate to `control/`, mapping `RoutingDecision` onto the existing `QueryPlan`/`query_plan` dict so consumers are unchanged. **Keep** the legacy `retrieval_flavor` field on `QueryPlan` and **add** an internal `retrieval_breadth` field. Compute routing **once** per call path (Finding 3) and stash the trace under a new key.
 
 **Files:**
 - Modify: `backend/app/rag/query/planner.py`
@@ -780,40 +788,29 @@ Rewrite the planner internals to delegate to `control/`, mapping `RoutingDecisio
 
 In `backend/app/rag/query/planner.py`, replace the body of `build_query_plan` (lines ~71-181) and `query_plan_node` (lines ~60-68). Keep `QueryPlan`, `RetrievalBudget`, `FallbackPolicy`, `PromptPolicy`, `_clamp_budget`, `get_query_plan`, `plan_budget`, `plan_allows_entity_fallback` intact. On `QueryPlan`, **keep** `retrieval_flavor: str` (legacy, carries `cfg.retrieval_flavor` verbatim) and **add** `retrieval_breadth: str`. New bodies:
 
+Routing is computed **once** by `_resolve_routing`; both `build_query_plan` (which `get_query_plan` falls back to) and `query_plan_node` share it and the single mapping `_plan_from_routing`, so they cannot drift (Finding 3):
+
 ```python
-def query_plan_node(state: QueryState, config: RunnableConfig) -> dict:
-    """Resolve high-level query controls into one plan for downstream nodes."""
-    from app.rag.query.control.breadth import resolve_breadth
-    from app.rag.query.control.inferred import infer_signals
-    from app.rag.query.control.routing import build_routing_trace, derive_routing_decision
-
-    cfg = get_query_config(config)
-    query = require_query(state)
-    entity_mode = state.get("entity_mode", "none")
-    breadth = resolve_breadth(cfg.retrieval_flavor)
-    inferred = infer_signals(query, entity_mode, list(state.get("matched_entities", [])))
-    decision = derive_routing_decision(inferred, breadth, cfg)
-    plan = build_query_plan(query=query, entity_mode=entity_mode, cfg=cfg)
-    return {
-        "query_plan": asdict(plan),
-        "routing_trace": build_routing_trace(inferred, breadth, cfg, decision),
-    }
-
-
-def build_query_plan(query: str, entity_mode: str, cfg: QueryConfig) -> QueryPlan:
+def _resolve_routing(query: str, entity_mode: str, matched_entities: list[str], cfg: QueryConfig):
+    """Single routing computation shared by build_query_plan and query_plan_node."""
     from app.rag.query.control.breadth import resolve_breadth
     from app.rag.query.control.budget import resolve_budget_profile
     from app.rag.query.control.inferred import infer_signals
     from app.rag.query.control.routing import derive_routing_decision
 
     breadth = resolve_breadth(cfg.retrieval_flavor)
-    inferred = infer_signals(query, entity_mode, [])
+    inferred = infer_signals(query, entity_mode, matched_entities)
     decision = derive_routing_decision(inferred, breadth, cfg)
     budget = resolve_budget_profile(breadth, inferred.entity_scope, inferred.needs_synthesis, cfg)
+    return breadth, inferred, decision, budget
 
-    # entity_filter_to_global stays breadth-level (the scope/score gate lives downstream in
-    # search.py/hyde_search.py and is unchanged). The single-scope rule lives in
-    # decision.use_entity_fallback (trace only). This equals the OLD fallback_allowed.
+
+def _plan_from_routing(breadth, decision, budget, cfg: QueryConfig) -> QueryPlan:
+    """Single mapping of a routing result onto the legacy QueryPlan dict shape."""
+    from app.rag.query.control.breadth import BREADTH_PROFILES
+
+    # entity_filter_to_global stays breadth-level (scope/score gate is downstream and unchanged);
+    # the single-scope rule lives in decision.use_entity_fallback (trace only). = OLD fallback_allowed.
     allows = _breadth_allows_fallback(breadth, cfg)
     fallback_policy = FallbackPolicy(
         entity_filter_to_global=allows,
@@ -825,7 +822,6 @@ def build_query_plan(query: str, entity_mode: str, cfg: QueryConfig) -> QueryPla
     )
     # Legacy use_hyde stays breadth-only (NOT decision.use_hyde) so hyde_search.py's existing
     # disabled_multi runtime guard + search_mode_hyde label are preserved (Finding 3 / §3.5).
-    from app.rag.query.control.breadth import BREADTH_PROFILES
     legacy_use_hyde = BREADTH_PROFILES[breadth].sets_hyde and cfg.use_hyde
     return QueryPlan(
         retrieval_flavor=cfg.retrieval_flavor,      # legacy value, retained verbatim
@@ -833,11 +829,32 @@ def build_query_plan(query: str, entity_mode: str, cfg: QueryConfig) -> QueryPla
         strict_evidence=bool(cfg.strict_evidence),
         use_hyde=legacy_use_hyde,
         use_query_expansion=decision.use_query_expansion,
-        use_multi_hop=decision.use_multi_hop,        # effective flag (folds _decide_multi_hop)
+        use_multi_hop=decision.use_multi_hop,       # effective flag (folds _decide_multi_hop)
         fallback_policy=fallback_policy,
         budget=budget,
         prompt_policy=prompt_policy,
     )
+
+
+def build_query_plan(query: str, entity_mode: str, cfg: QueryConfig) -> QueryPlan:
+    breadth, _inferred, decision, budget = _resolve_routing(query, entity_mode, [], cfg)
+    return _plan_from_routing(breadth, decision, budget, cfg)
+
+
+def query_plan_node(state: QueryState, config: RunnableConfig) -> dict:
+    """Resolve high-level query controls into one plan + the routing trace."""
+    from app.rag.query.control.routing import build_routing_trace
+
+    cfg = get_query_config(config)
+    query = require_query(state)
+    entity_mode = state.get("entity_mode", "none")
+    matched = list(state.get("matched_entities", []))
+    breadth, inferred, decision, budget = _resolve_routing(query, entity_mode, matched, cfg)
+    plan = _plan_from_routing(breadth, decision, budget, cfg)
+    return {
+        "query_plan": asdict(plan),
+        "routing_trace": build_routing_trace(inferred, breadth, cfg, decision),
+    }
 ```
 
 Add the helper:
@@ -868,10 +885,45 @@ Expected: PASS. If a characterization value differs, the mapping is wrong — fi
 
 This matches what actually executed before (old `plan_flag ∧ _decide_multi_hop` was also `False` for this query). Scan the file for any other `use_multi_hop is True` assertion on a keyword-less query and apply the same correction.
 
-- [ ] **Step 4: Run the planner test suite**
+- [ ] **Step 3b: Add the named-delta and HyDE-compat regression tests**
 
-Run: `PYTHONPATH=backend .venv/bin/pytest backend/tests/unit/test_query_planner.py -v`
-Expected: PASS (all, with migrated field names)
+Append to `backend/tests/unit/test_query_planner.py`. These pin the *intended* post-refactor values (the named non-retrieval delta + the HyDE two-value story):
+
+```python
+def test_use_multi_hop_is_effective_for_keywordless_configs():
+    from app.rag.query.config import QueryConfig
+    from app.rag.query.planner import build_query_plan
+    # recall + enable multi-hop but NO discovery keyword → effective False
+    # (pre-refactor recorded True; multi-hop never actually ran — the named delta, Finding 2)
+    p = build_query_plan("有哪些相关制度？", "none", QueryConfig(retrieval_flavor="recall", use_multi_hop=True))
+    assert p.use_multi_hop is False
+    # discovery + no keyword → effective False (pre-refactor discovery forced True)
+    p2 = build_query_plan("最新的制度内容", "none", QueryConfig(retrieval_flavor="discovery"))
+    assert p2.use_multi_hop is False
+    # discovery + keyword → still True (execution unchanged)
+    p3 = build_query_plan("哪些公司提到了报销？", "broad", QueryConfig(retrieval_flavor="discovery"))
+    assert p3.use_multi_hop is True
+
+
+def test_hyde_two_value_compat_for_multi_entity():
+    from app.rag.query.config import QueryConfig
+    from app.rag.query.planner import build_query_plan
+    from app.rag.query.control.inferred import infer_signals
+    from app.rag.query.control.routing import derive_routing_decision
+    cfg = QueryConfig()  # balanced, use_hyde=True
+    q = "A公司和B公司的报销"
+    plan = build_query_plan(q, "multi_explicit", cfg)
+    assert plan.use_hyde is True   # legacy breadth-only → HyDE node still gates via disabled_multi
+    decision = derive_routing_decision(infer_signals(q, "multi_explicit", []), "balanced", cfg)
+    assert decision.use_hyde is False  # effective: §3.5 structural multi veto (honest trace)
+```
+
+Also add to `backend/tests/unit/test_hyde_search.py` an assertion that a `multi_explicit` query with `use_hyde=True` in the plan still returns `search_mode_hyde == "disabled_multi"` (the runtime guard that makes the legacy `use_hyde=True` safe). Use the existing test's node-invocation pattern in that file.
+
+- [ ] **Step 4: Run the planner + hyde test suites**
+
+Run: `PYTHONPATH=backend .venv/bin/pytest backend/tests/unit/test_query_planner.py backend/tests/unit/test_hyde_search.py -v`
+Expected: PASS (all, with migrated field names + new regression tests)
 
 - [ ] **Step 5: Commit**
 
@@ -950,38 +1002,62 @@ git commit -m "refactor: both multi-hop gates read single use_multi_hop flag"
 ## Task 7: Additively surface `retrieval_breadth` + `routing_trace` in observability
 
 `retrieval_flavor` is retained, so the existing stat read is **unchanged** (no behavior delta).
-This task *adds* the new fields to `resolved_settings` so the three-section trace (design §6) is
-inspectable, without touching the `retrieval_flavor` stat enum.
+This task *adds* `retrieval_breadth` and the three-section `routing_trace` (design §6) to
+`resolved_settings` (persisted via `settings_json`, **no schema change**), and plumbs
+`routing_trace` through the graph's observability state so it survives the key filter.
 
 **Files:**
+- Modify: `backend/app/rag/query/graph.py` (`_OBSERVABILITY_STATE_KEYS`)
 - Modify: `backend/app/services/query_observability.py` (`_resolved_settings`)
 - Test: `backend/tests/unit/test_query_stats.py`
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
-def test_resolved_settings_adds_breadth_without_changing_flavor():
+def test_resolved_settings_adds_breadth_and_trace_without_changing_flavor():
     from app.services.query_observability import build_query_observability_payload
-    state = {"query_plan": {
-        "retrieval_flavor": "exact", "retrieval_breadth": "precise",
-        "budget": {}, "fallback_policy": {},
-    }}
+    state = {
+        "query_plan": {
+            "retrieval_flavor": "exact", "retrieval_breadth": "precise",
+            "budget": {}, "fallback_policy": {},
+        },
+        "routing_trace": {"intent": {}, "policy": {"retrieval_breadth": "precise"},
+                          "infra": {}, "routing_decision": {"use_multi_hop": False}},
+    }
     payload = build_query_observability_payload(state=state)
-    assert payload["retrieval_flavor"] == "exact"            # legacy stat unchanged
-    assert payload["resolved_settings"]["retrieval_breadth"] == "precise"  # new, additive
+    assert payload["retrieval_flavor"] == "exact"                              # legacy stat unchanged
+    assert payload["resolved_settings"]["retrieval_breadth"] == "precise"      # new, additive
+    assert payload["resolved_settings"]["routing_trace"]["policy"]["retrieval_breadth"] == "precise"
 ```
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `PYTHONPATH=backend .venv/bin/pytest backend/tests/unit/test_query_stats.py::test_resolved_settings_adds_breadth_without_changing_flavor -v`
-Expected: FAIL — `resolved_settings` has no `retrieval_breadth` key
+Run: `PYTHONPATH=backend .venv/bin/pytest backend/tests/unit/test_query_stats.py::test_resolved_settings_adds_breadth_and_trace_without_changing_flavor -v`
+Expected: FAIL — `resolved_settings` has neither `retrieval_breadth` nor `routing_trace`
 
-- [ ] **Step 3: Add the field**
+- [ ] **Step 3: Add the fields and the graph plumbing**
 
-In `backend/app/services/query_observability.py` `_resolved_settings`, leave the `flavor` line as-is and add `retrieval_breadth` to the returned `_compact({...})` dict:
+In `backend/app/services/query_observability.py`, change `_resolved_settings` to accept/read `state`
+(it already receives `state`) and add to the returned `_compact({...})` dict (after the `flavor` line, which stays unchanged):
 
 ```python
         "retrieval_breadth": plan.get("retrieval_breadth") or flavor,
+        "routing_trace": _dict(state.get("routing_trace")),
+```
+
+In `backend/app/rag/query/graph.py`, add `"routing_trace"` to the `_OBSERVABILITY_STATE_KEYS` tuple so the node's `routing_trace` output survives the observability state filter:
+
+```python
+_OBSERVABILITY_STATE_KEYS = (
+    "confirmed_entity",
+    "entity_mode",
+    "matched_entities",
+    "per_entity_counts",
+    "query_plan",
+    "routing_trace",
+    "fallback_info",
+    # ... rest unchanged
+)
 ```
 
 - [ ] **Step 4: Run observability tests**
@@ -992,8 +1068,8 @@ Expected: PASS (existing assertions on `retrieval_flavor` unchanged)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add backend/app/services/query_observability.py backend/tests/unit/test_query_stats.py
-git commit -m "feat: additively surface retrieval_breadth in observability settings"
+git add backend/app/rag/query/graph.py backend/app/services/query_observability.py backend/tests/unit/test_query_stats.py
+git commit -m "feat: surface retrieval_breadth and routing_trace in observability"
 ```
 
 ---
