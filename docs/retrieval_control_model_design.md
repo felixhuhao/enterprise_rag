@@ -277,6 +277,12 @@ authority chain is unaffected.
   first three are a pure precision↔recall dial; `discovery` is a **deprecated transitional**
   value retained verbatim (§2, §3.2). This is the one knob a user/admin still owns; explicit
   breadth always wins on width.
+  - **Staged (Design 1 does the *internal* half only).** Design 1 keeps `QueryConfig.retrieval_flavor`
+    as the source of truth and resolves it to an internal `retrieval_breadth` (`resolve_breadth`,
+    §8); the legacy `query_plan["retrieval_flavor"]` value is retained verbatim so consumers, DB
+    columns, the stats enum, and feedback are untouched. The **user-facing/stored rename** (config
+    field, API models, DB, stats values `exact→precise` etc.) is a **deferred, separately-measured
+    migration** — like discovery retirement — not part of the behavior-preserving Design 1.
 - **`use_hyde` / `use_query_expansion` / `use_multi_hop` → `enable_*` kill-switches** with
   veto-only semantics. They can suppress but never force; single authority per feature (the lone
   exception is deprecated `discovery` bypassing `enable_multi_hop`, §3.2).
@@ -473,8 +479,9 @@ so the change is net-simplifying. There is **no** compatibility adapter — the 
 - No `requested_format` extraction (Design 2). `answer_shape` derives from `needs_synthesis` only.
 - No removal of the `discovery` breadth value — its retirement is Design 2 work (§7), once
   inferred discovery replaces it. Design 1 keeps it as a labelled deprecated value.
-- No UI redesign beyond renaming `retrieval_flavor` → `retrieval_breadth` (the same four values,
-  `discovery` now marked deprecated).
+- No user-facing/stored rename of `retrieval_flavor` in Design 1. The rename is *internal only*
+  (config → `retrieval_breadth` resolution); the external config field, API, DB, stats values, and
+  UI label stay `retrieval_flavor` until a later deferred migration (see §4 Changed, staged note).
 - No change to `strict_evidence` semantics or to model temperature/max-token settings
   (`9e43b2c`).
 
