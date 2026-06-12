@@ -79,27 +79,41 @@ here is production-ready; 2C wires it inline behind the trust gate.
 
 ---
 
-## Stage 2C — Golden set, metrics, trust-gated activation (the behavior change)
+## Stage 2C — sub-staged (evidence → dark wiring → the flip)
 
-**The one stage that changes behavior, and only when the gates pass.**
+2C as one blob has the same failure mode 2A/2B avoided: too much evidence, wiring, and behavior
+change in one "trust me" step. Each sub-stage answers exactly one question, in dependency order
+(correctness *before* inline, inline shadow *before* the flip):
 
-Owns: the **routing golden set** (paraphrase cases that intentionally avoid current trigger
-words — implicit comparisons, mixed zh/en, broad-entity questions without `所有/哪些/各`,
-discovery without current keywords, alternative-phrasing multi-hop), **shadow metrics**,
-**promotion gates**, the **active-mode flag**, a **rollback/kill switch**, and the first
-behavior-changing rollout. Trust-gated activation lives here because the evidence machinery exists
-by then.
+### 2C-1 — Golden Correctness (evidence) — `query_intent_2c1_design.md`
+A labeled **routing golden set** (`data/routing_golden_set_v1.jsonl`, ~40 sharp cases avoiding
+trigger words) + an **offline scorer** that grades the **post-gate** route
+(`deterministic → llm → merge → derive_routing_decision → trust_gate`) against expected intent —
+so "ambiguous → low confidence → safe-default" is first-class. Reports `clear_expected_route_accuracy`,
+`clear_missed_activation_rate` (conservative) vs `clear_wrong_route_rate` (dangerous),
+`ambiguous_confident_wrong_count`, `llm_vs_deterministic_delta`, per-marker P/R. **No behavior
+change, no inline LLM.** Answers *"is the classifier/merge correct enough against labels?"*
 
-Promotion gates (all required):
-1. Retrieval-only Hit@5 / Hit@10 do not regress on the current golden set.
-2. Full-mode pass rate within accepted baseline tolerance.
-3. ≥90% expected-route accuracy on high-confidence routing cases.
-4. Ambiguous cases: hit the expected route **or** return low confidence and safe-default — never a
-   confident wrong route.
-5. Every mismatch recorded with a reason and reviewed before rollout.
+v1 gates: `clear_expected_route_accuracy ≥ 90%`; `ambiguous_confident_wrong_count == 0`;
+`clear_wrong_route_count == 0` (allow missed activations, never wrong routes); `llm_vs_deterministic_delta ≥ 0`;
+clear-control route regressions `== 0` or reviewed.
 
-**Discovery retirement is NOT in 2A/2B.** It rides 2C (after the router is trusted) or a follow-on
-migration immediately after 2C, so the earlier stages stay genuinely zero-delta.
+### 2C-2 — Inline Shadow (dark wiring)
+Move the classifier from offline replay to **inline**, behind two orthogonal flags:
+`INTENT_CLASSIFIER_INLINE_ENABLED` (does it run live) and `INTENT_CLASSIFIER_ACTIVE_MODE` (may the
+gated result drive `query_plan`). Default: inline off / shadow, active false. This is where the
+latency budget, timeout→deterministic-fallback, and the kill switch live. **Ships dark; no behavior
+change.** Answers *"can it run inline safely under real latency/failure while still inert?"*
+
+### 2C-3 — Trust-Gated Activation (the flip)
+Flip `INTENT_CLASSIFIER_ACTIVE_MODE` so high-confidence inferred routes drive `query_plan`, gated on
+the 2C-1 correctness gates + 2C-2 production shadow passing. The first behavior change, with instant
+rollback via the flag. Answers *"should we let high-confidence routes actually drive?"*
+
+### 2D — Discovery retirement (follow-on)
+**Kept out of 2C-3** — the router flip is already the first behavior change; deleting a legacy
+breadth value at the same time muddies the blame trail. Retire `discovery` only after activation
+proves boring.
 
 ---
 
@@ -116,15 +130,19 @@ migration immediately after 2C, so the earlier stages stay genuinely zero-delta.
   ladder proves too coarse.
 - **Trust gate:** trust the inferred route only if `confidence == high`; else safe-default ≡ the
   current Design 1 route. Born in 2A (shadow), activated in 2C.
-- **Single global shadow→active flag** (not per-dimension); manual staging possible by reading the
-  trace before flipping.
+- **Two orthogonal flags (2C-2):** `INTENT_CLASSIFIER_INLINE_ENABLED` (runs live) and
+  `INTENT_CLASSIFIER_ACTIVE_MODE` (may drive `query_plan`); default inline-off/shadow, active false —
+  clean dark-launch + rollback. Manual staging possible by reading the trace before flipping.
 - **`requested_format`** stays `null` until a later stage adds the explicit-format signal.
 
 ---
 
-## Recommended order
+## Status / order
 
-1. 2A spec → plan → implement (this is next).
-2. 2B spec → plan → implement.
-3. 2C spec → plan → implement.
+1. 2A — **shipped** (deterministic intent + shadow routing; zero-delta verified).
+2. 2B — **shipped** (offline-replay LLM classifier; closeout smoke clean).
+3. 2C-1 — Golden Correctness: spec → plan → implement (**next**).
+4. 2C-2 — Inline Shadow (dark wiring).
+5. 2C-3 — Trust-Gated Activation (the flip).
+6. 2D — Discovery retirement (follow-on).
 4. Discovery retirement (within 2C or immediately after).
