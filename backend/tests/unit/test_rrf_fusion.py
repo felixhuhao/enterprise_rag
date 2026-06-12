@@ -53,7 +53,7 @@ class TestRRFFusion:
     def test_same_chunk_boosted(self):
         results_a = [self._make_doc(1, "AAA", 0.9), self._make_doc(2, "BBB", 0.8)]
         results_b = [self._make_doc(1, "AAA", 0.85), self._make_doc(3, "CCC", 0.7)]
-        state = {"search_results": results_a, "search_results_hyde": results_b}
+        state = {"query": "test query", "search_results": results_a, "search_results_hyde": results_b}
         config = {"configurable": {"query_config": QueryConfig()}}
         result = rrf_fusion_node(state, config)
         assert len(result["search_results"]) == 3
@@ -61,7 +61,7 @@ class TestRRFFusion:
 
     def test_empty_hyde_passes_through(self):
         results_a = [self._make_doc(1, "AAA", 0.9)]
-        state = {"search_results": results_a, "search_results_hyde": []}
+        state = {"query": "test query", "search_results": results_a, "search_results_hyde": []}
         config = {"configurable": {"query_config": QueryConfig()}}
         result = rrf_fusion_node(state, config)
         assert len(result["search_results"]) == 1
@@ -71,7 +71,7 @@ class TestRRFFusion:
     def test_no_duplicates(self):
         results_a = [self._make_doc(1, "AAA", 0.9)]
         results_b = [self._make_doc(1, "AAA", 0.8)]
-        state = {"search_results": results_a, "search_results_hyde": results_b}
+        state = {"query": "test query", "search_results": results_a, "search_results_hyde": results_b}
         config = {"configurable": {"query_config": QueryConfig()}}
         result = rrf_fusion_node(state, config)
         assert len(result["search_results"]) == 1
@@ -84,6 +84,7 @@ class TestRRFFusion:
             [self._make_doc(5, "EEE", 0.5)],
         ]
         state = {
+            "query": "test query",
             "search_results": results_a,
             "search_mode": "hybrid",
             "search_results_hyde": results_b,
@@ -104,7 +105,7 @@ class TestRRFFusion:
         assert fallback["retrieval_paths"] == ["expanded_2_fallback"]
 
     def test_all_empty_returns_empty(self):
-        state = {"search_results": [], "search_results_hyde": [], "search_results_expanded": [[]]}
+        state = {"query": "test query", "search_results": [], "search_results_hyde": [], "search_results_expanded": [[]]}
         config = {"configurable": {"query_config": QueryConfig()}}
         result = rrf_fusion_node(state, config)
         assert result["search_results"] == []

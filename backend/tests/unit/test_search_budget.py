@@ -6,15 +6,25 @@ from unittest.mock import patch
 
 from app.rag.query.config import QueryConfig
 
-pymilvus_stub = types.ModuleType("pymilvus")
-pymilvus_stub.AnnSearchRequest = object
-pymilvus_stub.WeightedRanker = object
-sys.modules.setdefault("pymilvus", pymilvus_stub)
+try:
+    import pymilvus  # noqa: F401
+except ImportError:
+    pymilvus_stub = types.ModuleType("pymilvus")
+    pymilvus_stub.AnnSearchRequest = object
+    pymilvus_stub.WeightedRanker = object
+    sys.modules.setdefault("pymilvus", pymilvus_stub)
 
 general_milvus_stub = types.ModuleType("app.rag.vectorstores.general_milvus")
 general_milvus_stub.COLLECTION_NAME = "test_collection"
 general_milvus_stub.available_output_fields = lambda fields: fields
-general_milvus_stub.client = object()
+
+
+class _FakeMilvusClient:
+    def query(self, **kwargs):
+        return []
+
+
+general_milvus_stub.client = _FakeMilvusClient()
 sys.modules.setdefault("app.rag.vectorstores.general_milvus", general_milvus_stub)
 
 from app.rag.query.search import _multi_entity_search
