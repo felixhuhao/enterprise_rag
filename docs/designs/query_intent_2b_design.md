@@ -59,11 +59,12 @@ def classify_intent_llm(query: str, deterministic: InferredSignals) -> LlmMarker
   ```
   `requested_format` is **out of scope** in 2B (presentation, not routing — deferred). `entity_scope`
   is **not** asked of the LLM (§3).
-- **Robust parse:** **extract a shared `parse_llm_json_object(raw) -> dict | None` helper** (the
-  strict→fenced→stripped algorithm currently inside groundedness's private `_parse_groundedness`)
-  into a small shared util, and have both groundedness and the classifier call it — do **not**
-  import the private `_parse_groundedness`. Then validate the classifier shape (booleans + enum)
-  before returning; anything off-contract → treat as parse-fail.
+- **Robust parse:** **extract the shared strict→fenced→stripped algorithm** currently inside
+  groundedness's private `_parse_groundedness` into a small shared util. Keep a generic
+  `parse_llm_json(raw) -> Any | None` for groundedness compatibility and expose
+  `parse_llm_json_object(raw) -> dict | None` for the classifier — do **not** import the private
+  `_parse_groundedness`. Then validate the classifier shape (booleans + enum) before returning;
+  anything off-contract → treat as parse-fail.
 - **Failure handling:** any exception / timeout / parse-fail / schema-violation → return `None`.
   The merge (§3) turns `None` into a clean deterministic fallback. The classifier never raises to
   its caller.
@@ -114,7 +115,7 @@ A script under `backend/scripts/` mirroring `eval_golden_set.py` (CLI, concurren
 | Replay input | Source (per `query_run_stats` row) |
 |---|---|
 | query text | `query` column |
-| `entity_mode`, `selected_entities` | `settings_json.resolved_settings` |
+| `entity_mode`, `selected_entities` | `settings_json` root fields |
 | deterministic intent (`entity_scope`, markers, `confidence`) | `settings_json.routing_trace.intent` |
 | **baseline** `logged_design1_decision` | `settings_json.routing_trace.routing_decision` — **the logged Design 1 decision, not recomputed** |
 | raw infra `enable_hyde / enable_query_expansion / enable_multi_hop` | `settings_json.routing_trace.infra` — **not** top-level `resolved_settings.use_*` (those are *effective* plan outputs; a deterministic query that didn't need multi-hop logs `use_multi_hop=false` even when `cfg.use_multi_hop` was on, which would wrongly veto an LLM discovery flip in replay) |
@@ -139,8 +140,9 @@ replayed; a bounded random sample of `high`-confidence rows is replayed as a **c
 4. `budget = resolve_budget_profile(breadth, merged.entity_scope, merged.needs_synthesis, replay_cfg)`.
 5. `merged_decision = derive_routing_decision(merged, breadth, replay_cfg, budget_reason=budget.reason)`.
 6. `diverged = execution_fields(merged_decision) != execution_fields(logged_design1_decision)`
-   (same field subset as 2A's `_decision_execution_dict`, extracted from the logged decision dict);
-   `activatable = diverged and merged.confidence == "high"`.
+   (same field subset as the routing `decision_execution_dict`, extracted from the logged decision
+   dict); `activatable = llm is not None and diverged and merged.confidence == "high"` — fallback
+   rows remain deterministic and are never candidates for 2C activation.
 
 **Concurrency / cost controls:** `--limit`, `--concurrency`, `--delay`, `--high-sample-size`, `--since`.
 
@@ -185,7 +187,7 @@ proof is 2C's job.
 | `classify_intent_llm` | query → `LlmMarkers` (strict JSON, temp 0, never raises) | `backend/app/rag/query/control/llm_classifier.py` (new) |
 | `LlmMarkers` | frozen dataclass of the LLM output contract (`confidence: Confidence`) | same file |
 | `merge_intent` | deterministic scope + LLM markers → `InferredSignals` | `backend/app/rag/query/control/inferred.py` |
-| `parse_llm_json_object` | shared strict→fenced→stripped JSON extractor (refactored out of groundedness) | small shared util; groundedness + classifier both call it |
+| `parse_llm_json` / `parse_llm_json_object` | shared strict→fenced→stripped JSON extractor plus object-only wrapper | small shared util; groundedness uses generic, classifier uses object-only |
 | `replay_intent_classifier.py` | offline corpus replay → artifacts | `backend/scripts/` |
 | settings | `INTENT_CLASSIFIER_MODEL / _TEMPERATURE / _MAX_TOKENS / _TIMEOUT` | `backend/app/config.py` (`Settings`) |
 
@@ -199,7 +201,7 @@ marker flip (`needs_discovery` false→true on a `none`-scope query) correctly f
 ## 7. Acceptance
 
 - **Live path unchanged:** 2B adds no request-path code; golden-set retrieval-only + full still
-  match the accepted Design 1 baseline. The `parse_llm_json_object` refactor is behavior-preserving —
+  match the accepted Design 1 baseline. The shared parser refactor is behavior-preserving —
   existing groundedness parser tests still pass against the extracted helper.
 - **Unit tests green:** classifier (all parse/fallback paths) + merge (ownership, re-derivation,
   fallback provenance) + the shared parser helper.

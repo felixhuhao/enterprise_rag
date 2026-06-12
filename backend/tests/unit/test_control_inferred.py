@@ -1,4 +1,7 @@
-from app.rag.query.control.inferred import infer_signals
+import dataclasses
+
+from app.rag.query.control.inferred import infer_signals, merge_intent
+from app.rag.query.control.llm_classifier import LlmMarkers
 
 
 def test_entity_scope_maps_from_entity_mode():
@@ -40,3 +43,65 @@ def test_provenance_defaults_are_deterministic():
     sig = infer_signals("报销标准是什么", "single", [])
     assert sig.source == "deterministic"
     assert sig.fallback_used is False
+
+
+def test_merge_intent_fallback_preserves_deterministic_route():
+    deterministic = infer_signals("报销标准是什么", "single", [])
+
+    merged = merge_intent(deterministic, None)
+
+    assert merged.entity_scope == deterministic.entity_scope
+    assert merged.needs_synthesis == deterministic.needs_synthesis
+    assert merged.needs_discovery == deterministic.needs_discovery
+    assert merged.needs_multi_hop == deterministic.needs_multi_hop
+    assert merged.confidence == deterministic.confidence
+    assert merged.source == "deterministic"
+    assert merged.fallback_used is True
+
+
+def test_merge_intent_fallback_normalizes_source_to_deterministic():
+    deterministic = dataclasses.replace(
+        infer_signals("报销标准是什么", "single", []),
+        source="llm_escalated",
+    )
+
+    merged = merge_intent(deterministic, None)
+
+    assert merged.source == "deterministic"
+    assert merged.fallback_used is True
+
+
+def test_merge_intent_uses_llm_markers_but_keeps_entity_scope():
+    deterministic = infer_signals("报销标准是什么", "single", [])
+    llm = LlmMarkers(
+        needs_synthesis=True,
+        needs_discovery=True,
+        confidence="high",
+        reasons=["implicit comparison"],
+    )
+
+    merged = merge_intent(deterministic, llm)
+
+    assert merged.entity_scope == "single"
+    assert merged.needs_synthesis is True
+    assert merged.needs_discovery is True
+    assert merged.needs_multi_hop is False
+    assert merged.confidence == "high"
+    assert merged.source == "llm_escalated"
+    assert merged.fallback_used is False
+    assert "llm:implicit comparison" in merged.reasons
+
+
+def test_merge_intent_rederives_multi_hop_from_scope_and_discovery():
+    deterministic = infer_signals("报销标准是什么", "none", [])
+    llm = LlmMarkers(
+        needs_synthesis=False,
+        needs_discovery=True,
+        confidence="high",
+        reasons=["responsibility discovery"],
+    )
+
+    merged = merge_intent(deterministic, llm)
+
+    assert merged.entity_scope == "none"
+    assert merged.needs_multi_hop is True

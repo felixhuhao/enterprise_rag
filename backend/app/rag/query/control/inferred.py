@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from app.rag.query.intent_markers import has_synthesis_marker
 from app.rag.query.multi_hop import DISCOVERY_KEYWORDS, RESPONSIBILITY_HOP_KEYWORDS
 
+if TYPE_CHECKING:
+    from app.rag.query.control.llm_classifier import LlmMarkers
+
 EntityScope = Literal["single", "multi", "broad", "none"]
 Confidence = Literal["high", "medium", "low"]
+CONFIDENCE_LEVELS: set[Confidence] = {"high", "medium", "low"}
 
 _ENTITY_MODE_TO_SCOPE: dict[str, EntityScope] = {
     "single": "single",
@@ -70,5 +75,28 @@ def infer_signals(query: str, entity_mode: str, matched_entities: list[str]) -> 
         confidence=_confidence(scope, has_routing_marker),
         reasons=reasons,
         source="deterministic",
+        fallback_used=False,
+    )
+
+
+def merge_intent(deterministic: InferredSignals, llm: "LlmMarkers | None") -> InferredSignals:
+    """Merge optional LLM markers into deterministic intent."""
+    if llm is None:
+        return dataclasses.replace(
+            deterministic,
+            source="deterministic",
+            fallback_used=True,
+        )
+
+    needs_multi_hop = deterministic.entity_scope in ("broad", "none") and llm.needs_discovery
+    llm_reasons = [f"llm:{reason}" for reason in llm.reasons]
+    return dataclasses.replace(
+        deterministic,
+        needs_synthesis=llm.needs_synthesis,
+        needs_discovery=llm.needs_discovery,
+        needs_multi_hop=needs_multi_hop,
+        confidence=llm.confidence,
+        reasons=[*deterministic.reasons, *llm_reasons],
+        source="llm_escalated",
         fallback_used=False,
     )

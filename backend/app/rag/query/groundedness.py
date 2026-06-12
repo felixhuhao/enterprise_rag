@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -12,6 +10,7 @@ from langgraph.graph.state import RunnableConfig
 
 from app.config import settings
 from app.rag.query.config import get_query_config
+from app.rag.query.llm_json import parse_llm_json
 from app.rag.query.state import QueryState
 
 logger = logging.getLogger(__name__)
@@ -168,29 +167,7 @@ VERDICT_WEIGHTS = {
 
 def _parse_groundedness(raw: str) -> dict | None:
     """Parse LLM output into dict. Returns None if all strategies fail."""
-    # Strategy 1: direct parse
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        pass
-
-    # Strategy 2: extract from ```json ... ``` or ``` ... ``` fence
-    fence = re.search(r"```(?:json)?\s*\n?(.*?)```", raw, re.DOTALL)
-    if fence:
-        try:
-            return json.loads(fence.group(1).strip())
-        except json.JSONDecodeError:
-            pass
-
-    # Strategy 3: strip leading/trailing non-JSON
-    stripped = re.sub(r"^[^{[]*", "", raw)
-    stripped = re.sub(r"[^}\]]*$", "", stripped)
-    try:
-        return json.loads(stripped)
-    except json.JSONDecodeError:
-        pass
-
-    return None
+    return parse_llm_json(raw)
 
 
 def _validate_claims(claims: list[dict], context_map: dict[str, dict]) -> list[dict]:

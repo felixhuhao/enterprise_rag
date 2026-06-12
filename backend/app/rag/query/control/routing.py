@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
 from app.rag.query.config import QueryConfig
 from app.rag.query.control.breadth import BREADTH_PROFILES, RetrievalBreadth
@@ -149,8 +151,8 @@ def _shadow_routing(
 ) -> dict:
     """Record the trust-gated would-be decision using normalized comparison."""
     would_be_dict = dataclasses.asdict(would_be)
-    active_execution = _decision_execution_dict(active)
-    would_be_execution = _decision_execution_dict(would_be)
+    active_execution = decision_execution_dict(active)
+    would_be_execution = decision_execution_dict(would_be)
     return {
         "would_be_decision": would_be_dict,
         "trust_gated": confidence != "high",
@@ -158,8 +160,10 @@ def _shadow_routing(
     }
 
 
-def _decision_execution_dict(decision: RoutingDecision) -> dict:
+def decision_execution_dict(decision: RoutingDecision | Mapping[str, Any]) -> dict:
     """Return only fields that affect routing behavior, not trace metadata."""
+    if isinstance(decision, Mapping):
+        return {field: decision.get(field) for field in _EXECUTION_DECISION_FIELDS}
     return {field: getattr(decision, field) for field in _EXECUTION_DECISION_FIELDS}
 
 
