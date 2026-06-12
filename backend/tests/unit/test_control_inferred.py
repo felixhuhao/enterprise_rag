@@ -26,3 +26,17 @@ def test_d1_invariants():
     assert sig.requested_format is None
     assert sig.confidence == "high"
 
+
+def test_confidence_ladder_v1():
+    assert infer_signals("所有公司的报销标准", "broad", []).confidence == "high"
+    assert infer_signals("比较甲公司的报销标准", "single", []).confidence == "high"
+    assert infer_signals("报销标准是什么", "single", []).confidence == "medium"
+    assert infer_signals("甲公司和乙公司的地址", "multi_explicit", []).confidence == "medium"
+    assert infer_signals("比较各项制度", "none", []).confidence == "medium"
+    assert infer_signals("公司情况怎么样", "none", []).confidence == "low"
+
+
+def test_provenance_defaults_are_deterministic():
+    sig = infer_signals("报销标准是什么", "single", [])
+    assert sig.source == "deterministic"
+    assert sig.fallback_used is False

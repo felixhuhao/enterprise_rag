@@ -137,11 +137,13 @@ Trace shape (enriched sections; `intent`/`policy`/`infra`/`routing_decision` fro
   }
 }
 ```
-`diverged` = the two decisions differ, computed (not assumed) by **normalized-dict comparison** —
-serialize both `RoutingDecision`s to dicts (the form the trace already uses) and compare those, not
-object identity or dataclass equality. Dataclass `__eq__` would happen to work in 2A, but 2B may
-construct the would-be decision through a different path (LLM-fed), so normalized comparison avoids
-false divergence. `trust_gated` = whether the gate fired (confidence ≠ high).
+`diverged` = the two decisions differ, computed (not assumed) by **normalized execution-field
+comparison**. The trace may serialize the full `RoutingDecision`, including explanatory `reasons`
+and `vetoes`, but divergence compares only behavior-bearing fields (HyDE, expansion, multi-hop,
+fallback, budget profile, prompt variant, answer shape, and steps). Dataclass `__eq__` would happen
+to work in 2A, but 2B may construct the would-be decision through a different path (LLM-fed), so
+trace metadata must not create false divergence. `trust_gated` = whether the gate fired (confidence
+≠ high).
 
 ---
 

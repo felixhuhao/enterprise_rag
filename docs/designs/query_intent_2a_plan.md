@@ -276,7 +276,7 @@ Expected: FAIL — `build_routing_trace` takes 4 args (no `would_be_decision`); 
 
 - [ ] **Step 3: Implement the trace extension**
 
-In `backend/app/rag/query/control/routing.py`, add `import dataclasses` at the top, then replace `build_routing_trace` and add the `_shadow_routing` helper:
+In `backend/app/rag/query/control/routing.py`, add `import dataclasses` and import `Confidence` from `control.inferred`, then replace `build_routing_trace` and add the `_shadow_routing` helper:
 
 ```python
 def build_routing_trace(
@@ -324,17 +324,28 @@ def build_routing_trace(
 
 
 def _shadow_routing(
-    active: RoutingDecision, would_be: RoutingDecision, confidence: str,
+    active: RoutingDecision, would_be: RoutingDecision, confidence: Confidence,
 ) -> dict:
-    """Record the would-be (trust-gated) decision. diverged uses normalized-dict
-    comparison so a 2B path that builds the would-be differently cannot cause false
-    divergence (design 2A §5)."""
+    """Record the would-be (trust-gated) decision."""
     would_be_dict = dataclasses.asdict(would_be)
+    active_execution = _decision_execution_dict(active)
+    would_be_execution = _decision_execution_dict(would_be)
     return {
         "would_be_decision": would_be_dict,
         "trust_gated": confidence != "high",
-        "diverged": would_be_dict != dataclasses.asdict(active),
+        "diverged": would_be_execution != active_execution,
     }
+
+
+_EXECUTION_DECISION_FIELDS = (
+    "use_hyde", "use_query_expansion", "use_multi_hop", "use_entity_fallback",
+    "budget_reason", "prompt_variant", "answer_shape", "steps",
+)
+
+
+def _decision_execution_dict(decision: RoutingDecision) -> dict:
+    """Return only behavior-bearing fields; reasons/vetoes are trace metadata."""
+    return {field: getattr(decision, field) for field in _EXECUTION_DECISION_FIELDS}
 ```
 
 - [ ] **Step 4: Wire the planner seam**
@@ -430,4 +441,4 @@ The persistence path is already asserted by `test_2a_intent_provenance_and_shado
 
 **Placeholder scan:** none — every code step shows full code; every run step shows the command + expected result.
 
-**Type consistency:** `InferredSignals` gains `source: str` / `fallback_used: bool` (Task 1) and they are read in `build_routing_trace` (Task 3); `trust_gate(intent, inferred_decision, design1_decision)` signature (Task 2) matches the `query_plan_node` call (Task 3); `build_routing_trace` gains a 5th param `would_be_decision`, and its sole caller is updated in the same task; `_shadow_routing` uses `dataclasses.asdict` for the normalized comparison.
+**Type consistency:** `InferredSignals` gains `source: str` / `fallback_used: bool` (Task 1) and they are read in `build_routing_trace` (Task 3); `trust_gate(intent, inferred_decision, design1_decision)` signature (Task 2) matches the `query_plan_node` call (Task 3); `build_routing_trace` gains a 5th param `would_be_decision`, and its sole caller is updated in the same task; `_shadow_routing` serializes the full would-be decision for observability but compares only behavior-bearing fields so `reasons`/`vetoes` cannot create false divergence.

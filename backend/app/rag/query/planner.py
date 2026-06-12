@@ -59,7 +59,7 @@ class QueryPlan:
 
 def query_plan_node(state: QueryState, config: RunnableConfig) -> dict:
     """Resolve high-level query controls into one plan plus routing trace."""
-    from app.rag.query.control.routing import build_routing_trace
+    from app.rag.query.control.routing import build_routing_trace, trust_gate
 
     cfg = get_query_config(config)
     query = require_query(state)
@@ -67,9 +67,10 @@ def query_plan_node(state: QueryState, config: RunnableConfig) -> dict:
     matched = list(state.get("matched_entities") or [])
     flavor, breadth, inferred, decision, budget = _resolve_routing(query, entity_mode, matched, cfg)
     plan = _plan_from_routing(flavor, breadth, decision, budget, cfg)
+    would_be = trust_gate(inferred, decision, decision)
     return {
         "query_plan": asdict(plan),
-        "routing_trace": build_routing_trace(inferred, breadth, cfg, decision),
+        "routing_trace": build_routing_trace(inferred, breadth, cfg, decision, would_be),
     }
 
 

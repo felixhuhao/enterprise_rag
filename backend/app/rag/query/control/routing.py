@@ -1,12 +1,13 @@
-"""Derived routing decision via the Design 1 authority chain."""
+"""Derived routing decision and 2A shadow-routing helpers."""
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 
 from app.rag.query.config import QueryConfig
 from app.rag.query.control.breadth import BREADTH_PROFILES, RetrievalBreadth
-from app.rag.query.control.inferred import InferredSignals
+from app.rag.query.control.inferred import Confidence, InferredSignals
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,18 @@ class RoutingDecision:
     steps: list[str] = field(default_factory=list)
     reasons: list[str] = field(default_factory=list)
     vetoes: list[str] = field(default_factory=list)
+
+
+_EXECUTION_DECISION_FIELDS = (
+    "use_hyde",
+    "use_query_expansion",
+    "use_multi_hop",
+    "use_entity_fallback",
+    "budget_reason",
+    "prompt_variant",
+    "answer_shape",
+    "steps",
+)
 
 
 def derive_routing_decision(
@@ -72,13 +85,27 @@ def derive_routing_decision(
     )
 
 
+def trust_gate(
+    intent: InferredSignals,
+    inferred_decision: RoutingDecision,
+    design1_decision: RoutingDecision,
+) -> RoutingDecision:
+    """Trust the inferred route only at high confidence.
+
+    Shadow-only in 2A: callers pass the same deterministic decision as both
+    arguments. 2B is where those decisions can diverge.
+    """
+    return inferred_decision if intent.confidence == "high" else design1_decision
+
+
 def build_routing_trace(
     inferred: InferredSignals,
     breadth: RetrievalBreadth,
     cfg: QueryConfig,
     decision: RoutingDecision,
+    would_be_decision: RoutingDecision,
 ) -> dict:
-    """Trace the three tiers plus the final derived routing decision."""
+    """Trace the three tiers, active decision, and shadow routing record."""
     return {
         "intent": {
             "entity_scope": inferred.entity_scope,
@@ -86,6 +113,8 @@ def build_routing_trace(
             "needs_discovery": inferred.needs_discovery,
             "needs_multi_hop": inferred.needs_multi_hop,
             "confidence": inferred.confidence,
+            "source": inferred.source,
+            "fallback_used": inferred.fallback_used,
             "reasons": inferred.reasons,
         },
         "policy": {
@@ -109,7 +138,29 @@ def build_routing_trace(
             "steps": decision.steps,
             "reasons": decision.reasons,
         },
+        "shadow_routing": _shadow_routing(decision, would_be_decision, inferred.confidence),
     }
+
+
+def _shadow_routing(
+    active: RoutingDecision,
+    would_be: RoutingDecision,
+    confidence: Confidence,
+) -> dict:
+    """Record the trust-gated would-be decision using normalized comparison."""
+    would_be_dict = dataclasses.asdict(would_be)
+    active_execution = _decision_execution_dict(active)
+    would_be_execution = _decision_execution_dict(would_be)
+    return {
+        "would_be_decision": would_be_dict,
+        "trust_gated": confidence != "high",
+        "diverged": would_be_execution != active_execution,
+    }
+
+
+def _decision_execution_dict(decision: RoutingDecision) -> dict:
+    """Return only fields that affect routing behavior, not trace metadata."""
+    return {field: getattr(decision, field) for field in _EXECUTION_DECISION_FIELDS}
 
 
 def _prompt_variant(entity_scope: str, breadth: str) -> str:

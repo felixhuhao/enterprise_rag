@@ -1,7 +1,14 @@
+import dataclasses
+
 from app.rag.query.config import QueryConfig
 from app.rag.query.control.budget import resolve_budget_profile
 from app.rag.query.control.inferred import infer_signals
-from app.rag.query.control.routing import build_routing_trace, derive_routing_decision
+from app.rag.query.control.routing import (
+    RoutingDecision,
+    build_routing_trace,
+    derive_routing_decision,
+    trust_gate,
+)
 
 CFG = QueryConfig(search_limit=10, rrf_max_results=20, rerank_max_top_k=10, hyde_limit=10)
 
@@ -68,7 +75,64 @@ def test_trace_has_three_sections():
     sig = infer_signals("哪些公司提到了报销？", "broad", [])
     budget = resolve_budget_profile("precise", sig.entity_scope, sig.needs_synthesis, CFG)
     d = derive_routing_decision(sig, "precise", CFG, budget_reason=budget.reason)
-    trace = build_routing_trace(sig, "precise", CFG, d)
-    assert set(trace) == {"intent", "policy", "infra", "routing_decision"}
+    trace = build_routing_trace(sig, "precise", CFG, d, d)
+    assert set(trace) == {"intent", "policy", "infra", "routing_decision", "shadow_routing"}
     assert trace["policy"]["retrieval_breadth"] == "precise"
     assert trace["routing_decision"]["use_multi_hop"] is False
+
+
+def test_trust_gate_high_confidence_uses_inferred():
+    inferred = RoutingDecision(True, True, True, True, "inferred", "broad", "prose")
+    design1 = RoutingDecision(False, False, False, False, "design1", "default", "prose")
+    intent = infer_signals("所有公司的报销标准", "broad", [])
+
+    assert trust_gate(intent, inferred, design1) is inferred
+
+
+def test_trust_gate_below_high_uses_design1():
+    inferred = RoutingDecision(True, True, True, True, "inferred", "broad", "prose")
+    design1 = RoutingDecision(False, False, False, False, "design1", "default", "prose")
+    intent = infer_signals("报销标准是什么", "single", [])
+
+    assert trust_gate(intent, inferred, design1) is design1
+
+
+def test_trace_has_intent_provenance_and_shadow_routing():
+    cfg = QueryConfig()
+    inferred = infer_signals("报销标准是什么", "single", [])
+    decision = derive_routing_decision(inferred, "balanced", cfg, budget_reason="r")
+    trace = build_routing_trace(inferred, "balanced", cfg, decision, decision)
+
+    assert trace["intent"]["source"] == "deterministic"
+    assert trace["intent"]["fallback_used"] is False
+    shadow = trace["shadow_routing"]
+    assert shadow["trust_gated"] is True
+    assert shadow["diverged"] is False
+    assert "would_be_decision" in shadow
+
+
+def test_trace_shadow_records_forced_divergence_but_active_unchanged():
+    cfg = QueryConfig()
+    inferred = infer_signals("报销标准是什么", "single", [])
+    active = derive_routing_decision(inferred, "balanced", cfg, budget_reason="r")
+    would_be = dataclasses.replace(active, use_multi_hop=not active.use_multi_hop)
+    trace = build_routing_trace(inferred, "balanced", cfg, active, would_be)
+
+    assert trace["shadow_routing"]["diverged"] is True
+    assert trace["routing_decision"]["use_multi_hop"] == active.use_multi_hop
+
+
+def test_trace_shadow_ignores_reason_and_veto_metadata_for_divergence():
+    cfg = QueryConfig()
+    inferred = infer_signals("报销标准是什么", "single", [])
+    active = derive_routing_decision(inferred, "balanced", cfg, budget_reason="r")
+    would_be = dataclasses.replace(
+        active,
+        reasons=[*active.reasons, "llm:metadata-only"],
+        vetoes=[*active.vetoes, "llm:metadata-only"],
+    )
+
+    trace = build_routing_trace(inferred, "balanced", cfg, active, would_be)
+
+    assert trace["shadow_routing"]["diverged"] is False
+    assert trace["shadow_routing"]["would_be_decision"]["reasons"] == would_be.reasons

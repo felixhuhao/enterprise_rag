@@ -169,6 +169,12 @@ def test_query_plan_node_returns_plain_dict():
     assert out["query_plan"]["fallback_policy"]["entity_filter_to_global"] is False
     assert out["routing_trace"]["policy"]["retrieval_breadth"] == "discovery"
     assert out["routing_trace"]["routing_decision"]["use_multi_hop"] is True
+    assert out["routing_trace"]["intent"]["source"] == "deterministic"
+    assert out["routing_trace"]["intent"]["fallback_used"] is False
+    assert out["routing_trace"]["intent"]["confidence"] == "high"
+    assert out["routing_trace"]["shadow_routing"]["trust_gated"] is False
+    assert out["routing_trace"]["shadow_routing"]["diverged"] is False
+    assert out["routing_trace"]["shadow_routing"]["would_be_decision"]["use_multi_hop"] is True
 
 
 # ---------------------------------------------------------------------------
