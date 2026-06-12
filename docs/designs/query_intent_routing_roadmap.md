@@ -99,11 +99,12 @@ v1 gates: `clear_expected_route_accuracy ≥ 90%`; `ambiguous_confident_wrong_co
 clear-control route regressions `== 0` or reviewed.
 
 ### 2C-2 — Inline Shadow (dark wiring)
-Move the classifier from offline replay to **inline**, behind two orthogonal flags:
-`INTENT_CLASSIFIER_INLINE_ENABLED` (does it run live) and `INTENT_CLASSIFIER_ACTIVE_MODE` (may the
-gated result drive `query_plan`). Default: inline off / shadow, active false. This is where the
-latency budget, timeout→deterministic-fallback, and the kill switch live. **Ships dark; no behavior
-change.** Answers *"can it run inline safely under real latency/failure while still inert?"*
+Move the classifier from offline replay to **inline**, behind two orthogonal `runtime_settings` flags
+(SQLite-backed, instant flip, no restart): `intent.inline_enabled` (does it run live) and
+`intent.active_mode` (may the gated result drive `query_plan`). Default: inline off / shadow, active
+false. This is where the inline latency budget (`INTENT_CLASSIFIER_INLINE_TIMEOUT`),
+timeout→deterministic-fallback, and the kill switch live. **Ships dark; no behavior change.** Answers
+*"can it run inline safely under real latency/failure while still inert?"*
 
 ### 2C-3 — Trust-Gated Activation (the flip)
 Flip `INTENT_CLASSIFIER_ACTIVE_MODE` so high-confidence inferred routes drive `query_plan`, gated on
@@ -130,9 +131,10 @@ proves boring.
   ladder proves too coarse.
 - **Trust gate:** trust the inferred route only if `confidence == high`; else safe-default ≡ the
   current Design 1 route. Born in 2A (shadow), activated in 2C.
-- **Two orthogonal flags (2C-2):** `INTENT_CLASSIFIER_INLINE_ENABLED` (runs live) and
-  `INTENT_CLASSIFIER_ACTIVE_MODE` (may drive `query_plan`); default inline-off/shadow, active false —
-  clean dark-launch + rollback. Manual staging possible by reading the trace before flipping.
+- **Two orthogonal flags (2C-2)** in `runtime_settings` (instant flip, no restart):
+  `intent.inline_enabled` (runs live) and `intent.active_mode` (may drive `query_plan`); default
+  inline-off/shadow, active false — clean dark-launch + rollback. Manual staging possible by reading
+  the trace before flipping.
 - **`requested_format`** stays `null` until a later stage adds the explicit-format signal.
 
 ---

@@ -39,35 +39,58 @@ All changes land in `backend/app/rag/query/planner.py` (`_resolve_routing`, `que
 the trace builder in `control/routing.py`. The resolution flow:
 
 ```
-infer_signals(query, entity_mode, matched)        → det            (always)
-det_decision = route_for_intent(det, breadth)                       (always; authoritative
-                                                                     entity_scope + safe-default floor)
+infer_signals(query, entity_mode, matched)            → det                (always)
+det_decision,  det_budget  = route_for_intent(det, breadth, cfg)            (always; authoritative
+                                                                            entity_scope + safe-default floor)
 
-if INLINE_ENABLED:                                                  (full traffic, synchronous)
-    llm     = classify_intent_llm(query, det)      (timeout→None)
-    merged  = merge_intent(det, llm)               (fallback_used on None)
-    merged_decision = route_for_intent(merged, breadth)
-    gated   = trust_gate(merged, merged_decision, det_decision)     (real, not inert)
+if INLINE_ENABLED:                                                          (full traffic, synchronous)
+    result  = classify_intent_inline(query, det)      (envelope: markers|None, reason, latency_ms)
+    merged  = merge_intent(det, result.markers)       (fallback_used when markers is None)
+    merged_decision, merged_budget = route_for_intent(merged, breadth, cfg)
+    gated_decision, gated_budget   = trust_gate_with_budget(
+                                         merged, (merged_decision, merged_budget),
+                                                 (det_decision,    det_budget))   (real, not inert)
 else:
-    merged, gated = det, det_decision                              (classifier never runs)
+    merged = det
+    gated_decision, gated_budget = det_decision, det_budget                 (classifier never runs)
 
-emitted_decision = gated if ACTIVE_MODE else det_decision          (the dark-wiring branch)
-plan = _plan_from_routing(..., emitted_decision, ...)
+emitted_decision, emitted_budget = (
+    (gated_decision, gated_budget) if ACTIVE_MODE else (det_decision, det_budget))   (dark-wiring branch)
+plan = _plan_from_routing(flavor, breadth, emitted_decision, emitted_budget, cfg)
 ```
+
+**Decision and budget travel together.** `_plan_from_routing` already takes `budget` separately
+(`planner.py:97`), and the budget is resolved *from the intent* (`entity_scope`, `needs_synthesis` —
+`planner.py:92`). If the gated decision came from the merged intent but the plan kept the
+deterministic budget, a synthesis/discovery route would get a mismatched `budget`, `budget.reason`,
+and (via `decision.prompt_variant`) `prompt_policy`. So the route helper returns **`(decision,
+budget)`** as a pair, the trust gate selects the *matching* pair, and `emitted_budget` tracks
+`emitted_decision`. `trust_gate_with_budget` is `trust_gate` lifted to carry the budget alongside its
+decision (returns the merged pair iff `confidence == "high"`, else the deterministic pair).
 
 `route_for_intent(intent, breadth, cfg)` denotes the per-intent budget+derive step the planner
 *already* performs for the deterministic route (`resolve_budget_profile` → `derive_routing_decision`,
-`planner.py:92-93`). 2C-2 factors that into a small **planner-local** helper so the deterministic and
-merged routes resolve identically. It is **not** an import from `control/route_scoring.py` — that
-module is offline scoring and must not be pulled into the live path; if a single shared helper is
-wanted, it moves to `control/routing.py` and both the planner and the scorer import it from there.
+`planner.py:92-93`), now returning the `(decision, budget)` pair. 2C-2 factors it into a small
+**planner-local** helper so deterministic and merged routes resolve identically. It is **not** an
+import from `control/route_scoring.py` — that module is offline scoring and must not be pulled into
+the live path; if a single shared helper is wanted, it moves to `control/routing.py` and both the
+planner and the scorer import it from there.
 
 ### Two flags (both default off)
 
-| Flag | Meaning | Role |
+The flags are **operational kill switches**, so they live in `runtime_settings`
+(`app/core/runtime_settings.py` — SQLite-backed, in-memory cache, flipped instantly via the settings
+API with **no process restart**), read in the sync planner path via `get_cached`. Keys
+`intent.inline_enabled` / `intent.active_mode`, default `"false"`. This is deliberately distinct from
+the classifier *tuning* params (`INTENT_CLASSIFIER_MODEL`, `_TIMEOUT`, `_TEMPERATURE`,
+`_MAX_TOKENS`), which stay in env-backed pydantic `Settings` where a restart is acceptable. Putting
+the kill switch in env `Settings` would make "no deploy" false; putting it in `runtime_settings`
+makes the instant flip real.
+
+| Flag (runtime_settings key) | Meaning | Role |
 | --- | --- | --- |
-| `INTENT_CLASSIFIER_INLINE_ENABLED` | does the classifier run live at all | **kill switch** — off ⇒ zero added latency/cost, identical to 2A today |
-| `INTENT_CLASSIFIER_ACTIVE_MODE` | may the gated result drive `query_plan` | **flip point** for 2C-3 |
+| `intent.inline_enabled` | does the classifier run live at all | **kill switch** — off ⇒ zero added latency/cost, identical to 2A today |
+| `intent.active_mode` | may the gated result drive `query_plan` | **flip point** for 2C-3 |
 
 ### Flag truth table
 
@@ -89,17 +112,26 @@ guarantee that earns "ships dark" (preservation test below).
 The inline call runs full-traffic synchronously, so its failure surface is a live concern even
 while inert (a hang would delay every plan). Three layers:
 
-1. **Timeout → deterministic fallback (exists).** `classify_intent_llm` already wraps the call in
-   try/except and honors `INTENT_CLASSIFIER_TIMEOUT`. 2C-2 lowers the default from the replay-era
-   `30s` to a tight inline budget (`INTENT_CLASSIFIER_TIMEOUT = 6`), unacceptable to block in-band
-   for 30s. On timeout/error/parse-failure the classifier returns `None`; `merge_intent(det, None)`
-   returns the deterministic intent with `fallback_used=True`. A classifier failure degrades to the
-   exact 2A route — never an exception into the request path.
-2. **Kill switch = `INLINE_ENABLED=false`.** Skips the classifier call entirely — instant removal of
-   added latency/cost, back to 2A resting state, no deploy (settings flag).
-3. **WARN counters (kill switch's eyes).** On every fallback path emit a structured WARN with
-   `fallback_reason` (`timeout` / `error` / `parse_fail`) and measured `classifier_latency_ms`. Ops
-   see misbehavior without running the offline script. Cheap log lines, not a metrics backend.
+1. **Tight inline timeout via a dedicated setting.** Today `classify_intent_llm` honors
+   `INTENT_CLASSIFIER_TIMEOUT` (`30s`, a replay-era value used by the offline scorer/replay, which
+   should keep a generous budget so batch runs aren't skewed by spurious timeouts). 2C-2 adds a
+   separate `INTENT_CLASSIFIER_INLINE_TIMEOUT` (`6s`) used **only** by the inline wrapper — blocking
+   the request path for 30s is unacceptable. The offline `INTENT_CLASSIFIER_TIMEOUT` is left at 30s.
+2. **Failure → deterministic fallback via a result envelope.** `classify_intent_llm` currently
+   collapses timeout/error/parse-fail into a bare `None`, so it cannot tell the three apart. 2C-2
+   adds a thin inline wrapper `classify_intent_inline(query, det) -> ClassifyResult` that times the
+   call and classifies the failure: `TimeoutError` → `"timeout"`, any other exception → `"error"`,
+   a successful call whose body fails `parse_llm_markers` → `"parse_fail"`, success → `"none"`. The
+   envelope is `ClassifyResult(markers: LlmMarkers | None, fallback_reason: str, latency_ms: int)`.
+   `merge_intent(det, result.markers)` returns the deterministic intent with `fallback_used=True`
+   whenever `markers is None`. A classifier failure degrades to the exact 2A route — never an
+   exception into the request path. `classify_intent_llm` is left unchanged so the offline
+   scorer/replay keep their existing signature.
+3. **Kill switch = `intent.inline_enabled=false`.** Skips the wrapper call entirely — instant removal
+   of added latency/cost, back to 2A resting state, no restart (runtime_settings flip).
+4. **WARN counters (kill switch's eyes).** On every fallback path emit a structured WARN with
+   `fallback_reason` (`timeout` / `error` / `parse_fail`) and measured `latency_ms`. Ops see
+   misbehavior without running the offline script. Cheap log lines, not a metrics backend.
 
 **Cost:** even inert, full traffic pays one LLM call per query. Accepted (low QPS + impending
 cleanup). The tight timeout bounds worst-case latency; the kill switch bounds blast radius.
@@ -117,20 +149,32 @@ key:
 "inline_shadow": {
   "ran": true,
   "fallback_used": false,
-  "fallback_reason": null,
-  "classifier_latency_ms": 412,
+  "fallback_reason": "none",
+  "latency_ms": 412,
   "confidence": "high",
+  "merged_markers": { "needs_synthesis": true, "needs_discovery": false, "needs_multi_hop": false },
+  "merged_reasons": ["llm:implicit comparison across entities"],
+  "merged_source": "llm",
   "would_be_execution": { "...gated route execution dict..." },
   "diverged": true,
   "activatable_diverged": true
 }
 ```
 
+- **Top-level `routing_trace.intent` stays the *emitted* intent.** In 2C-2 (`active_mode=false`) the
+  emitted intent is deterministic, so the top-level intent/decision fields are byte-for-byte 2A —
+  the trace's primary fields stay stable. The merged would-be view (markers, reasons, source,
+  confidence) lives **inside** `inline_shadow` for audit, so a reviewer sees exactly what the LLM
+  proposed without the top-level trace shifting. When `active_mode` flips at 2C-3 the top-level
+  intent/decision become the merged/gated ones by construction; `query_plan` byte-for-byte stability
+  is asserted only for the 2C-2 `(on, off)` state, not across the 2C-3 flip.
 - `diverged` — `would_be_execution != det execution`, using the existing normalized
   execution-field comparison (`decision_execution_dict`), not reasons/vetoes.
 - `activatable_diverged` — `diverged AND confidence == "high"`. The headline: these queries change
-  behavior the moment `ACTIVE_MODE` flips.
-- When `INLINE_ENABLED=false`: `ran=false` and the comparison fields are omitted/null.
+  behavior the moment `active_mode` flips.
+- `fallback_reason` ∈ `none | timeout | error | parse_fail` (from the `ClassifyResult` envelope).
+- When `intent.inline_enabled=false`: `ran=false`, `fallback_reason="none"`, and the
+  merged/comparison fields are omitted/null.
 
 This block rides the existing `routing_trace` persistence into `query_run_stats`
 (`query_observability.py` already writes `routing_trace`). **No migration.**
@@ -143,7 +187,7 @@ live code) reads `query_run_stats` over a window and prints the **2C-3 go/no-go 
 | Metric | Gate |
 | --- | --- |
 | `classifier_error_rate` (incl. timeout) | ≤ 1% |
-| `classifier_latency_ms` p95 | ≤ inline budget (6000 ms) |
+| `latency_ms` p95 | ≤ inline budget (6000 ms) |
 | `fallback_rate` | reported (context, not a hard gate) |
 | `activatable_divergence_rate` | reported + **manual audit** of the would-be flips |
 | observed volume | ≥ 200 queries before the gate is meaningful |
@@ -155,12 +199,13 @@ reviews the `activatable_diverged` rows before 2C-3.
 
 The 2D-deletable scaffolding is named and co-located so removal is one cut:
 
-- **One gating function** `_inline_intent(query, det, det_decision, breadth, cfg) -> (merged, gated,
-  inline_shadow)` holds the entire dark-wiring surface: the `INLINE_ENABLED` check, classifier call,
-  merge, gate, and the `inline_shadow` block. `query_plan_node` calls it, then
-  `emitted_decision = gated if ACTIVE_MODE else det_decision`.
+- **One gating function** `_inline_intent(query, det, (det_decision, det_budget), breadth, cfg) ->
+  (merged, (gated_decision, gated_budget), inline_shadow)` holds the entire dark-wiring surface: the
+  `intent.inline_enabled` check, classifier call, merge, gate, and the `inline_shadow` block.
+  `query_plan_node` calls it, then `emitted = (gated_decision, gated_budget) if intent.active_mode
+  else (det_decision, det_budget)`.
 - **2D deletion is mechanical:** drop both flag reads, make `_inline_intent` unconditional (rename to
-  the permanent classifier step), set `emitted_decision = gated` always, delete
+  the permanent classifier step), set `emitted = (gated_decision, gated_budget)` always, delete
   `diverged`/`activatable_diverged`/`would_be_execution` (degenerate once `gated` *is* the plan).
   What remains is the permanent residue: inline classifier + merge + gate + `latency_ms`/`fallback`
   telemetry + WARN counters.
@@ -173,28 +218,33 @@ The 2D-deletable scaffolding is named and co-located so removal is one cut:
 | --- | --- |
 | inline `classify_intent_llm` + `merge_intent` + `trust_gate` | permanent — *the* routing path |
 | deterministic `infer_signals` | permanent but demoted — authoritative `entity_scope` + safe-default/fallback target |
-| `classifier_latency_ms`, `classifier_error`, `fallback_used` | permanent telemetry |
+| `latency_ms`, `fallback_reason`, `fallback_used` | permanent telemetry |
 | error/latency WARN counters | permanent |
-| `INTENT_CLASSIFIER_INLINE_ENABLED` | deleted (classifier always runs) |
-| `INTENT_CLASSIFIER_ACTIVE_MODE` | deleted (or collapses to a plain kill switch) |
+| `intent.inline_enabled` (runtime_settings) | deleted (classifier always runs) |
+| `intent.active_mode` (runtime_settings) | deleted (or collapses to a plain kill switch) |
+| `INTENT_CLASSIFIER_INLINE_TIMEOUT` (env) | permanent — the inline budget |
 | `would_be` / `diverged` / `activatable_diverged` | deleted (degenerate) |
 | `scripts/report_inline_shadow.py` | archived |
 
 ## Testing
 
 1. **Byte-for-byte preservation (core guarantee).** Parametrized over a query fixture: emitted
-   `query_plan` dict is identical between `(INLINE=off, ACTIVE=off)` and `(INLINE=on, ACTIVE=off)`,
-   with the classifier stubbed to return a **divergent high-confidence** route. Proves even a
+   `query_plan` dict is identical between `(inline=off, active=off)` and `(inline=on, active=off)`,
+   with `classify_intent_inline` stubbed to return a **divergent high-confidence** route (markers
+   that flip both the decision *and* the budget, exercising the paired-budget path). Proves even a
    would-flip case does not change the plan while inert.
-2. **Active-mode wiring.** Same divergent stub, `(INLINE=on, ACTIVE=on)`: emitted plan equals the
-   gated route. Guards against a dead branch 2C-3 would discover too late.
-3. **Failure → deterministic fallback.** Stub `classify_intent_llm` to raise / time out: no
-   exception escapes, `fallback_used=True`, `fallback_reason` set, plan equals the deterministic
-   route in both active states.
-4. **Trace fields.** Assert `inline_shadow.ran/diverged/activatable_diverged/classifier_latency_ms`
-   for diverged-high (activatable), diverged-low (not activatable), and converged cases.
-5. **Kill switch.** `(INLINE=off)`: `classify_intent_llm` is **not called** (mock asserts zero
-   calls), `inline_shadow.ran=false`.
+2. **Active-mode wiring.** Same divergent stub, `(inline=on, active=on)`: emitted plan equals the
+   gated route **and** the emitted `budget` equals the merged budget (guards the Finding-1 mismatch).
+   Guards against a dead branch 2C-3 would discover too late.
+3. **Failure → deterministic fallback.** Stub `classify_intent_inline` to return each
+   `fallback_reason` (`timeout`/`error`/`parse_fail`): no exception escapes, `fallback_used=True`,
+   `inline_shadow.fallback_reason` set correctly, plan equals the deterministic route in both active
+   states.
+4. **Trace fields.** Assert `inline_shadow.ran/diverged/activatable_diverged/latency_ms` and the
+   `merged_*` audit fields for diverged-high (activatable), diverged-low (not activatable), and
+   converged cases.
+5. **Kill switch.** `(inline=off)`: `classify_intent_inline` is **not called** (mock asserts zero
+   calls), `inline_shadow.ran=false`, `fallback_reason="none"`.
 6. **Offline report unit.** Synthetic `query_run_stats` rows → aggregator; assert error rate, p95
    latency, activatable-divergence rate compute correctly (same pattern as 2C-1's `aggregate` test).
 
@@ -203,8 +253,8 @@ All real LLM stubbed; zero network in the suite. The script's live run against a
 
 ## Out of scope (deferred)
 
-- **The flip itself** — flipping `ACTIVE_MODE` to drive routing is 2C-3, gated on this stage's
-  shadow report + the 2C-1 correctness gates.
+- **The flip itself** — flipping `intent.active_mode` to drive routing is 2C-3, gated on this
+  stage's shadow report + the 2C-1 correctness gates.
 - **Discovery retirement** — 2D.
 - **Per-dimension confidence, continuous score** — deferred per roadmap.
 - **`requested_format`** — stays `null` until a later stage.
