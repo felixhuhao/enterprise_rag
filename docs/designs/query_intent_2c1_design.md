@@ -29,9 +29,11 @@ activating?** It does not run inline (2C-2) or drive routing (2C-3).
 
 **Boundary:** the scorer's oracle is `derive_routing_decision(expected_intent)` — it tests whether
 **LLM-enriched intent feeds the (already-characterized) decision table correctly**, *not* the
-decision table itself (Design 1 / 2A already characterized that). This is the correct abstraction
-boundary: 2C-1 judges intent inference + trust-gate safety, not implementation details like
-`prompt_variant`, `steps`, or fallback wording.
+decision table itself (Design 1 / 2A already characterized that). The execution-field comparison
+*does* include `prompt_variant`, `steps`, etc. — but those are **never hand-labeled**; they are
+derived automatically from `expected_intent` via the table. So the *labels* stay intent-level
+(markers + case class), and 2C-1 judges intent inference + trust-gate safety while leaning on the
+already-characterized table for the field-level route.
 
 **Live invariant:** 2C-1 adds no request-path code; the golden set + main eval still match the
 accepted Design 1 baseline.
@@ -124,10 +126,13 @@ Field rules:
 
 ## 4. The scorer — per case
 
-Builds a replay `QueryConfig` from the case: `retrieval_breadth` / `strict_evidence` as given;
-infra flags (`use_hyde/use_query_expansion/use_multi_hop`) default **ON** so the test isolates
-intent→route (vetoes don't mask the signal; a case may override to test veto interaction); numeric
-budget params from the current stable defaults.
+Reads the case's `retrieval_breadth` into a local `breadth` (used directly in `derive_routing_decision`
+/ `resolve_budget_profile`), and builds a replay `QueryConfig` from `strict_evidence`, the infra
+flags, and numeric defaults (note: `QueryConfig` still carries only the legacy `retrieval_flavor`, so
+`breadth` is threaded separately, as the pseudo-code below does). Infra flags
+(`use_hyde/use_query_expansion/use_multi_hop`) default **ON** so the test isolates intent→route
+(vetoes don't mask the signal; a case may override to test veto interaction); numeric budget params
+from the current stable defaults.
 
 ```
 det      = infer_signals(query, entity_mode, matched_entities)        # deterministic intent
