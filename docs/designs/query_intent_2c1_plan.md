@@ -92,15 +92,15 @@ def test_score_clear_correct_and_missed_and_wrong():
 def test_score_ambiguous_safe_pass_vs_confident_wrong():
     expected = _exec(use_multi_hop=True)
     design1 = _exec()
-    # not high + actual==design1 → safe pass
+    # not high + actual==design1 → safe default + safe pass
     r = score_case("ambiguous", False, "low", actual=design1, expected=expected, design1=design1)
-    assert r["ambiguous_safe_pass"] and not r["ambiguous_confident_wrong"]
+    assert r["ambiguous_safe_default"] and r["ambiguous_safe_pass"] and not r["ambiguous_confident_wrong"]
     # high + actual==design1 but != expected → confident wrong (gate check, not route equality)
     r2 = score_case("ambiguous", False, "high", actual=design1, expected=expected, design1=design1)
-    assert r2["ambiguous_confident_wrong"] and not r2["ambiguous_safe_pass"]
-    # correct route at high → safe pass
+    assert r2["ambiguous_confident_wrong"] and not r2["ambiguous_safe_pass"] and not r2["ambiguous_safe_default"]
+    # correct route at high → safe pass (not safe-default, since activated)
     r3 = score_case("ambiguous", False, "high", actual=expected, expected=expected, design1=design1)
-    assert r3["ambiguous_safe_pass"] and not r3["ambiguous_confident_wrong"]
+    assert r3["ambiguous_safe_pass"] and not r3["ambiguous_confident_wrong"] and not r3["ambiguous_safe_default"]
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -169,12 +169,14 @@ def score_case(
     is_amb = case_class == "ambiguous"
     return {
         "case_class": case_class,
+        "must_activate": must_activate,
         "route_correct": route_correct,
         "activated": activated,
         # clear axes
         "missed_activation": is_clear and must_activate and not activated,
         "wrong_route": is_clear and activated and not route_correct,
         # ambiguous axes (safe-pass checks the GATE, not just route equality)
+        "ambiguous_safe_default": is_amb and not activated and actual_eq_design1,
         "ambiguous_safe_pass": is_amb and (route_correct or (not activated and actual_eq_design1)),
         "ambiguous_confident_wrong": is_amb and activated and not route_correct,
     }
@@ -225,9 +227,16 @@ def test_corpus_size_and_categories():
     assert 35 <= len(cases) <= 48, f"expected ~40 cases, got {len(cases)}"
     ids = [c["id"] for c in cases]
     assert len(ids) == len(set(ids)), "duplicate ids"
+    by_cat = {}
     for c in cases:
         assert c["category"] in VALID_CATEGORIES, c["category"]
         assert c["case_class"] in {"clear", "ambiguous"}
+        by_cat.setdefault(c["category"], []).append(c)
+    for fuzzy_cat in FUZZY:
+        n = len(by_cat.get(fuzzy_cat, []))
+        assert 6 <= n <= 8, f"{fuzzy_cat}: expected 6-8, got {n}"
+    n_control = len(by_cat.get("clear_control", []))
+    assert 5 <= n_control <= 8, f"clear_control: expected 5-8, got {n_control}"
 
 
 def test_every_case_entity_scope_is_consistent():
@@ -317,28 +326,42 @@ def test_aggregate_metrics_and_gates():
     from app.rag.query.control.route_scoring import aggregate
     # 2 clear (1 correct+activated, 1 missed_activation), 1 ambiguous safe-pass
     rows = [
-        {"case_class": "clear", "route_correct": True,  "activated": True,
+        {"case_class": "clear", "must_activate": True, "route_correct": True,  "activated": True,
          "missed_activation": False, "wrong_route": False,
-         "ambiguous_safe_pass": False, "ambiguous_confident_wrong": False,
-         "deterministic_route_correct": False},
-        {"case_class": "clear", "route_correct": False, "activated": False,
+         "ambiguous_safe_default": False, "ambiguous_safe_pass": False, "ambiguous_confident_wrong": False,
+         "deterministic_route_correct": False, "category": "implicit_synthesis",
+         "expected_markers": {"needs_synthesis": True, "needs_discovery": False},
+         "merged_markers": {"needs_synthesis": True, "needs_discovery": False}},
+        {"case_class": "clear", "must_activate": True, "route_correct": False, "activated": False,
          "missed_activation": True, "wrong_route": False,
-         "ambiguous_safe_pass": False, "ambiguous_confident_wrong": False,
-         "deterministic_route_correct": False},
-        {"case_class": "ambiguous", "route_correct": True, "activated": True,
+         "ambiguous_safe_default": False, "ambiguous_safe_pass": False, "ambiguous_confident_wrong": False,
+         "deterministic_route_correct": False, "category": "discovery_no_keyword",
+         "expected_markers": {"needs_synthesis": False, "needs_discovery": True},
+         "merged_markers": {"needs_synthesis": False, "needs_discovery": False}},
+        {"case_class": "ambiguous", "must_activate": False, "route_correct": True, "activated": True,
          "missed_activation": False, "wrong_route": False,
-         "ambiguous_safe_pass": True, "ambiguous_confident_wrong": False,
-         "deterministic_route_correct": True},
+         "ambiguous_safe_default": False, "ambiguous_safe_pass": True, "ambiguous_confident_wrong": False,
+         "deterministic_route_correct": True, "category": "paraphrase",
+         "expected_markers": {"needs_synthesis": False, "needs_discovery": True},
+         "merged_markers": {"needs_synthesis": False, "needs_discovery": True}},
     ]
     s = aggregate(rows)
     assert s["clear_expected_route_accuracy"] == 0.5
     assert s["clear_missed_activation_rate"] == 0.5
     assert s["clear_wrong_route_count"] == 0
     assert s["ambiguous_confident_wrong_count"] == 0
+    assert s["ambiguous_safe_default_rate"] == 0.0
+    assert s["ambiguous_safe_pass_rate"] == 1.0
     assert s["llm_vs_deterministic_delta"] == 0.5   # 0.5 clear acc − 0.0 det clear acc
+    assert s["marker_precision_recall"]["needs_synthesis"]["precision"] == 1.0
+    assert s["marker_precision_recall"]["needs_discovery"]["recall"] == 0.5
+    assert s["clear_control_route_regression_count"] == 0
+    assert "per_category" in s
+    assert s["per_category"]["implicit_synthesis"]["count"] == 1
     assert s["gates"]["clear_expected_route_accuracy>=0.9"] is False
     assert s["gates"]["ambiguous_confident_wrong_count==0"] is True
     assert s["gates"]["clear_wrong_route_count==0"] is True
+    assert s["gates"]["clear_control_route_regression_count==0"] is True
 ```
 
 - [ ] **Step 2: Run to verify it fails**
@@ -358,22 +381,94 @@ def aggregate(rows: list[dict]) -> dict:
 
     clear_acc = rate(clear, "route_correct")
     det_clear_acc = rate(clear, "deterministic_route_correct")
+
+    must_activate_clear = [r for r in clear if r.get("must_activate")]
+    clear_missed = rate(must_activate_clear, "missed_activation")
+
+    amb_safe_default = sum(1 for r in amb if r.get("ambiguous_safe_default"))
+    amb_safe_pass = rate(amb, "ambiguous_safe_pass")
+    clear_control_regressions = [
+        r for r in clear
+        if r.get("category") == "clear_control" and not r.get("route_correct")
+    ]
+
+    def marker_pr(items: list[dict], field: str) -> dict:
+        tp = sum(
+            1 for r in items
+            if r.get("merged_markers", {}).get(field) is True
+            and r.get("expected_markers", {}).get(field) is True
+        )
+        fp = sum(
+            1 for r in items
+            if r.get("merged_markers", {}).get(field) is True
+            and r.get("expected_markers", {}).get(field) is not True
+        )
+        fn = sum(
+            1 for r in items
+            if r.get("merged_markers", {}).get(field) is not True
+            and r.get("expected_markers", {}).get(field) is True
+        )
+        return {
+            "precision": round(tp / (tp + fp), 4) if (tp + fp) else None,
+            "recall": round(tp / (tp + fn), 4) if (tp + fn) else None,
+            "tp": tp,
+            "fp": fp,
+            "fn": fn,
+        }
+
+    def metric_block(items: list[dict]) -> dict:
+        block_clear = [r for r in items if r["case_class"] == "clear"]
+        block_amb = [r for r in items if r["case_class"] == "ambiguous"]
+        block_must_activate = [r for r in block_clear if r.get("must_activate")]
+        block_clear_acc = rate(block_clear, "route_correct")
+        block_det_clear_acc = rate(block_clear, "deterministic_route_correct")
+        return {
+            "count": len(items),
+            "clear_expected_route_accuracy": block_clear_acc,
+            "clear_missed_activation_rate": rate(block_must_activate, "missed_activation"),
+            "clear_wrong_route_count": sum(1 for r in block_clear if r["wrong_route"]),
+            "ambiguous_safe_default_rate": rate(block_amb, "ambiguous_safe_default"),
+            "ambiguous_safe_pass_rate": rate(block_amb, "ambiguous_safe_pass"),
+            "ambiguous_confident_wrong_count": sum(1 for r in block_amb if r["ambiguous_confident_wrong"]),
+            "deterministic_clear_accuracy": block_det_clear_acc,
+            "llm_vs_deterministic_delta": round(block_clear_acc - block_det_clear_acc, 4),
+            "marker_precision_recall": {
+                "needs_synthesis": marker_pr(items, "needs_synthesis"),
+                "needs_discovery": marker_pr(items, "needs_discovery"),
+            },
+        }
+
+    categories = sorted({r.get("category", "unknown") for r in rows})
+    per_category = {
+        cat: metric_block([r for r in rows if r.get("category") == cat])
+        for cat in categories
+    }
+
     summary = {
         "counts": {"total": len(rows), "clear": len(clear), "ambiguous": len(amb)},
         "clear_expected_route_accuracy": clear_acc,
-        "clear_missed_activation_rate": rate(clear, "missed_activation"),
+        "clear_missed_activation_rate": clear_missed,
         "clear_wrong_route_rate": rate(clear, "wrong_route"),
         "clear_wrong_route_count": sum(1 for r in clear if r["wrong_route"]),
-        "ambiguous_safe_default_rate": rate(amb, "ambiguous_safe_pass"),
+        "ambiguous_safe_default_rate": round(amb_safe_default / len(amb), 4) if amb else 0.0,
+        "ambiguous_safe_pass_rate": amb_safe_pass,
         "ambiguous_confident_wrong_count": sum(1 for r in amb if r["ambiguous_confident_wrong"]),
         "deterministic_clear_accuracy": det_clear_acc,
         "llm_vs_deterministic_delta": round(clear_acc - det_clear_acc, 4),
+        "clear_control_route_regression_count": len(clear_control_regressions),
+        "clear_control_route_regression_ids": [r.get("id") for r in clear_control_regressions],
+        "marker_precision_recall": {
+            "needs_synthesis": marker_pr(rows, "needs_synthesis"),
+            "needs_discovery": marker_pr(rows, "needs_discovery"),
+        },
+        "per_category": per_category,
     }
     summary["gates"] = {
         "clear_expected_route_accuracy>=0.9": clear_acc >= 0.9,
         "ambiguous_confident_wrong_count==0": summary["ambiguous_confident_wrong_count"] == 0,
         "clear_wrong_route_count==0": summary["clear_wrong_route_count"] == 0,
         "llm_vs_deterministic_delta>=0": summary["llm_vs_deterministic_delta"] >= 0,
+        "clear_control_route_regression_count==0": summary["clear_control_route_regression_count"] == 0,
     }
     return summary
 ```
@@ -405,12 +500,26 @@ from app.rag.query.config import QueryConfig
 from app.rag.query.control.inferred import infer_signals
 from app.rag.query.control.llm_classifier import classify_intent_llm
 from app.rag.query.control.inferred import merge_intent
-from app.rag.query.control.routing import trust_gate
+from app.rag.query.control.routing import decision_execution_dict, trust_gate
 from app.rag.query.control.route_scoring import (
     aggregate, build_expected_intent, route_for_intent, score_case,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+def _resolve_repo_root() -> Path:
+    script_parent = Path(__file__).resolve().parent
+    candidates = [
+        script_parent.parent,         # /app when running from Docker /app/scripts/
+        script_parent.parent.parent,  # repo root when running from backend/scripts/
+        Path("/app"),
+        Path.cwd(),
+    ]
+    for candidate in candidates:
+        if (candidate / "data").is_dir():
+            return candidate
+    return Path(".")
+
+
+REPO_ROOT = _resolve_repo_root()
 DEFAULT_CORPUS = REPO_ROOT / "data" / "routing_golden_set_v1.jsonl"
 
 
@@ -449,8 +558,21 @@ def score_one(case: dict) -> dict:
     outcome["deterministic_route_correct"] = det_outcome["route_correct"]
     outcome["id"] = case["id"]
     outcome["category"] = case["category"]
+    outcome["must_activate"] = bool(case.get("must_activate", False))
     outcome["fallback_used"] = merged.fallback_used
     outcome["merged"] = dataclasses.asdict(merged)
+    outcome["actual_execution"] = decision_execution_dict(actual_route)
+    outcome["expected_execution"] = decision_execution_dict(expected_route)
+    outcome["design1_execution"] = decision_execution_dict(design1_decision)
+    outcome["expected_markers"] = {
+        k: v for k, v in case["expected_intent"].items()
+        if k in ("needs_synthesis", "needs_discovery", "needs_multi_hop")
+    }
+    outcome["merged_markers"] = {
+        "needs_synthesis": merged.needs_synthesis,
+        "needs_discovery": merged.needs_discovery,
+        "needs_multi_hop": merged.needs_multi_hop,
+    }
     return outcome
 
 
