@@ -234,16 +234,20 @@ This block rides the existing `routing_trace` persistence into `query_run_stats`
 `backend/scripts/report_inline_shadow.py` (standalone, archived after the flip — never imported by
 live code) reads `query_run_stats` over a window and prints the **2C-3 go/no-go gate**:
 
-| Metric | Gate |
-| --- | --- |
-| `classifier_error_rate` (incl. timeout) | ≤ 1% |
-| `latency_ms` p95 | ≤ inline budget (6000 ms) |
-| `fallback_rate` | reported (context, not a hard gate) |
-| `activatable_divergence_rate` | reported + **manual audit** of the would-be flips |
-| observed volume | ≥ 200 queries before the gate is meaningful |
+| Metric | Definition (over `fallback_reason`) | Gate |
+| --- | --- | --- |
+| `classifier_error_rate` | `(timeout + error) / total` — infra/contract failures only | ≤ 1% |
+| `parse_fail_rate` | `parse_fail / total` — model returned, body broke the contract | ≤ 2% (soft; high ⇒ prompt/contract drift, investigate not block) |
+| `fallback_rate` | `(timeout + error + parse_fail) / total` — every non-`none` reason | reported (context, not a hard gate) |
+| `latency_ms` p95 | over rows where `ran == true` | ≤ inline budget (6000 ms) |
+| `activatable_divergence_rate` | `activatable_diverged / total` | reported + **manual audit** of the would-be flips |
+| observed volume | rows where `ran == true` | ≥ 200 before the gate is meaningful |
 
-The gate is **stability + inspectability**, not re-deriving correctness (that was 2C-1). The human
-reviews the `activatable_diverged` rows before 2C-3.
+The three `fallback_reason` slices partition the non-`none` outcomes exactly: `classifier_error_rate`
+counts `timeout`+`error` (the hard reliability gate), `parse_fail_rate` is broken out separately
+because it points at *contract drift* (the call succeeded) rather than infra, and `fallback_rate` is
+their union for context. The gate is **stability + inspectability**, not re-deriving correctness
+(that was 2C-1). The human reviews the `activatable_diverged` rows before 2C-3.
 
 ## The excisable seam (designing for 2D)
 
@@ -254,10 +258,13 @@ The 2D-deletable scaffolding is named and co-located so removal is one cut:
   call, merge, `trust_gate_bundle`, and the `inline_shadow` block. `query_plan_node` calls it, then
   `emitted_bundle = gated_bundle if intent.active_mode else det_bundle`.
 - **2D deletion is mechanical:** drop both flag reads, make `_inline_intent` unconditional (rename to
-  the permanent classifier step), set `emitted_bundle = gated_bundle` always, delete
-  `proposal_diverged`/`activatable_diverged`/`proposal_execution` (degenerate once `gated_bundle` *is*
-  the plan). What remains is the permanent residue: inline classifier + merge + gate +
-  `latency_ms`/`fallback` telemetry + WARN counters.
+  the permanent classifier step), set `emitted_bundle = gated_bundle` always, and drop
+  `proposal_diverged`/`activatable_diverged`/`proposal_execution`. These stay *well-defined* after the
+  flip (a low/medium proposal can still differ from the gated plan), but their **purpose** —
+  activation-shadow scaffolding measuring what *would* flip before it could — is spent once the gate
+  is the live plan, so they're removed as no-longer-needed, not as degenerate. What remains is the
+  permanent residue: inline classifier + merge + gate + `latency_ms`/`fallback` telemetry + WARN
+  counters.
 - **No proposal/shadow logic leaks** into `_plan_from_routing` or downstream nodes — they only ever
   see the single `emitted_bundle`. That containment is what makes the cut clean.
 
