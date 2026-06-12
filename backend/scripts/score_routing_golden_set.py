@@ -24,8 +24,8 @@ from app.rag.query.control.routing import decision_execution_dict, trust_gate
 def _resolve_repo_root() -> Path:
     script_parent = Path(__file__).resolve().parent
     candidates = [
-        script_parent.parent,
         script_parent.parent.parent,
+        script_parent.parent,
         Path("/app"),
         Path.cwd(),
     ]

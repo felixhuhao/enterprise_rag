@@ -46,6 +46,12 @@ def test_every_case_entity_scope_is_consistent():
         )
 
 
+def test_scorer_default_corpus_points_to_root_data():
+    from scripts.score_routing_golden_set import DEFAULT_CORPUS
+
+    assert DEFAULT_CORPUS.resolve() == CORPUS.resolve()
+
+
 def test_clear_cases_have_full_markers_ambiguous_have_acceptable():
     for case in _load():
         expected = case["expected_intent"]

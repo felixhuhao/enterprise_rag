@@ -508,8 +508,8 @@ from app.rag.query.control.route_scoring import (
 def _resolve_repo_root() -> Path:
     script_parent = Path(__file__).resolve().parent
     candidates = [
-        script_parent.parent,         # /app when running from Docker /app/scripts/
         script_parent.parent.parent,  # repo root when running from backend/scripts/
+        script_parent.parent,         # /app when running from Docker /app/scripts/
         Path("/app"),
         Path.cwd(),
     ]
