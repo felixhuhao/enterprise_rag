@@ -56,8 +56,10 @@ Category mix (v1):
 | alt-phrasing multi-hop / responsibility | 6-8 | responsibility/multi-hop with no `谁负责/...` keyword |
 | clear-control (keyword) | 5-8 | cases keywords already route correctly — regression guard |
 
-Plus **2-4 explicitly-`ambiguous` cases per fuzzy category** (genuinely underspecified), tracked
-separately — they exist to exercise the safety gate, not accuracy.
+Each fuzzy category's 6-8 allocation **includes 2-3 explicitly-`ambiguous` cases** (genuinely
+underspecified — they exercise the safety gate, not accuracy); they are counted *inside* the
+category totals, not added on top, so the corpus stays ~40. The scorer reports ambiguous metrics
+separately (§5) regardless of category.
 
 ---
 
@@ -93,16 +95,19 @@ Ambiguous case:
 ```
 
 Field rules:
-- **`entity_mode` / `matched_entities`** are fixture *inputs* (drive deterministic `entity_scope`).
+- **`entity_mode`** drives deterministic `entity_scope` (`infer_signals` derives scope from
+  `entity_mode`); **`matched_entities`** is fixture context / reserved for the classifier, not a
+  scope input today.
 - **`expected_intent.entity_scope`** is a **consistency check, not an authority**: the scorer asserts
   `infer_signals(query, entity_mode, matched_entities).entity_scope == expected_intent.entity_scope`
   and **errors the fixture** on mismatch (catches bad cases rather than hand-waving grounding).
 - **`retrieval_breadth`** (not legacy `retrieval_flavor`), unless a case deliberately exercises
   legacy compat (then it sets `retrieval_flavor` explicitly).
 - **`must_activate` / `confidence_floor`** describe the *expectation* (a `clear` case should activate
-  to the expected route), **not** a mirror of model output. A `clear` case where the classifier is
-  unsure and the gate safe-defaults still **counts against** expected-route accuracy — but is
-  tracked as a *missed activation* (conservative), distinct from a *wrong route* (§5).
+  to the expected route), **not** a mirror of model output, and **they do not redefine route
+  accuracy.** Route accuracy is purely `actual_route == expected_route` (§4). A `clear` case where
+  the gate safe-defaults is tracked **separately** as a *missed activation* (§5) — it does not by
+  itself subtract from `clear_expected_route_accuracy` (the route may still be correct).
 - **`needs_multi_hop`** is never labeled — it is re-derived from `(entity_scope, needs_discovery)`,
   same rule as the pipeline.
 
@@ -129,22 +134,28 @@ expected_intent_obj = InferredSignals(entity_scope=…, needs_synthesis=…,
 expected_route      = derive_routing_decision(expected_intent_obj, breadth, cfg, budget_reason=…)
 ```
 
-Comparison uses the **execution-field subset** (2A's `_decision_execution_dict`). Outcome per case:
+Comparison uses the **execution-field subset** (2B's public `decision_execution_dict`, which also
+accepts a logged decision dict). **Route accuracy and activation are orthogonal axes** — accuracy is
+`actual_route == expected_route`; activation is `merged.confidence == high`. Outcome per case:
 
-**Clear cases:**
-- `actual_route == expected_route` → **pass** (route correct, by activation *or* a safe-default that
-  happens to match).
-- else and `merged.confidence != high` (gate safe-defaulted) → **missed_activation** (conservative).
-- else and `merged.confidence == high` (gate activated to a non-expected route) → **wrong_route**.
+**Clear cases** (two independent measures):
+- **Accuracy:** `pass` iff `actual_route == expected_route` (by activation *or* a safe-default that
+  happens to match) → feeds `clear_expected_route_accuracy`.
+- **Activation (separate):** a `must_activate` case with `merged.confidence != high` (gate
+  safe-defaulted) is a **missed_activation** — tracked separately, **does not** subtract from
+  accuracy. A case with `merged.confidence == high and actual_route != expected_route` is a
+  **wrong_route** (the dangerous failure; it is also an accuracy miss).
 
-**Ambiguous cases:**
-- `actual_route ∈ {expected_route, design1_decision}` → **safe-pass**.
-- `merged.confidence == high and actual_route != expected_route` → **confident_wrong** (the hard
+**Ambiguous cases** — safe-pass must check the **gate**, not just route equality (a high-confidence
+route that coincides with `design1_decision` but ≠ expected is still a confident wrong route):
+- **safe_pass** iff `actual_route == expected_route` **OR**
+  `(merged.confidence != "high" AND actual_route == design1_decision)`.
+- **confident_wrong** iff `merged.confidence == "high" AND actual_route != expected_route` (the hard
   safety failure).
 
 **Deterministic baseline:** the deterministic-only route is `design1_decision` (the gate is inert
-when both args are the deterministic decision), scored against `expected_route` the same way — this
-is the keyword baseline the LLM must beat-or-match.
+when both args are the deterministic decision), scored for accuracy against `expected_route` the same
+way — this is the keyword baseline the LLM must beat-or-match.
 
 ---
 
@@ -152,11 +163,11 @@ is the keyword baseline the LLM must beat-or-match.
 
 | Metric | Definition |
 |---|---|
-| `clear_expected_route_accuracy` | clear cases where `actual_route == expected_route` |
-| `clear_missed_activation_rate` | clear failures via safe-default (conservative) |
-| `clear_wrong_route_rate` / `_count` | clear failures via high-confidence wrong route (dangerous) |
-| `ambiguous_safe_default_rate` | ambiguous cases the gate safe-defaulted |
-| `ambiguous_confident_wrong_count` | ambiguous cases with a high-confidence wrong route |
+| `clear_expected_route_accuracy` | clear cases where `actual_route == expected_route` (route axis, pure) |
+| `clear_missed_activation_rate` | `must_activate` clear cases where the gate safe-defaulted (`confidence != high`) — **activation axis, independent of route correctness** (conservative) |
+| `clear_wrong_route_rate` / `_count` | clear cases with `confidence == high` and `actual_route != expected_route` (dangerous) |
+| `ambiguous_safe_default_rate` | ambiguous cases the gate safe-defaulted (`confidence != high and actual == design1`) |
+| `ambiguous_confident_wrong_count` | ambiguous cases with `confidence == high and actual != expected` |
 | `llm_vs_deterministic_delta` | `clear_expected_route_accuracy` − deterministic clear accuracy |
 | per-marker precision/recall | `needs_synthesis`, `needs_discovery` (merged vs `expected_intent`) |
 | parse/fallback rate | classifier error/timeout/parse-fail → deterministic |
@@ -185,9 +196,13 @@ against production shadow):
 
 | Unit | Responsibility | Where |
 |---|---|---|
-| `routing_golden_set_v1.jsonl` | labeled paraphrase + control corpus | `backend/data/` (or `data/`) |
+| `routing_golden_set_v1.jsonl` | labeled paraphrase + control corpus | `data/` (root, alongside `challenge_golden_set_v1.jsonl`) |
 | `score_routing_golden_set.py` | per-case pipeline + post-gate scoring → metrics/gates | `backend/scripts/` |
-| reused | `infer_signals`, `classify_intent_llm`, `merge_intent`, `derive_routing_decision`, `trust_gate`, `_decision_execution_dict` | shipped 2A/2B |
+| reused | `infer_signals`, `classify_intent_llm`, `merge_intent`, `derive_routing_decision`, `trust_gate`, `decision_execution_dict` | shipped 2A/2B |
+
+**`.gitignore`:** root ignores `data/*` except allowlisted files, so the corpus needs an explicit
+`!data/routing_golden_set_v1.jsonl` entry (next to `!data/challenge_golden_set_v1.jsonl`) to be
+tracked.
 
 The scorer reuses shipped units only — it adds **no** production code. The fixture-consistency check
 (`entity_scope`) and the post-gate outcome classification are the only new logic, both in the script
