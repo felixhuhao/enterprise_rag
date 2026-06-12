@@ -8,7 +8,7 @@
 
 **Scope note — internal breadth resolution, not a config rename (confirmed):** `QueryConfig.retrieval_flavor` stays the source of truth. The plan adds an **internal breadth resolution step** (`resolve_breadth`) that maps it to `retrieval_breadth` for the control model and trace; the legacy `query_plan["retrieval_flavor"]` value is retained verbatim. The user-facing/stored rename (config field, API models, DB columns, stats enum values `exact→precise`, feedback) is a **separate deferred migration** — like discovery retirement — out of scope here. (Design doc §4 "Changed" carries the matching staged note.)
 
-**Tech Stack:** Python 3.12, dataclasses, pytest. Spec: `docs/retrieval_control_model_design.md`.
+**Tech Stack:** Python 3.12, dataclasses, pytest. Spec: `../../designs/retrieval_control_model_design.md`.
 
 **Behavior-preservation gate (whole-plan):** golden-set retrieval-only Hit@5/Hit@10 and full pass rate identical; all budget values numerically identical. **One intended recorded-value change (not a retrieval-behavior change):** `query_plan["use_multi_hop"]` becomes the *effective* flag (folds `_decide_multi_hop`), so for keyword-less queries it now records `False` where it previously recorded the config intent `True`. Multi-hop *executes* in exactly the same cases as before (old execution = `plan_flag ∧ _decide_multi_hop` = new effective flag). Affected unit assertions are updated honestly in Task 5.
 

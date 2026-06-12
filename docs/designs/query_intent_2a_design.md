@@ -2,8 +2,8 @@
 
 **Date:** 2026-06-12
 **Status:** Proposed
-**Roadmap:** `docs/query_intent_routing_roadmap.md` (Design 2, Stage A of A/B/C).
-**Depends on:** `docs/retrieval_control_model_design.md` (Design 1) — shipped.
+**Roadmap:** `query_intent_routing_roadmap.md` (Design 2, Stage A of A/B/C).
+**Depends on:** `retrieval_control_model_design.md` (Design 1) — shipped.
 
 Stage 2A makes intent classification explicit and confidence-graded, and stands up the
 shadow-routing harness — **deterministic only, no LLM, no active behavior change.** It is the
@@ -37,7 +37,7 @@ later (2C) when evidence says it is safe.
 ## 2. `QueryIntent` — evolve `InferredSignals` in place
 
 Design 1 shipped `InferredSignals`
-([inferred.py](backend/app/rag/query/control/inferred.py)) with `entity_scope`, `needs_synthesis`,
+([inferred.py](../../backend/app/rag/query/control/inferred.py)) with `entity_scope`, `needs_synthesis`,
 `needs_discovery`, `needs_multi_hop`, `requested_format`, `confidence`, `reasons`. 2A evolves it —
 **no parallel type, no adapter** (existing control/planner consumers already line up):
 
@@ -114,10 +114,14 @@ decision drives `query_plan`). In 2B, divergence first appears when LLM-enriched
 Design 1 folded intent into the planner, so 2A enriches that seam in place. **No
 `intent_classify` graph node** (see roadmap for the future-node trigger conditions).
 
-At `query_plan_node → _resolve_routing` ([planner.py](backend/app/rag/query/planner.py)):
+At `query_plan_node → _resolve_routing` ([planner.py](../../backend/app/rag/query/planner.py)):
 1. derive `QueryIntent` (with graded `confidence`, `source="deterministic"`, `fallback_used=False`),
 2. compute the **active** Design 1 decision exactly as today — this drives `query_plan`,
-3. compute `would_be = trust_gate(intent, inferred_decision, design1_decision)`,
+3. compute `would_be = trust_gate(intent, inferred_decision, design1_decision)`. **2A does not
+   compute a second decision** just to fill the future-shaped signature: `inferred_decision` and
+   `design1_decision` are the *same* value/object from the existing deterministic `_resolve_routing`
+   path, so 2A may pass that one decision as both arguments. **2B is where they become distinct**
+   (LLM-inferred vs Design 1).
 4. record both into the existing `routing_trace`, persisted via `query_observability` →
    `resolved_settings` → `settings_json` (**no schema change** — Design 1 already plumbs
    `routing_trace` through `_OBSERVABILITY_STATE_KEYS`).
@@ -133,8 +137,11 @@ Trace shape (enriched sections; `intent`/`policy`/`infra`/`routing_decision` fro
   }
 }
 ```
-`diverged` = `would_be_decision != active_decision` (computed, not assumed). `trust_gated` = whether
-the gate fired (confidence ≠ high).
+`diverged` = the two decisions differ, computed (not assumed) by **normalized-dict comparison** —
+serialize both `RoutingDecision`s to dicts (the form the trace already uses) and compare those, not
+object identity or dataclass equality. Dataclass `__eq__` would happen to work in 2A, but 2B may
+construct the would-be decision through a different path (LLM-fed), so normalized comparison avoids
+false divergence. `trust_gated` = whether the gate fired (confidence ≠ high).
 
 ---
 
@@ -156,8 +163,8 @@ the gate fired (confidence ≠ high).
 - **Active unchanged (the guarantee):**
   - Unit: emitted `query_plan` identical across representative queries (reuse the Design-1
     characterization net as the anchor).
-  - Golden set: retrieval-only Hit@5/Hit@10 and full pass rate identical to the 2026-06-11
-    baseline (same gate Design 1 passed).
+  - Golden set: retrieval-only Hit@5/Hit@10 and full pass rate identical to the current accepted
+    Design 1 baseline (same gate Design 1 passed).
 - **Ladder v1:** unit tests for every row in the §3 table (broad, grounded+marker, plain lookup,
   multi-no-marker, ungrounded marker, bare query).
 - **Trust gate:** unit tests — `high` → inferred decision; non-`high` → Design 1 decision; pure /

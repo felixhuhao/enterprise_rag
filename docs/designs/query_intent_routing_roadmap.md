@@ -2,8 +2,8 @@
 
 **Date:** 2026-06-12
 **Status:** Active roadmap (supersedes the parked stub).
-**Source plan:** `docs/prompt_reliability_implementation_plan.md` → "Requires Query-Intent Design" lane.
-**Depends on:** `docs/retrieval_control_model_design.md` (Design 1) — **shipped** (control model in
+**Source plan:** `prompt_reliability_implementation_plan.md` → "Requires Query-Intent Design" lane.
+**Depends on:** `retrieval_control_model_design.md` (Design 1) — **shipped** (control model in
 `backend/app/rag/query/control/`, golden-set zero-delta verified 2026-06-12).
 
 Design 2 migrates routing from explicit knobs toward *inferred* intent. The parked stub bundled
@@ -31,7 +31,7 @@ Each stage gets its own spec → plan → implement cycle, exactly like the Desi
 
 ## Stage 2A — Deterministic intent + shadow routing (infrastructure)
 
-**Spec:** `docs/query_intent_2a_design.md`. **Deterministic only, zero active behavior change.**
+**Spec:** `query_intent_2a_design.md`. **Deterministic only, zero active behavior change.**
 
 Owns: the `QueryIntent` shape (evolve the shipped `InferredSignals`), the **deterministic
 confidence ladder v1** (real code, not yet trusted), the **trust-gate** pure function (born here,

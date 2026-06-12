@@ -1,10 +1,10 @@
 # Retrieval Control Model — Design
 
 **Date:** 2026-06-12
-**Status:** Proposed
-**Source plan:** `docs/prompt_reliability_implementation_plan.md` → "Requires Query-Intent Design" lane.
-**Downstream consumer:** `docs/query_intent_routing_roadmap.md` (Design 2 roadmap) →
-`docs/query_intent_2a_design.md` (Stage 2A).
+**Status:** Shipped (Design 1 complete; discovery retirement deferred to Design 2)
+**Source plan:** `prompt_reliability_implementation_plan.md` → "Requires Query-Intent Design" lane.
+**Downstream consumer:** `query_intent_routing_roadmap.md` (Design 2 roadmap) →
+`query_intent_2a_design.md` (Stage 2A).
 
 This is **Design 1** of two. It reorganizes today's routing knobs into a four-tier control
 model with a single authority chain. It adds **no inference, no LLM, and no `QueryIntent`
@@ -126,11 +126,11 @@ use_multi_hop = needs_multi_hop          # intent: requested
   which bypasses `enable_multi_hop` (the one documented impurity, §3.2; removed in Design 2).
 
 **Classify once, derive once — no second execution gate.** In Design 1, the deterministic
-`needs_multi_hop` **is** today's `_decide_multi_hop` logic ([multi_hop.py:32-36](backend/app/rag/query/multi_hop.py#L32-L36)),
+`needs_multi_hop` **is** today's `_decide_multi_hop` logic ([multi_hop.py:32-36](../../backend/app/rag/query/multi_hop.py#L32-L36)),
 scope and keyword gates included — that logic moves into the *inferred* tier where it belongs.
 `RoutingDecision.use_multi_hop` (the formula above) is then the **single** execution flag; the
 pipeline reads it directly. Today's separate downstream gate (plan flag **and** a re-run of
-`_decide_multi_hop` at [search_pipeline.py:88-91](backend/app/rag/query/search_pipeline.py#L88-L91))
+`_decide_multi_hop` at [search_pipeline.py:88-91](../../backend/app/rag/query/search_pipeline.py#L88-L91))
 collapses into this one derivation — the invariant requires it.
 
 ### 3.2 Breadth-owned strategy — `use_hyde`, `use_query_expansion`, `use_entity_fallback`
@@ -144,7 +144,7 @@ use_entity_fallback = entity_scope == single  && breadth_allows_fallback && not 
 Breadth is the *source* for these — **intent never sets them as a quality preference**; there are
 deliberately no `needs_hyde` / `needs_expansion` fields. The one scope coupling is **structural,
 not preference**: `entity_scope=multi` (multi-entity retrieval) suppresses HyDE because HyDE
-cannot be split per entity ([hyde_search.py:52](backend/app/rag/query/hyde_search.py#L52),
+cannot be split per entity ([hyde_search.py:52](../../backend/app/rag/query/hyde_search.py#L52),
 `disabled_multi`). This is an **execution-compatibility veto** — a hard structural constraint
 expressed as an explicit term in the formula above, *not* breadth or intent choosing HyDE off for
 quality. Preserving today's `multi_explicit` behavior requires it; omitting it would let an
@@ -153,8 +153,8 @@ retrieval.
 
 `use_entity_fallback` (retry global search when entity-filtered results are **scarce or
 low-confidence** — `REASON_LOW_SCORE_OR_INSUFFICIENT_HITS`, covering both the initial filtered
-pass at [search.py:84](backend/app/rag/query/search.py#L84) and the post-rerank low-score path at
-[search_pipeline.py](backend/app/rag/query/search_pipeline.py), not only the empty case) is a
+pass at [search.py:84](../../backend/app/rag/query/search.py#L84) and the post-rerank low-score path at
+[search_pipeline.py](../../backend/app/rag/query/search_pipeline.py), not only the empty case) is a
 **retrieval-width** behavior, so it is breadth-owned — `precise` suppresses it. It has a *second*
 independent suppressor, `strict_evidence` (the answer contract); either can turn it off. This is
 the §4 split made concrete: breadth owns retrieval width, `strict_evidence` owns answering.
@@ -162,9 +162,9 @@ the §4 split made concrete: breadth owns retrieval width, `strict_evidence` own
 **Applicable only when `entity_scope=single`** — the `entity_scope == single` term is a structural
 guard, not a preference. Entity→global fallback needs an entity filter to fall back *from*, and
 only `single` carries one: `multi_explicit` routes to per-entity search with no combined filter
-([entity_confirm.py:79](backend/app/rag/query/entity_confirm.py#L79),
-[search.py:48](backend/app/rag/query/search.py#L48)), and `broad`/`none` have no filter at all; the
-post-rerank fallback path also requires a filter ([search_pipeline.py:198](backend/app/rag/query/search_pipeline.py#L198)).
+([entity_confirm.py:79](../../backend/app/rag/query/entity_confirm.py#L79),
+[search.py:48](../../backend/app/rag/query/search.py#L48)), and `broad`/`none` have no filter at all; the
+post-rerank fallback path also requires a filter ([search_pipeline.py:198](../../backend/app/rag/query/search_pipeline.py#L198)).
 For `multi | broad | none`, `use_entity_fallback` is a **no-op** regardless of breadth — the
 formula returns `false`, matching today.
 
@@ -214,7 +214,7 @@ breadth value, not be folded into `broad`. (Its prompt variant is `broad` *only 
 
 **Modifier:** `entity_scope=multi` (today's `multi_explicit`) sets `per_entity_min_k=8`,
 overriding whichever row's cell value — applied *after* profile selection, matching
-[planner.py:159-160](backend/app/rag/query/planner.py#L159-L160). `entity_scope` values are
+[planner.py:159-160](../../backend/app/rag/query/planner.py#L159-L160). `entity_scope` values are
 mutually exclusive (`single | multi | broad | none`), so a query selects exactly one budget row;
 `scope=multi` co-occurring with `needs_synthesis` selects the synthesis row and *then* takes the
 `per_entity_min_k=8` modifier. `scope=broad` and `scope=multi` cannot co-occur.
@@ -222,7 +222,7 @@ mutually exclusive (`single | multi | broad | none`), so a query selects exactly
 All cells pass through the existing global `_clamp_budget` caps (search≤40, rrf≤40,
 rerank≤30, final≤30, ctx≤16000) = `model_limits` (infra). When `balanced`+broad and
 `balanced`+synthesis both apply, broad wins (matches current precedence at
-[planner.py:125-136](backend/app/rag/query/planner.py#L125-L136)).
+[planner.py:125-136](../../backend/app/rag/query/planner.py#L125-L136)).
 
 The `tight | standard | wide` labels survive only as human-readable names for these rows; the
 **table is the contract**.
@@ -230,7 +230,7 @@ The `tight | standard | wide` labels survive only as human-readable names for th
 ### 3.4 Prompt variant — derived by precedence
 
 `prompt_variant` is derived from `(entity_scope, breadth)` by a strict precedence that reproduces
-[`_prompt_template`](backend/app/rag/query/planner.py#L225) exactly — **`entity_scope=multi` wins
+[`_prompt_template`](../../backend/app/rag/query/planner.py#L225) exactly — **`entity_scope=multi` wins
 first**:
 
 ```
@@ -300,7 +300,7 @@ authority chain is unaffected.
   *retrieval-width* behavior owned by **breadth** (`precise` suppresses it; see §3.2). The two
   are independent suppressors of `use_entity_fallback`: either `precise` *or* `strict_evidence`
   turns it off. This corrects the earlier framing — today's `exact` disables fallback
-  *unconditionally* ([planner.py:79](backend/app/rag/query/planner.py#L79)), independent of
+  *unconditionally* ([planner.py:79](../../backend/app/rag/query/planner.py#L79)), independent of
   `strict_evidence`, so mapping `exact→precise` only stays behavior-preserving **because
   `precise` itself suppresses fallback**. Without that rule, old `exact` queries with
   `strict_evidence=false` would begin falling back globally — a regression. `breadth=precise`
@@ -369,7 +369,7 @@ routing_decision:
   reasons: ["multi_hop vetoed by precise breadth", "fallback suppressed by precise breadth"]
 ```
 
-This is the part-1 observability object (`docs/prompt_reliability_implementation_plan.md`
+This is the part-1 observability object (`prompt_reliability_implementation_plan.md`
 §6 "Observability For Current Decisions"), now structured by tier. It plugs into the existing
 `query_observability` payload / `query_run_stats` columns.
 
@@ -410,8 +410,8 @@ There are no accepted behavior changes in Design 1. The four current flavors map
 
 The audit traces each flavor through *plan flag → pipeline gate → search/execution*, not the
 plan flag alone (the earlier draft's mistake). `use_multi_hop` on the plan does **not** force
-execution: `_should_run_multi_hop` ([search_pipeline.py:88-91](backend/app/rag/query/search_pipeline.py#L88-L91))
-also requires `_decide_multi_hop` ([multi_hop.py:32-36](backend/app/rag/query/multi_hop.py#L32-L36))
+execution: `_should_run_multi_hop` ([search_pipeline.py:88-91](../../backend/app/rag/query/search_pipeline.py#L88-L91))
+also requires `_decide_multi_hop` ([multi_hop.py:32-36](../../backend/app/rag/query/multi_hop.py#L32-L36))
 to pass (broad/none scope **and** a keyword).
 
 | Flavor | Maps to | Behavior-preserving? |
@@ -453,7 +453,7 @@ Design 1.
 | `resolve_breadth` | `config → retrieval_breadth`. Renames the four flavor values 1:1: `exact→precise`, `recall→broad`, `balanced→balanced`, `discovery→discovery`. No tag, no tuple, no compat block. | config |
 | deterministic inferred-signal module | fold `_BROAD_SIGNALS`, `SYNTHESIS_QUERY_MARKERS`, `DISCOVERY_KEYWORDS`/`RESPONSIBILITY_HOP_KEYWORDS`, entity grounding into one function emitting the inferred tier. `requested_format` is **out of scope in Design 1** (always null). | entity_confirm output |
 | `budget_profile` resolver | select the §3.3 table row from `(breadth, entity_scope, needs_synthesis)`; apply the `entity_scope=multi` per-entity modifier; pass through `_clamp_budget`. Row values are the contract. | inferred + breadth |
-| `entity_scope` compatibility | today's `multi_explicit` → `entity_scope=multi` + `steps=["multi_entity"]`; from it derive per-entity search ([search.py:48](backend/app/rag/query/search.py#L48)), HyDE-disable ([hyde_search.py:52](backend/app/rag/query/hyde_search.py#L52)), `multi_entity` prompt, and `per_entity_min_k=8` — preserving all four current effects of `multi_explicit` | entity_confirm output |
+| `entity_scope` compatibility | today's `multi_explicit` → `entity_scope=multi` + `steps=["multi_entity"]`; from it derive per-entity search ([search.py:48](../../backend/app/rag/query/search.py#L48)), HyDE-disable ([hyde_search.py:52](../../backend/app/rag/query/hyde_search.py#L52)), `multi_entity` prompt, and `per_entity_min_k=8` — preserving all four current effects of `multi_explicit` | entity_confirm output |
 | `derive_routing_decision` | pure function applying the §3 authority chain → `RoutingDecision`; the `discovery` breadth row carries the documented `enable_multi_hop`-bypass impurity | inferred, breadth, infra config |
 | trace builder | emit the §6 three-section trace into the observability payload | RoutingDecision |
 

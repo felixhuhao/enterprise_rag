@@ -51,13 +51,13 @@ These are the strongest images for the repository landing page.
 
 | File | View | Purpose |
 |---|---|---|
-| [`query-balanced-answer.png`](images/query-balanced-answer.png) | Query Chat | Citation-grounded cross-document answer. |
-| [`query-discovery-multihop.png`](images/query-discovery-multihop.png) | Query Chat | Multi-hop discovery with visible hop trace. |
-| [`query-strict-evidence.png`](images/query-strict-evidence.png) | Query Chat | Strict evidence answer that avoids inventing an unsupported fact. |
-| [`retrieval-test-recall.png`](images/retrieval-test-recall.png) | Retrieval Test | Query expansion, retrieval trace, Top K chunks, scores, and tags. |
-| [`document-chunks-quality.png`](images/document-chunks-quality.png) | Document Detail | Chunk types, table chunks, quality status, and content previews. |
-| [`eval-baseline-summary.png`](images/eval-baseline-summary.png) | Quality Center | Run-level metrics, failure categories, per-strategy breakdown, and baseline context. |
-| [`eval-case-detail.png`](images/eval-case-detail.png) | Quality Center | Case-level diagnosis: expected evidence, missing citation, answer, retrieval result. |
+| [`query-balanced-answer.png`](../images/query-balanced-answer.png) | Query Chat | Citation-grounded cross-document answer. |
+| [`query-discovery-multihop.png`](../images/query-discovery-multihop.png) | Query Chat | Multi-hop discovery with visible hop trace. |
+| [`query-strict-evidence.png`](../images/query-strict-evidence.png) | Query Chat | Strict evidence answer that avoids inventing an unsupported fact. |
+| [`retrieval-test-recall.png`](../images/retrieval-test-recall.png) | Retrieval Test | Query expansion, retrieval trace, Top K chunks, scores, and tags. |
+| [`document-chunks-quality.png`](../images/document-chunks-quality.png) | Document Detail | Chunk types, table chunks, quality status, and content previews. |
+| [`eval-baseline-summary.png`](../images/eval-baseline-summary.png) | Quality Center | Run-level metrics, failure categories, per-strategy breakdown, and baseline context. |
+| [`eval-case-detail.png`](../images/eval-case-detail.png) | Quality Center | Case-level diagnosis: expected evidence, missing citation, answer, retrieval result. |
 
 README should stay compact. Keep secondary screenshots linked from this guide.
 
@@ -67,47 +67,47 @@ Query Chat:
 
 | File | Purpose |
 |---|---|
-| [`query-balanced-answer.png`](images/query-balanced-answer.png) | Balanced answer with citations and a structured comparison. |
-| [`query-exact-trace.png`](images/query-exact-trace.png) | Exact lookup for a numeric policy fact with retrieval timing. |
-| [`query-recall-expansion.png`](images/query-recall-expansion.png) | Recall mode with expanded queries and broader retrieval. |
-| [`query-discovery-multihop.png`](images/query-discovery-multihop.png) | Discovery mode with multi-hop trace. |
-| [`query-strict-evidence.png`](images/query-strict-evidence.png) | Strict evidence answer that avoids inventing an unsupported daily API cap. |
+| [`query-balanced-answer.png`](../images/query-balanced-answer.png) | Balanced answer with citations and a structured comparison. |
+| [`query-exact-trace.png`](../images/query-exact-trace.png) | Exact lookup for a numeric policy fact with retrieval timing. |
+| [`query-recall-expansion.png`](../images/query-recall-expansion.png) | Recall mode with expanded queries and broader retrieval. |
+| [`query-discovery-multihop.png`](../images/query-discovery-multihop.png) | Discovery mode with multi-hop trace. |
+| [`query-strict-evidence.png`](../images/query-strict-evidence.png) | Strict evidence answer that avoids inventing an unsupported daily API cap. |
 
 Documents and chunks:
 
 | File | Purpose |
 |---|---|
-| [`documents-list.png`](images/documents-list.png) | Completed enterprise corpus with status and chunk counts. |
-| [`document-chunks-quality.png`](images/document-chunks-quality.png) | Chunk inspection with text/table chunk types and quality metadata. |
+| [`documents-list.png`](../images/documents-list.png) | Completed enterprise corpus with status and chunk counts. |
+| [`document-chunks-quality.png`](../images/document-chunks-quality.png) | Chunk inspection with text/table chunk types and quality metadata. |
 
 Retrieval Test:
 
 | File | Purpose |
 |---|---|
-| [`retrieval-test-recall.png`](images/retrieval-test-recall.png) | Recall retrieval test with query expansion and Top K chunks. |
-| [`retrieval-test-balanced.png`](images/retrieval-test-balanced.png) | Balanced retrieval test with budget, models, timings, and scores. |
+| [`retrieval-test-recall.png`](../images/retrieval-test-recall.png) | Recall retrieval test with query expansion and Top K chunks. |
+| [`retrieval-test-balanced.png`](../images/retrieval-test-balanced.png) | Balanced retrieval test with budget, models, timings, and scores. |
 
 Quality Center and evaluation:
 
 | File | Purpose |
 |---|---|
-| [`quality-center-overview.png`](images/quality-center-overview.png) | Quality Center navigation and high-level evaluation area. |
-| [`eval-suite-setup.png`](images/eval-suite-setup.png) | Golden-set mode, subset, smoke-set, and case enablement controls. |
-| [`eval-run-progress.png`](images/eval-run-progress.png) | Active evaluation run progress. |
-| [`eval-baseline-summary.png`](images/eval-baseline-summary.png) | Completed full run summary with metrics and failure categories. |
-| [`eval-case-detail.png`](images/eval-case-detail.png) | Full case-level diagnosis. |
-| [`eval-answer-lite-summary.png`](images/eval-answer-lite-summary.png) | Answer-lite summary over a small slice. |
-| [`eval-retrieval-only-summary.png`](images/eval-retrieval-only-summary.png) | Retrieval-only summary grouped by strategy. |
-| [`eval-run-detail.png`](images/eval-run-detail.png) | Earlier compact run detail screenshot; kept as supplemental material. |
+| [`quality-center-overview.png`](../images/quality-center-overview.png) | Quality Center navigation and high-level evaluation area. |
+| [`eval-suite-setup.png`](../images/eval-suite-setup.png) | Golden-set mode, subset, smoke-set, and case enablement controls. |
+| [`eval-run-progress.png`](../images/eval-run-progress.png) | Active evaluation run progress. |
+| [`eval-baseline-summary.png`](../images/eval-baseline-summary.png) | Completed full run summary with metrics and failure categories. |
+| [`eval-case-detail.png`](../images/eval-case-detail.png) | Full case-level diagnosis. |
+| [`eval-answer-lite-summary.png`](../images/eval-answer-lite-summary.png) | Answer-lite summary over a small slice. |
+| [`eval-retrieval-only-summary.png`](../images/eval-retrieval-only-summary.png) | Retrieval-only summary grouped by strategy. |
+| [`eval-run-detail.png`](../images/eval-run-detail.png) | Earlier compact run detail screenshot; kept as supplemental material. |
 
 Operations and governance:
 
 | File | Purpose |
 |---|---|
-| [`system-status-jobs.png`](images/system-status-jobs.png) | System status, model configuration, Milvus/SQLite state, and background jobs. |
-| [`settings-strategy-tuning.png`](images/settings-strategy-tuning.png) | Strategy tuning panel with retrieval budgets and enabled stages. |
-| [`settings-tag-governance.png`](images/settings-tag-governance.png) | Structured tag governance with hit counts. |
-| [`acl-audit.png`](images/acl-audit.png) | ACL audit view for owner/read visibility. |
+| [`system-status-jobs.png`](../images/system-status-jobs.png) | System status, model configuration, Milvus/SQLite state, and background jobs. |
+| [`settings-strategy-tuning.png`](../images/settings-strategy-tuning.png) | Strategy tuning panel with retrieval budgets and enabled stages. |
+| [`settings-tag-governance.png`](../images/settings-tag-governance.png) | Structured tag governance with hit counts. |
+| [`acl-audit.png`](../images/acl-audit.png) | ACL audit view for owner/read visibility. |
 
 ## Demo Queries
 

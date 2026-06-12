@@ -1,8 +1,8 @@
 # Prompt Reliability Implementation Plan
 
 **Date:** 2026-06-11
-**Source Audit:** `docs/prompt_reliability_audit.md`
-**Related Audit:** `docs/keyword_matching_audit.md`
+**Source Audit:** `../audits/prompt_reliability_audit.md`
+**Related Audit:** `../audits/keyword_matching_audit.md`
 
 This plan separates prompt reliability work into two lanes:
 
