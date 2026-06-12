@@ -51,10 +51,17 @@ Category mix (v1):
 |---|---|---|
 | implicit comparison / synthesis | 6-8 | synthesis intent with no `比较/区别/异同/对比` keyword |
 | mixed zh/en / paraphrase | 6-8 | marker phrased in English or paraphrase |
-| broad without `所有/哪些/各` | 6-8 | broad scope intent the broad-signal keywords miss |
-| discovery without keywords | 6-8 | discovery intent with no `哪些公司/竞争对手/...` keyword |
+| discovery over an unspecified/implied set, no broad keyword | 6-8 | questions that *feel* broad but resolve to `entity_scope=none, needs_discovery=true` — tests **marker** detection, not `entity_scope` inference |
+| discovery without keywords | 6-8 | discovery intent with no `哪些公司/竞争对手/...` keyword (`needs_discovery=true`) |
 | alt-phrasing multi-hop / responsibility | 6-8 | responsibility/multi-hop with no `谁负责/...` keyword |
 | clear-control (keyword) | 5-8 | cases keywords already route correctly — regression guard |
+
+**Scope note — every fuzzy case must be *marker-fixable*.** 2B's LLM infers only `needs_synthesis` /
+`needs_discovery`; it **never** infers `entity_scope` (deterministic entity-linking owns that, §3).
+So a pure "broad-scope without keywords" case — one that would require `entity_scope: none → broad`
+inference — is **out of scope** for 2B/2C-1 and is reframed above as a discovery-marker case
+(`entity_scope=none, needs_discovery=true`). `entity_scope=broad` inference is a future capability
+beyond this stage.
 
 Each fuzzy category's 6-8 allocation **includes 2-3 explicitly-`ambiguous` cases** (genuinely
 underspecified — they exercise the safety gate, not accuracy); they are counted *inside* the
@@ -103,11 +110,13 @@ Field rules:
   and **errors the fixture** on mismatch (catches bad cases rather than hand-waving grounding).
 - **`retrieval_breadth`** (not legacy `retrieval_flavor`), unless a case deliberately exercises
   legacy compat (then it sets `retrieval_flavor` explicitly).
-- **`must_activate` / `confidence_floor`** describe the *expectation* (a `clear` case should activate
-  to the expected route), **not** a mirror of model output, and **they do not redefine route
-  accuracy.** Route accuracy is purely `actual_route == expected_route` (§4). A `clear` case where
-  the gate safe-defaults is tracked **separately** as a *missed activation* (§5) — it does not by
-  itself subtract from `clear_expected_route_accuracy` (the route may still be correct).
+- **`must_activate`** (bool, optional; default false) describes the *expectation* that a `clear`
+  case should activate to the expected route — **not** a mirror of model output, and it **does not
+  redefine route accuracy.** Route accuracy is purely `actual_route == expected_route` (§4). A
+  `must_activate` case where the gate safe-defaults is tracked **separately** as a *missed
+  activation* (§5) — it does not by itself subtract from `clear_expected_route_accuracy` (the route
+  may still be correct). (No `confidence_floor` field — `must_activate` is the single expectation
+  flag; per-confidence-band assertions are out of scope for v1.)
 - **`needs_multi_hop`** is never labeled — it is re-derived from `(entity_scope, needs_discovery)`,
   same rule as the pipeline.
 
@@ -124,14 +133,20 @@ budget params from the current stable defaults.
 det      = infer_signals(query, entity_mode, matched_entities)        # deterministic intent
 llm      = classify_intent_llm(query, det)                            # 2B classifier (offline)
 merged   = merge_intent(det, llm)
+expected = InferredSignals(entity_scope=…, needs_synthesis=…,
+                           needs_discovery=…, needs_multi_hop=rederive(…))
 
-design1_decision = derive_routing_decision(det,    breadth, cfg, budget_reason=…)   # safe-default
-merged_decision  = derive_routing_decision(merged, breadth, cfg, budget_reason=…)
-actual_route     = trust_gate(merged, merged_decision, design1_decision)            # POST-GATE
+# budget_reason IS an execution field, and resolve_budget_profile depends on needs_synthesis —
+# so resolve the budget PER INTENT, not once. Otherwise an implicit-synthesis case
+# (det.needs_synthesis=False vs merged/expected=True) would be graded against the wrong route.
+def route(intent):
+    b = resolve_budget_profile(breadth, intent.entity_scope, intent.needs_synthesis, cfg)
+    return derive_routing_decision(intent, breadth, cfg, budget_reason=b.reason)
 
-expected_intent_obj = InferredSignals(entity_scope=…, needs_synthesis=…,
-                                      needs_discovery=…, needs_multi_hop=rederive(…))
-expected_route      = derive_routing_decision(expected_intent_obj, breadth, cfg, budget_reason=…)
+design1_decision = route(det)        # safe-default (deterministic route)
+merged_decision  = route(merged)
+expected_route   = route(expected)
+actual_route     = trust_gate(merged, merged_decision, design1_decision)   # POST-GATE
 ```
 
 Comparison uses the **execution-field subset** (2B's public `decision_execution_dict`, which also
