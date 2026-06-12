@@ -398,3 +398,8 @@ def test_exact_does_not_record_blocked_when_filtered_results_are_adequate(monkey
 
     assert payload["strategy"]["search_mode"] == "dense_filtered"
     assert payload["fallback_info"]["blocked"] is False
+
+
+def test_retrieval_test_multi_hop_reads_single_flag():
+    assert svc._should_run_multi_hop({"entity_mode": "single"}, "哪些公司", {"use_multi_hop": True}) is True
+    assert svc._should_run_multi_hop({"entity_mode": "broad"}, "报销标准", {"use_multi_hop": False}) is False

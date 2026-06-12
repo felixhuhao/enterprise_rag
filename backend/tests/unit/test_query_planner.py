@@ -19,6 +19,7 @@ def test_balanced_single_keeps_current_defaults():
     plan = build_query_plan("报销标准是什么？", "single", QueryConfig())
 
     assert plan.retrieval_flavor == "balanced"
+    assert plan.retrieval_breadth == "balanced"
     assert plan.use_hyde is True
     assert plan.use_query_expansion is False
     assert plan.use_multi_hop is False
@@ -51,6 +52,7 @@ def test_balanced_synthesis_uses_larger_candidate_budget():
     plan = build_query_plan("安全事件响应和运维故障响应有什么关联和区别？", "single", cfg)
 
     assert plan.retrieval_flavor == "balanced"
+    assert plan.retrieval_breadth == "balanced"
     assert plan.budget.search_limit == 20
     assert plan.budget.rrf_top_k == 32
     assert plan.budget.rerank_candidate_k == 20
@@ -65,6 +67,7 @@ def test_exact_disables_hyde_multi_hop_and_fallback():
     plan = build_query_plan("住宿标准是多少？", "single", cfg)
 
     assert plan.retrieval_flavor == "exact"
+    assert plan.retrieval_breadth == "precise"
     assert plan.use_hyde is False
     assert plan.use_query_expansion is False
     assert plan.use_multi_hop is False
@@ -83,9 +86,10 @@ def test_recall_uses_high_coverage_budget():
     plan = build_query_plan("有哪些相关制度？", "none", cfg)
 
     assert plan.retrieval_flavor == "recall"
+    assert plan.retrieval_breadth == "broad"
     assert plan.use_hyde is False
     assert plan.use_query_expansion is True
-    assert plan.use_multi_hop is True
+    assert plan.use_multi_hop is False
     assert plan.budget.search_limit == 20
     assert plan.budget.hyde_limit == 0
     assert plan.budget.rrf_top_k == 40
@@ -101,6 +105,7 @@ def test_discovery_forces_current_multi_hop_path():
     plan = build_query_plan("哪些公司提到了安全计划？", "broad", cfg)
 
     assert plan.retrieval_flavor == "discovery"
+    assert plan.retrieval_breadth == "discovery"
     assert plan.use_hyde is False
     assert plan.use_query_expansion is False
     assert plan.use_multi_hop is True
@@ -159,8 +164,11 @@ def test_query_plan_node_returns_plain_dict():
     )
 
     assert out["query_plan"]["retrieval_flavor"] == "discovery"
+    assert out["query_plan"]["retrieval_breadth"] == "discovery"
     assert out["query_plan"]["use_multi_hop"] is True
     assert out["query_plan"]["fallback_policy"]["entity_filter_to_global"] is False
+    assert out["routing_trace"]["policy"]["retrieval_breadth"] == "discovery"
+    assert out["routing_trace"]["routing_decision"]["use_multi_hop"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +187,7 @@ def test_get_query_plan_builds_balanced_when_missing():
     config = {"configurable": {"query_config": QueryConfig()}}
     plan = get_query_plan(state, config)
     assert plan["retrieval_flavor"] == "balanced"
+    assert plan["retrieval_breadth"] == "balanced"
     # should not mutate state
     assert "query_plan" not in state
 
@@ -257,6 +266,7 @@ def test_discovery_with_strict_evidence_disables_fallback():
     plan = build_query_plan("哪些公司提到了安全计划？", "broad", cfg)
 
     assert plan.retrieval_flavor == "discovery"
+    assert plan.retrieval_breadth == "discovery"
     assert plan.strict_evidence is True
     assert plan.fallback_policy.entity_filter_to_global is False
     assert plan.use_multi_hop is True
@@ -269,3 +279,34 @@ def test_recall_query_expansion_can_be_disabled_by_config():
 
     assert plan.use_hyde is False
     assert plan.use_query_expansion is False
+
+
+def test_use_multi_hop_is_effective_for_keywordless_configs():
+    p = build_query_plan(
+        "有哪些相关制度？",
+        "none",
+        QueryConfig(retrieval_flavor="recall", use_multi_hop=True),
+    )
+    assert p.use_multi_hop is False
+
+    p2 = build_query_plan("最新的制度内容", "none", QueryConfig(retrieval_flavor="discovery"))
+    assert p2.use_multi_hop is False
+
+    p3 = build_query_plan("哪些公司提到了报销？", "broad", QueryConfig(retrieval_flavor="discovery"))
+    assert p3.use_multi_hop is True
+
+
+def test_hyde_two_value_compat_for_multi_entity():
+    from app.rag.query.control.budget import resolve_budget_profile
+    from app.rag.query.control.inferred import infer_signals
+    from app.rag.query.control.routing import derive_routing_decision
+
+    cfg = QueryConfig()
+    q = "A公司和B公司的报销"
+    plan = build_query_plan(q, "multi_explicit", cfg)
+    assert plan.use_hyde is True
+
+    inferred = infer_signals(q, "multi_explicit", [])
+    budget = resolve_budget_profile("balanced", inferred.entity_scope, inferred.needs_synthesis, cfg)
+    decision = derive_routing_decision(inferred, "balanced", cfg, budget_reason=budget.reason)
+    assert decision.use_hyde is False

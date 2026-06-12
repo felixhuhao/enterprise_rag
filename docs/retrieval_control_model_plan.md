@@ -99,7 +99,7 @@ def test_balanced_default_single():
 
 def test_balanced_broad_scope():
     p = build_query_plan("哪些公司提到了报销？", "broad", CFG)
-    assert _budget(p) == (24, 10, 32, 20, 8, 12000, 5)
+    assert _budget(p) == (20, 10, 32, 20, 8, 12000, 5)
     assert p.prompt_policy.template == "broad"
 
 
@@ -424,7 +424,7 @@ def test_balanced_default():
 
 
 def test_balanced_broad_scope():
-    assert _t(resolve_budget_profile("balanced", "broad", False, CFG)) == (24, 10, 32, 20, 8, 12000, 5)
+    assert _t(resolve_budget_profile("balanced", "broad", False, CFG)) == (20, 10, 32, 20, 8, 12000, 5)
 
 
 def test_balanced_synthesis():
@@ -541,6 +541,7 @@ The derived tier. Applies the authority chain (§3), the entity_scope structural
 
 ```python
 from app.rag.query.config import QueryConfig
+from app.rag.query.control.budget import resolve_budget_profile
 from app.rag.query.control.inferred import infer_signals
 from app.rag.query.control.routing import derive_routing_decision, build_routing_trace
 
@@ -548,7 +549,9 @@ CFG = QueryConfig(search_limit=10, rrf_max_results=20, rerank_max_top_k=10, hyde
 
 
 def _decide(query, entity_mode, breadth, cfg=CFG):
-    return derive_routing_decision(infer_signals(query, entity_mode, []), breadth, cfg)
+    sig = infer_signals(query, entity_mode, [])
+    budget = resolve_budget_profile(breadth, sig.entity_scope, sig.needs_synthesis, cfg)
+    return derive_routing_decision(sig, breadth, cfg, budget_reason=budget.reason)
 
 
 def test_precise_suppresses_multi_hop_and_fallback():
@@ -606,7 +609,8 @@ def test_hyde_effective_false_for_multi_scope():
 
 def test_trace_has_three_sections():
     sig = infer_signals("哪些公司提到了报销？", "broad", [])
-    d = derive_routing_decision(sig, "precise", CFG)
+    budget = resolve_budget_profile("precise", sig.entity_scope, sig.needs_synthesis, CFG)
+    d = derive_routing_decision(sig, "precise", CFG, budget_reason=budget.reason)
     trace = build_routing_trace(sig, "precise", CFG, d)
     assert set(trace) == {"intent", "policy", "infra", "routing_decision"}
     assert trace["policy"]["retrieval_breadth"] == "precise"
@@ -635,7 +639,6 @@ from dataclasses import dataclass, field
 
 from app.rag.query.config import QueryConfig
 from app.rag.query.control.breadth import BREADTH_PROFILES, RetrievalBreadth
-from app.rag.query.control.budget import resolve_budget_profile
 from app.rag.query.control.inferred import InferredSignals
 
 
@@ -664,6 +667,7 @@ def _prompt_variant(entity_scope: str, breadth: str) -> str:
 
 def derive_routing_decision(
     inferred: InferredSignals, breadth: RetrievalBreadth, cfg: QueryConfig,
+    *, budget_reason: str,
 ) -> RoutingDecision:
     profile = BREADTH_PROFILES[breadth]
     scope = inferred.entity_scope
@@ -700,7 +704,6 @@ def derive_routing_decision(
         # fallback inapplicable for multi/broad/none (no entity filter) — informational
         pass
 
-    budget = resolve_budget_profile(breadth, scope, inferred.needs_synthesis, cfg)
     prompt_variant = _prompt_variant(scope, breadth)
     answer_shape = "bullets_or_table" if inferred.needs_synthesis else "prose"
 
@@ -715,7 +718,7 @@ def derive_routing_decision(
         use_query_expansion=use_query_expansion,
         use_multi_hop=use_multi_hop,
         use_entity_fallback=use_entity_fallback,
-        budget_reason=budget.reason,
+        budget_reason=budget_reason,
         prompt_variant=prompt_variant,
         answer_shape=answer_shape,
         steps=steps,
@@ -798,14 +801,15 @@ def _resolve_routing(query: str, entity_mode: str, matched_entities: list[str], 
     from app.rag.query.control.inferred import infer_signals
     from app.rag.query.control.routing import derive_routing_decision
 
-    breadth = resolve_breadth(cfg.retrieval_flavor)
+    flavor = _normalize_flavor(cfg.retrieval_flavor)
+    breadth = resolve_breadth(flavor)
     inferred = infer_signals(query, entity_mode, matched_entities)
-    decision = derive_routing_decision(inferred, breadth, cfg)
     budget = resolve_budget_profile(breadth, inferred.entity_scope, inferred.needs_synthesis, cfg)
-    return breadth, inferred, decision, budget
+    decision = derive_routing_decision(inferred, breadth, cfg, budget_reason=budget.reason)
+    return flavor, breadth, inferred, decision, budget
 
 
-def _plan_from_routing(breadth, decision, budget, cfg: QueryConfig) -> QueryPlan:
+def _plan_from_routing(flavor, breadth, decision, budget, cfg: QueryConfig) -> QueryPlan:
     """Single mapping of a routing result onto the legacy QueryPlan dict shape."""
     from app.rag.query.control.breadth import BREADTH_PROFILES
 
@@ -814,7 +818,7 @@ def _plan_from_routing(breadth, decision, budget, cfg: QueryConfig) -> QueryPlan
     allows = _breadth_allows_fallback(breadth, cfg)
     fallback_policy = FallbackPolicy(
         entity_filter_to_global=allows,
-        reason="enabled_by_breadth" if allows else "disabled_by_breadth_or_strict_evidence",
+        reason="enabled_by_flavor" if allows else "disabled_by_flavor_or_strict_evidence",
     )
     prompt_policy = PromptPolicy(
         strict_evidence=bool(cfg.strict_evidence),
@@ -824,7 +828,7 @@ def _plan_from_routing(breadth, decision, budget, cfg: QueryConfig) -> QueryPlan
     # disabled_multi runtime guard + search_mode_hyde label are preserved (Finding 3 / §3.5).
     legacy_use_hyde = BREADTH_PROFILES[breadth].sets_hyde and cfg.use_hyde
     return QueryPlan(
-        retrieval_flavor=cfg.retrieval_flavor,      # legacy value, retained verbatim
+        retrieval_flavor=flavor,                    # legacy value, retained unrenamed
         retrieval_breadth=breadth,                  # new internal concept
         strict_evidence=bool(cfg.strict_evidence),
         use_hyde=legacy_use_hyde,
@@ -837,8 +841,8 @@ def _plan_from_routing(breadth, decision, budget, cfg: QueryConfig) -> QueryPlan
 
 
 def build_query_plan(query: str, entity_mode: str, cfg: QueryConfig) -> QueryPlan:
-    breadth, _inferred, decision, budget = _resolve_routing(query, entity_mode, [], cfg)
-    return _plan_from_routing(breadth, decision, budget, cfg)
+    flavor, breadth, _inferred, decision, budget = _resolve_routing(query, entity_mode, [], cfg)
+    return _plan_from_routing(flavor, breadth, decision, budget, cfg)
 
 
 def query_plan_node(state: QueryState, config: RunnableConfig) -> dict:
@@ -848,9 +852,9 @@ def query_plan_node(state: QueryState, config: RunnableConfig) -> dict:
     cfg = get_query_config(config)
     query = require_query(state)
     entity_mode = state.get("entity_mode", "none")
-    matched = list(state.get("matched_entities", []))
-    breadth, inferred, decision, budget = _resolve_routing(query, entity_mode, matched, cfg)
-    plan = _plan_from_routing(breadth, decision, budget, cfg)
+    matched = list(state.get("matched_entities") or [])
+    flavor, breadth, inferred, decision, budget = _resolve_routing(query, entity_mode, matched, cfg)
+    plan = _plan_from_routing(flavor, breadth, decision, budget, cfg)
     return {
         "query_plan": asdict(plan),
         "routing_trace": build_routing_trace(inferred, breadth, cfg, decision),
@@ -908,13 +912,16 @@ def test_use_multi_hop_is_effective_for_keywordless_configs():
 def test_hyde_two_value_compat_for_multi_entity():
     from app.rag.query.config import QueryConfig
     from app.rag.query.planner import build_query_plan
+    from app.rag.query.control.budget import resolve_budget_profile
     from app.rag.query.control.inferred import infer_signals
     from app.rag.query.control.routing import derive_routing_decision
     cfg = QueryConfig()  # balanced, use_hyde=True
     q = "A公司和B公司的报销"
     plan = build_query_plan(q, "multi_explicit", cfg)
     assert plan.use_hyde is True   # legacy breadth-only → HyDE node still gates via disabled_multi
-    decision = derive_routing_decision(infer_signals(q, "multi_explicit", []), "balanced", cfg)
+    inferred = infer_signals(q, "multi_explicit", [])
+    budget = resolve_budget_profile("balanced", inferred.entity_scope, inferred.needs_synthesis, cfg)
+    decision = derive_routing_decision(inferred, "balanced", cfg, budget_reason=budget.reason)
     assert decision.use_hyde is False  # effective: §3.5 structural multi veto (honest trace)
 ```
 

@@ -477,6 +477,33 @@ class TestRetrievedChunks:
 
 
 class TestObservabilityPayload:
+    def test_resolved_settings_adds_breadth_and_trace_without_changing_flavor(self):
+        state = {
+            "query_plan": {
+                "retrieval_flavor": "exact",
+                "retrieval_breadth": "precise",
+                "budget": {},
+                "fallback_policy": {},
+            },
+            "routing_trace": {
+                "intent": {},
+                "policy": {"retrieval_breadth": "precise"},
+                "infra": {},
+                "routing_decision": {"use_multi_hop": False},
+            },
+        }
+
+        payload = build_query_observability_payload(state=state)
+
+        assert payload["retrieval_flavor"] == "exact"
+        assert payload["resolved_settings"]["retrieval_breadth"] == "precise"
+        assert payload["resolved_settings"]["routing_trace"]["policy"]["retrieval_breadth"] == "precise"
+
+        legacy_payload = build_query_observability_payload(state={
+            "query_plan": {"retrieval_flavor": "recall", "budget": {}, "fallback_policy": {}},
+        })
+        assert legacy_payload["resolved_settings"]["retrieval_breadth"] == "broad"
+
     def test_build_payload_normalizes_trace_settings_shape_and_tokens(self):
         payload = build_query_observability_payload(
             endpoint="query_chat_stream",

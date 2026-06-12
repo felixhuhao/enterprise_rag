@@ -157,9 +157,7 @@ def _run_primary_search(state: QueryState, run_config: RunnableConfig, cfg: Quer
 
 
 def _should_run_multi_hop(state: QueryState, query: str, plan: dict) -> bool:
-    from app.rag.query.multi_hop import _decide_multi_hop
-
-    return bool(plan.get("use_multi_hop") and _decide_multi_hop(state.get("entity_mode", "none"), query))
+    return bool(plan.get("use_multi_hop"))
 
 
 def _run_multi_hop_search(
