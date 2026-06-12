@@ -4,11 +4,13 @@
 
 **Goal:** Reorganize the query planner's routing knobs into the four-tier control model (preference / inferred / derived / infra) with a single authority chain, **preserving all current behavior exactly**.
 
-**Architecture:** Introduce a new `app/rag/query/control/` package of pure functions — `resolve_breadth`, `infer_signals`, `resolve_budget_profile`, `derive_routing_decision`, `build_routing_trace`. Then rewrite `planner.build_query_plan` to compute a `RoutingDecision` via those functions and map it onto the **existing** `query_plan` dict shape, so the ~9 downstream consumers and the golden set see no change. `retrieval_flavor` is renamed to `retrieval_breadth` (4 values, `discovery` retained as deprecated); `_decide_multi_hop` folds into the inferred tier so `RoutingDecision.use_multi_hop` is the single execution flag.
+**Architecture:** Introduce a new `app/rag/query/control/` package of pure functions — `resolve_breadth`, `infer_signals`, `resolve_budget_profile`, `derive_routing_decision`, `build_routing_trace`. Then rewrite `planner.build_query_plan` to compute a `RoutingDecision` via those functions and map it onto the **existing** `query_plan` dict shape. `retrieval_breadth` is added as an **internal** concept; the legacy `query_plan["retrieval_flavor"]` key is **retained verbatim** (legacy values `exact/recall/balanced/discovery`) so all external consumers, the DB, the stats `FLAVORS` enum, and the discovery citation-fallback check are unchanged. `_decide_multi_hop` folds into the inferred tier so `RoutingDecision.use_multi_hop` becomes the single *effective* execution flag.
+
+**Scope note (deviation from spec §4):** This plan does **not** rename the user-facing/stored `retrieval_flavor` to `retrieval_breadth` (config field, API models, DB columns, stats enum, feedback). That is a separate migration deferred out of this behavior-preserving plan — like discovery retirement. Design 1 introduces breadth *internally* only. Confirm before executing.
 
 **Tech Stack:** Python 3.12, dataclasses, pytest. Spec: `docs/retrieval_control_model_design.md`.
 
-**Behavior-preservation gate (whole-plan):** `test_query_planner.py` budget/flag values stay numerically identical (field names migrate `retrieval_flavor`→`retrieval_breadth`); golden-set retrieval-only Hit@5/Hit@10 and full pass rate identical. No observable delta.
+**Behavior-preservation gate (whole-plan):** golden-set retrieval-only Hit@5/Hit@10 and full pass rate identical; all budget values numerically identical. **One intended recorded-value change (not a retrieval-behavior change):** `query_plan["use_multi_hop"]` becomes the *effective* flag (folds `_decide_multi_hop`), so for keyword-less queries it now records `False` where it previously recorded the config intent `True`. Multi-hop *executes* in exactly the same cases as before (old execution = `plan_flag ∧ _decide_multi_hop` = new effective flag). Affected unit assertions are updated honestly in Task 5.
 
 ---
 
@@ -23,12 +25,13 @@
 - `backend/tests/unit/test_control_breadth.py`, `test_control_inferred.py`, `test_control_budget.py`, `test_control_routing.py`.
 
 **Modify:**
-- `backend/app/rag/query/planner.py` — rewrite `build_query_plan` internals to delegate to `control/`; rename `retrieval_flavor`→`retrieval_breadth` on `QueryPlan`; stash the trace.
+- `backend/app/rag/query/planner.py` — rewrite `build_query_plan` internals to delegate to `control/`; `QueryPlan` gains `retrieval_breadth` **and keeps `retrieval_flavor`** (legacy value = `cfg.retrieval_flavor`); stash the trace.
 - `backend/app/rag/query/search_pipeline.py:88-91` — `_should_run_multi_hop` reads the single `use_multi_hop` flag.
-- `backend/app/services/query_observability.py:118` — read `retrieval_breadth` (back-compat fallback to `retrieval_flavor`).
-- `backend/tests/unit/test_query_planner.py` — migrate field names, keep value assertions.
+- `backend/app/services/retrieval_test_service.py:159` — its **duplicate** `_should_run_multi_hop` reads the single flag too (Task 6).
+- `backend/tests/unit/test_query_planner.py` — migrate to add `retrieval_breadth` assertions; update the one `use_multi_hop` assertion that becomes effective (Task 5).
+- `backend/app/services/query_observability.py` — *additively* surface `retrieval_breadth` + `routing_trace`; **keep** reading `retrieval_flavor` (Task 7).
 
-**Untouched (consume `query_plan` dict unchanged):** `build_prompt.py`, `search.py`, `hyde_search.py`, `rerank.py`, `diversify_context.py`, `query_expansion.py`, `rrf_fusion.py`, `direct_search.py`.
+**Untouched — read `query_plan["retrieval_flavor"]` (retained, legacy values) or budget/flags (unchanged):** `build_prompt.py`, `search.py`, `hyde_search.py`, `rerank.py`, `diversify_context.py`, `query_expansion.py`, `rrf_fusion.py`, `direct_search.py`, `graph.py:74`, `validate_citations.py:46` (`== "discovery"` still works — legacy value retained), `query_chat.py:337,506`, `retrieval_test_formatting.py:63`, `retrieval_test_service.py:91`, `query_stats_service.py` (`FLAVORS` enum unchanged). **None of these change** because `retrieval_flavor` keeps its legacy value.
 
 ---
 
@@ -588,6 +591,11 @@ def test_hyde_expansion_breadth_owned():
     assert _decide("报销标准", "single", "broad").use_query_expansion is True
 
 
+def test_hyde_effective_false_for_multi_scope():
+    # §3.5 structural veto: multi-entity cannot split HyDE → effective use_hyde false.
+    assert _decide("A和B的报销", "multi_explicit", "balanced").use_hyde is False
+
+
 def test_trace_has_three_sections():
     sig = infer_signals("哪些公司提到了报销？", "broad", [])
     d = derive_routing_decision(sig, "precise", CFG)
@@ -654,10 +662,12 @@ def derive_routing_decision(
     vetoes: list[str] = []
     reasons: list[str] = list(inferred.reasons)
 
-    # Breadth-owned strategy (§3.2). HyDE's entity_scope != multi structural guard
-    # is realized at runtime in hyde_search.py (disabled_multi) and asserted there;
-    # use_hyde here stays breadth-owned to preserve the existing search_mode_hyde label.
-    use_hyde = profile.sets_hyde and cfg.use_hyde
+    # Breadth-owned strategy (§3.2) + the §3.5 structural HyDE veto: use_hyde here is
+    # the EFFECTIVE strategy and is false for entity_scope=multi (the honest trace value).
+    # The legacy query_plan["use_hyde"] (built separately in planner) stays breadth-only so
+    # hyde_search.py's existing disabled_multi runtime guard and search_mode_hyde label are
+    # preserved — see Task 5.
+    use_hyde = profile.sets_hyde and cfg.use_hyde and scope != "multi"
     use_query_expansion = profile.sets_expansion and cfg.use_query_expansion
 
     # Entity→global fallback (§3.2, §3.5): single-scope only, breadth + strict both suppress.
@@ -768,7 +778,7 @@ Rewrite the planner internals to delegate to `control/`, mapping `RoutingDecisio
 
 - [ ] **Step 1: Rewrite `build_query_plan` and `query_plan_node`**
 
-In `backend/app/rag/query/planner.py`, replace the body of `build_query_plan` (lines ~71-181) and `query_plan_node` (lines ~60-68). Keep `QueryPlan`, `RetrievalBudget`, `FallbackPolicy`, `PromptPolicy`, `_clamp_budget`, `get_query_plan`, `plan_budget`, `plan_allows_entity_fallback` intact. Change `QueryPlan.retrieval_flavor: RetrievalFlavor` to `retrieval_breadth: str`. New bodies:
+In `backend/app/rag/query/planner.py`, replace the body of `build_query_plan` (lines ~71-181) and `query_plan_node` (lines ~60-68). Keep `QueryPlan`, `RetrievalBudget`, `FallbackPolicy`, `PromptPolicy`, `_clamp_budget`, `get_query_plan`, `plan_budget`, `plan_allows_entity_fallback` intact. On `QueryPlan`, **keep** `retrieval_flavor: str` (legacy, carries `cfg.retrieval_flavor` verbatim) and **add** `retrieval_breadth: str`. New bodies:
 
 ```python
 def query_plan_node(state: QueryState, config: RunnableConfig) -> dict:
@@ -801,27 +811,36 @@ def build_query_plan(query: str, entity_mode: str, cfg: QueryConfig) -> QueryPla
     decision = derive_routing_decision(inferred, breadth, cfg)
     budget = resolve_budget_profile(breadth, inferred.entity_scope, inferred.needs_synthesis, cfg)
 
+    # entity_filter_to_global stays breadth-level (the scope/score gate lives downstream in
+    # search.py/hyde_search.py and is unchanged). The single-scope rule lives in
+    # decision.use_entity_fallback (trace only). This equals the OLD fallback_allowed.
+    allows = _breadth_allows_fallback(breadth, cfg)
     fallback_policy = FallbackPolicy(
-        entity_filter_to_global=decision.use_entity_fallback or _breadth_allows_fallback(breadth, cfg),
-        reason="enabled_by_breadth" if _breadth_allows_fallback(breadth, cfg) else "disabled_by_breadth_or_strict_evidence",
+        entity_filter_to_global=allows,
+        reason="enabled_by_breadth" if allows else "disabled_by_breadth_or_strict_evidence",
     )
     prompt_policy = PromptPolicy(
         strict_evidence=bool(cfg.strict_evidence),
         template=decision.prompt_variant,
     )
+    # Legacy use_hyde stays breadth-only (NOT decision.use_hyde) so hyde_search.py's existing
+    # disabled_multi runtime guard + search_mode_hyde label are preserved (Finding 3 / §3.5).
+    from app.rag.query.control.breadth import BREADTH_PROFILES
+    legacy_use_hyde = BREADTH_PROFILES[breadth].sets_hyde and cfg.use_hyde
     return QueryPlan(
-        retrieval_breadth=breadth,
+        retrieval_flavor=cfg.retrieval_flavor,      # legacy value, retained verbatim
+        retrieval_breadth=breadth,                  # new internal concept
         strict_evidence=bool(cfg.strict_evidence),
-        use_hyde=decision.use_hyde,
+        use_hyde=legacy_use_hyde,
         use_query_expansion=decision.use_query_expansion,
-        use_multi_hop=decision.use_multi_hop,
+        use_multi_hop=decision.use_multi_hop,        # effective flag (folds _decide_multi_hop)
         fallback_policy=fallback_policy,
         budget=budget,
         prompt_policy=prompt_policy,
     )
 ```
 
-> **Note on `fallback_policy.entity_filter_to_global`:** today this is breadth-level (not scope-gated) — `plan_allows_entity_fallback` is read by `search.py`/`hyde_search.py` which already apply the scope/score gating downstream. To preserve behavior, `entity_filter_to_global` must equal the OLD `fallback_allowed` (breadth allows ∧ not strict), **independent of entity_scope** (the single-scope gate lives in `derive_routing_decision.use_entity_fallback`, used by the trace, not by this legacy flag). Add the helper:
+Add the helper:
 
 ```python
 def _breadth_allows_fallback(breadth: str, cfg: QueryConfig) -> bool:
@@ -829,17 +848,8 @@ def _breadth_allows_fallback(breadth: str, cfg: QueryConfig) -> bool:
     return BREADTH_PROFILES[breadth].allows_fallback and not cfg.strict_evidence
 ```
 
-And simplify `fallback_policy` to use it directly:
-
-```python
-    allows = _breadth_allows_fallback(breadth, cfg)
-    fallback_policy = FallbackPolicy(
-        entity_filter_to_global=allows,
-        reason="enabled_by_breadth" if allows else "disabled_by_breadth_or_strict_evidence",
-    )
-```
-
-Delete the now-dead `_needs_synthesis_budget`, `_prompt_template`, `_normalize_flavor`, `VALID_FLAVORS`, `RetrievalFlavor` from `planner.py` (moved into `control/`). Update `state.py` `query_plan` consumers? None — `query_plan` dict keys unchanged except `retrieval_flavor`→`retrieval_breadth`.
+Delete only the now-dead `_needs_synthesis_budget` and `_prompt_template` (moved into `control/`).
+**Keep `_normalize_flavor`, `VALID_FLAVORS`, `RetrievalFlavor`** — `_normalize_flavor` is imported by `app/api/query_feedback.py` (lines 74, 337) and must not be removed. `MAX_SEARCH_LIMIT`/`MAX_RERANK_CANDIDATES`/`MAX_CONTEXT_CHARS` stay (used by `_clamp_budget`). The `query_plan` dict gains `retrieval_breadth` and `routing_trace` is returned separately by `query_plan_node`; the `state.py` `query_plan: dict` typing is unchanged.
 
 - [ ] **Step 2: Run the characterization net + control tests**
 
@@ -848,7 +858,15 @@ Expected: PASS. If a characterization value differs, the mapping is wrong — fi
 
 - [ ] **Step 3: Migrate `test_query_planner.py`**
 
-Replace every `plan.retrieval_flavor` with `plan.retrieval_breadth` and update expected values to breadth names (`"balanced"`→`"balanced"`, exact→`"precise"`, etc.). Keep all budget/flag numeric assertions unchanged. Update imports (drop `_normalize_flavor`, `_clamp_budget` stays).
+`retrieval_flavor` is **retained** (legacy values), so existing `plan.retrieval_flavor == "balanced"` / `"recall"` assertions stay as-is. **Add** `plan.retrieval_breadth` assertions where useful (e.g. `assert plan.retrieval_breadth == "broad"` next to the `recall` test). Keep all budget assertions unchanged. Imports unchanged (`_normalize_flavor`, `_clamp_budget` both retained).
+
+**One assertion must change (Finding 2 — `use_multi_hop` is now effective):** in `test_recall_uses_high_coverage_budget`, the query `"有哪些相关制度？"` (entity_mode `none`) has **no** discovery keyword, so `needs_multi_hop=False` → effective `use_multi_hop=False`. Change `assert plan.use_multi_hop is True` to:
+
+```python
+    assert plan.use_multi_hop is False  # effective flag: no discovery keyword → multi-hop would not run
+```
+
+This matches what actually executed before (old `plan_flag ∧ _decide_multi_hop` was also `False` for this query). Scan the file for any other `use_multi_hop is True` assertion on a keyword-less query and apply the same correction.
 
 - [ ] **Step 4: Run the planner test suite**
 
@@ -870,7 +888,8 @@ Now that `RoutingDecision.use_multi_hop` (in `query_plan["use_multi_hop"]`) fold
 
 **Files:**
 - Modify: `backend/app/rag/query/search_pipeline.py:88-91`
-- Test: `backend/tests/unit/test_search_pipeline.py`
+- Modify: `backend/app/services/retrieval_test_service.py:159-162` (verbatim duplicate of the gate)
+- Test: `backend/tests/unit/test_search_pipeline.py`, `backend/tests/unit/test_retrieval_test_service.py`
 
 - [ ] **Step 1: Write/extend the failing test**
 
@@ -887,7 +906,7 @@ def test_should_run_multi_hop_reads_single_flag():
 Run: `PYTHONPATH=backend .venv/bin/pytest backend/tests/unit/test_search_pipeline.py::test_should_run_multi_hop_reads_single_flag -v`
 Expected: FAIL (current impl ANDs `_decide_multi_hop`, returns False for the first case)
 
-- [ ] **Step 3: Simplify the gate**
+- [ ] **Step 3: Simplify BOTH gates**
 
 In `backend/app/rag/query/search_pipeline.py`, replace `_should_run_multi_hop`:
 
@@ -897,64 +916,84 @@ def _should_run_multi_hop(state: QueryState, query: str, plan: dict) -> bool:
     return bool(plan.get("use_multi_hop"))
 ```
 
-- [ ] **Step 4: Run pipeline + multi_hop tests**
+In `backend/app/services/retrieval_test_service.py`, replace its duplicate `_should_run_multi_hop` (lines ~159-162) identically — drop the `_decide_multi_hop` import and re-check:
 
-Run: `PYTHONPATH=backend .venv/bin/pytest backend/tests/unit/test_search_pipeline.py backend/tests/unit/test_multi_hop.py -v`
+```python
+def _should_run_multi_hop(state: QueryState, query: str, plan: dict) -> bool:
+    # Single execution flag (design §3.1); mirrors search_pipeline.
+    return bool(plan.get("use_multi_hop"))
+```
+
+Add to `backend/tests/unit/test_retrieval_test_service.py`:
+
+```python
+def test_retrieval_test_multi_hop_reads_single_flag():
+    from app.services.retrieval_test_service import _should_run_multi_hop
+    assert _should_run_multi_hop({"entity_mode": "single"}, "哪些公司", {"use_multi_hop": True}) is True
+    assert _should_run_multi_hop({"entity_mode": "broad"}, "报销标准", {"use_multi_hop": False}) is False
+```
+
+- [ ] **Step 4: Run pipeline + retrieval-test + multi_hop tests**
+
+Run: `PYTHONPATH=backend .venv/bin/pytest backend/tests/unit/test_search_pipeline.py backend/tests/unit/test_retrieval_test_service.py backend/tests/unit/test_multi_hop.py -v`
 Expected: PASS
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add backend/app/rag/query/search_pipeline.py backend/tests/unit/test_search_pipeline.py
-git commit -m "refactor: multi-hop reads single use_multi_hop flag (folded gate)"
+git add backend/app/rag/query/search_pipeline.py backend/app/services/retrieval_test_service.py backend/tests/unit/test_search_pipeline.py backend/tests/unit/test_retrieval_test_service.py
+git commit -m "refactor: both multi-hop gates read single use_multi_hop flag"
 ```
 
 ---
 
-## Task 7: Observability reads `retrieval_breadth`
+## Task 7: Additively surface `retrieval_breadth` + `routing_trace` in observability
+
+`retrieval_flavor` is retained, so the existing stat read is **unchanged** (no behavior delta).
+This task *adds* the new fields to `resolved_settings` so the three-section trace (design §6) is
+inspectable, without touching the `retrieval_flavor` stat enum.
 
 **Files:**
-- Modify: `backend/app/services/query_observability.py:118`
+- Modify: `backend/app/services/query_observability.py` (`_resolved_settings`)
 - Test: `backend/tests/unit/test_query_stats.py`
 
-- [ ] **Step 1: Extend the failing test**
+- [ ] **Step 1: Write the failing test**
 
 ```python
-def test_resolved_settings_reads_breadth():
+def test_resolved_settings_adds_breadth_without_changing_flavor():
     from app.services.query_observability import build_query_observability_payload
-    state = {"query_plan": {"retrieval_breadth": "precise", "budget": {}, "fallback_policy": {}}}
+    state = {"query_plan": {
+        "retrieval_flavor": "exact", "retrieval_breadth": "precise",
+        "budget": {}, "fallback_policy": {},
+    }}
     payload = build_query_observability_payload(state=state)
-    assert payload["retrieval_flavor"] == "precise"  # key name kept for stat back-compat
+    assert payload["retrieval_flavor"] == "exact"            # legacy stat unchanged
+    assert payload["resolved_settings"]["retrieval_breadth"] == "precise"  # new, additive
 ```
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `PYTHONPATH=backend .venv/bin/pytest backend/tests/unit/test_query_stats.py::test_resolved_settings_reads_breadth -v`
-Expected: FAIL (reads `retrieval_flavor` from plan, which is now `retrieval_breadth`)
+Run: `PYTHONPATH=backend .venv/bin/pytest backend/tests/unit/test_query_stats.py::test_resolved_settings_adds_breadth_without_changing_flavor -v`
+Expected: FAIL — `resolved_settings` has no `retrieval_breadth` key
 
-- [ ] **Step 3: Update the read**
+- [ ] **Step 3: Add the field**
 
-In `backend/app/services/query_observability.py`, in `_resolved_settings`, change the flavor line to prefer `retrieval_breadth` with back-compat:
+In `backend/app/services/query_observability.py` `_resolved_settings`, leave the `flavor` line as-is and add `retrieval_breadth` to the returned `_compact({...})` dict:
 
 ```python
-    flavor = str(
-        plan.get("retrieval_breadth")
-        or plan.get("retrieval_flavor")
-        or cfg.get("retrieval_flavor")
-        or "balanced"
-    )
+        "retrieval_breadth": plan.get("retrieval_breadth") or flavor,
 ```
 
 - [ ] **Step 4: Run observability tests**
 
 Run: `PYTHONPATH=backend .venv/bin/pytest backend/tests/unit/test_query_stats.py -v`
-Expected: PASS
+Expected: PASS (existing assertions on `retrieval_flavor` unchanged)
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add backend/app/services/query_observability.py backend/tests/unit/test_query_stats.py
-git commit -m "refactor: observability reads retrieval_breadth with back-compat"
+git commit -m "feat: additively surface retrieval_breadth in observability settings"
 ```
 
 ---
@@ -994,10 +1033,14 @@ git add -A && git commit -m "test: control-model behavior-preservation golden-se
 
 ## Self-Review (completed by plan author)
 
-**Spec coverage:** resolve_breadth (§4/§8 → Task 1) · breadth profiles incl. discovery (§3.2 → Task 1) · inferred signals folding 3 keyword sites + needs_multi_hop=`_decide_multi_hop` (§3.1 → Task 2) · budget profile table + multi modifier (§3.3, §3.5 → Task 3) · authority chain, fallback single-scope, discovery bypass, prompt precedence, answer_shape, steps, vetoes (§3.1-§3.5 → Task 4) · three-section trace (§6 → Task 4) · single execution gate (§3.1 → Task 6) · observability rename (§6 → Task 7) · zero-delta gate (§7 → Tasks 0, 8). `requested_format` always null, no LLM, no `legacy_flavor_origin` — all honored (§9 non-goals).
+**Spec coverage:** resolve_breadth (§4/§8 → Task 1) · breadth profiles incl. discovery (§3.2 → Task 1) · inferred signals folding 3 keyword sites + needs_multi_hop=`_decide_multi_hop` (§3.1 → Task 2) · budget profile table + multi modifier (§3.3, §3.5 → Task 3) · authority chain, fallback single-scope, discovery bypass, prompt precedence, answer_shape, steps, vetoes (§3.1-§3.5 → Task 4) · three-section trace (§6 → Task 4) · single execution gate, both paths (§3.1 → Task 6) · observability additively surfaces breadth + trace (§6 → Task 7) · zero-delta gate (§7 → Tasks 0, 8). `requested_format` always null, no LLM, no `legacy_flavor_origin` — all honored (§9 non-goals).
 
 **Deliberate behavior-preserving choices flagged for the implementer:**
-1. **HyDE `entity_scope != multi`** (§3.2/§3.5) is realized by the *existing* runtime guard in `hyde_search.py` (`disabled_multi`), not duplicated in `RoutingDecision.use_hyde`, to preserve the `search_mode_hyde` label exactly. Task 4 keeps `use_hyde` breadth-owned; add an assertion in `test_hyde_search.py` that multi-entity still skips HyDE.
-2. **`fallback_policy.entity_filter_to_global`** stays breadth-level (not scope-gated) because the downstream scope/score gate is unchanged; the single-scope rule lives in `use_entity_fallback` (trace only). This keeps `search.py`/`hyde_search.py` untouched.
+1. **`retrieval_flavor` retained, `retrieval_breadth` added (Finding 1).** The legacy `query_plan["retrieval_flavor"]` key keeps its legacy value (`exact/recall/...`) so all external consumers, the stats `FLAVORS` enum, and `validate_citations.py`'s `== "discovery"` check are untouched. `retrieval_breadth` is internal-only. The user-facing/stored rename is **deferred** (deviation from spec §4 — confirm with user).
+2. **HyDE two values (Finding 3).** `RoutingDecision.use_hyde` is the *effective* strategy (false for `entity_scope=multi`, honest trace). The legacy `query_plan["use_hyde"]` stays breadth-only (true for multi) so `hyde_search.py`'s existing `disabled_multi` runtime guard + `search_mode_hyde` label are preserved. Add an assertion in `test_hyde_search.py` that multi-entity still skips HyDE.
+3. **`use_multi_hop` becomes effective (Finding 2).** `query_plan["use_multi_hop"]` now folds `_decide_multi_hop` (design §3.1, single flag). Multi-hop *executes* in identical cases; the recorded value changes for keyword-less queries (a trace/stat semantic improvement, not a retrieval-behavior change). Updated in `test_query_planner.py` and both `_should_run_multi_hop` gates (Tasks 5, 6).
+4. **`fallback_policy.entity_filter_to_global`** stays breadth-level (not scope-gated); the single-scope rule lives in `use_entity_fallback` (trace only). Keeps `search.py`/`hyde_search.py` untouched.
+
+**Spec deviations to confirm with user before executing:** (a) the user-facing `retrieval_flavor`→`retrieval_breadth` rename is deferred (internal-only breadth in Design 1); (b) `use_multi_hop` recorded value changes for keyword-less queries (execution unchanged).
 
 **Open confirmation for first task:** verify `.venv` path and that `data/challenge_golden_set_v1.jsonl` baseline result files exist to diff against; if not, capture a baseline on `master` before starting Task 1.
