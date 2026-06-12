@@ -52,9 +52,9 @@ if intent.inline_enabled:                                                   (ful
     merged  = merge_intent(det, result.markers)       (fallback_used when markers is None)
     merged_bundle = (merged, *route_for_intent(merged, breadth, cfg))
     gated_bundle  = trust_gate_bundle(merged_bundle, det_bundle)            (merged bundle iff
-                                                                            merged.confidence=="high",
+                                                                            activatable(merged),
                                                                             else det_bundle)
-    inline_shadow = build_inline_shadow(result, merged_bundle, det_bundle)
+    inline_shadow = build_inline_shadow(result, merged_bundle, det_bundle)  (records raw proposal vs det)
 else:
     merged, gated_bundle, inline_shadow = det, det_bundle, INACTIVE         (classifier never runs)
 
@@ -63,17 +63,30 @@ emitted_intent, emitted_decision, emitted_budget = emitted_bundle
 plan = _plan_from_routing(flavor, breadth, emitted_decision, emitted_budget, cfg)
 ```
 
+**One activation predicate, used by both the gate and the shadow:**
+
+```
+activatable(intent) = intent.confidence == "high" and not intent.fallback_used
+```
+
+The `not fallback_used` guard matters: `merge_intent(det, None)` *preserves* the deterministic
+confidence (`inferred.py:84`), so a classifier failure on an already-`high` deterministic case would
+otherwise produce a merged bundle with `confidence == "high"` and `fallback_used == True` — and the
+gate would "activate" it, surfacing `fallback_used` in the top-level emitted intent. A failed
+classifier must **never** drive, so `activatable` excludes fallbacks.
+
 **The whole bundle is selected together, so intent, decision, and budget never disagree.**
-`trust_gate_bundle(merged_bundle, det_bundle)` returns the **merged** bundle iff
-`merged.confidence == "high"`, else the **deterministic** bundle. Two consequences this fixes:
+`trust_gate_bundle(merged_bundle, det_bundle)` returns the **merged** bundle iff `activatable(merged)`,
+else the **deterministic** bundle. Two consequences:
 
 1. *Budget tracks decision* (Finding 1): a merged-intent route can't inherit the deterministic
    budget — they come from the same bundle. Without this, a synthesis/discovery route would get a
    mismatched `budget`, `budget.reason`, and (via `decision.prompt_variant`) `prompt_policy`.
-2. *Intent tracks decision* (Finding 2): when the gate falls back on low/medium confidence, the
-   emitted **intent is the deterministic one** — so top-level `routing_trace.intent` is deterministic
-   exactly when the emitted decision is. The merged proposal is *only* in `inline_shadow`; it never
-   leaks into the top-level trace unless it actually won the gate (`confidence == "high"` and active).
+2. *Intent tracks decision* (Finding 2): on fallback or low/medium confidence, the emitted **bundle
+   is the pristine deterministic one** — so top-level `routing_trace.intent` is deterministic exactly
+   when the emitted decision is, never a `fallback_used` artifact. The merged proposal is *only* in
+   `inline_shadow`; it reaches the top-level trace solely when it wins the gate (`activatable` and
+   `active_mode`).
 
 `route_for_intent(intent, breadth, cfg)` denotes the per-intent budget+derive step the planner
 *already* performs for the deterministic route (`resolve_budget_profile` → `derive_routing_decision`,
@@ -82,14 +95,6 @@ factors it into a small **planner-local** helper so deterministic and merged rou
 identically. It is **not** an import from `control/route_scoring.py` — that module is offline scoring
 and must not be pulled into the live path; if a single shared helper is wanted, it moves to
 `control/routing.py` and both the planner and the scorer import it from there.
-
-`route_for_intent(intent, breadth, cfg)` denotes the per-intent budget+derive step the planner
-*already* performs for the deterministic route (`resolve_budget_profile` → `derive_routing_decision`,
-`planner.py:92-93`), now returning the `(decision, budget)` pair. 2C-2 factors it into a small
-**planner-local** helper so deterministic and merged routes resolve identically. It is **not** an
-import from `control/route_scoring.py` — that module is offline scoring and must not be pulled into
-the live path; if a single shared helper is wanted, it moves to `control/routing.py` and both the
-planner and the scorer import it from there.
 
 ### Two flags (both default off)
 
@@ -192,8 +197,8 @@ key:
   "merged_markers": { "needs_synthesis": true, "needs_discovery": false, "needs_multi_hop": false },
   "merged_reasons": ["llm:implicit comparison across entities"],
   "merged_source": "llm",
-  "would_be_execution": { "...gated route execution dict..." },
-  "diverged": true,
+  "proposal_execution": { "...merged-bundle route execution dict (raw LLM proposal, pre-gate)..." },
+  "proposal_diverged": true,
   "activatable_diverged": true
 }
 ```
@@ -207,10 +212,16 @@ key:
   `confidence == "high"`, and otherwise still the deterministic intent (the gate fell back). So even
   post-flip, top-level intent never shows an un-activated merged proposal. `query_plan` byte-for-byte
   stability is asserted only for the 2C-2 `(on, off)` state, not across the 2C-3 flip.
-- `diverged` — `would_be_execution != det execution`, using the existing normalized
-  execution-field comparison (`decision_execution_dict`), not reasons/vetoes.
-- `activatable_diverged` — `diverged AND confidence == "high"`. The headline: these queries change
-  behavior the moment `active_mode` flips.
+- `proposal_execution` — the execution dict of the **merged bundle's** decision, i.e. the **raw LLM
+  proposal route, before the gate**. This is deliberately pre-gate so the shadow can record *all*
+  proposal divergence, including low/medium-confidence proposals the gate would reject.
+- `proposal_diverged` — `proposal_execution != det execution`, using the existing normalized
+  execution-field comparison (`decision_execution_dict`), not reasons/vetoes. Can be true at any
+  confidence (this is what makes a "diverged-low, not activatable" case representable).
+- `activatable_diverged` — `proposal_diverged AND activatable(merged)` (i.e. `confidence == "high"`
+  and not `fallback_used`). The headline: exactly the queries whose route changes the moment
+  `active_mode` flips. `proposal_diverged && !activatable_diverged` is the safe, non-activating
+  divergence bucket.
 - `fallback_reason` ∈ `none | timeout | error | parse_fail` (from the `ClassifyResult` envelope).
 - When `intent.inline_enabled=false`: `ran=false`, `fallback_reason="none"`, and the
   merged/comparison fields are omitted/null.
@@ -244,11 +255,11 @@ The 2D-deletable scaffolding is named and co-located so removal is one cut:
   `emitted_bundle = gated_bundle if intent.active_mode else det_bundle`.
 - **2D deletion is mechanical:** drop both flag reads, make `_inline_intent` unconditional (rename to
   the permanent classifier step), set `emitted_bundle = gated_bundle` always, delete
-  `diverged`/`activatable_diverged`/`would_be_execution` (degenerate once `gated_bundle` *is* the
-  plan). What remains is the permanent residue: inline classifier + merge + gate +
+  `proposal_diverged`/`activatable_diverged`/`proposal_execution` (degenerate once `gated_bundle` *is*
+  the plan). What remains is the permanent residue: inline classifier + merge + gate +
   `latency_ms`/`fallback` telemetry + WARN counters.
-- **No `would_be` logic leaks** into `_plan_from_routing` or downstream nodes — they only ever see
-  the single `emitted_decision`. That containment is what makes the cut clean.
+- **No proposal/shadow logic leaks** into `_plan_from_routing` or downstream nodes — they only ever
+  see the single `emitted_bundle`. That containment is what makes the cut clean.
 
 ### What survives 2D vs what's scaffolding
 
@@ -261,7 +272,7 @@ The 2D-deletable scaffolding is named and co-located so removal is one cut:
 | `intent.inline_enabled` (runtime_settings) | deleted (classifier always runs) |
 | `intent.active_mode` (runtime_settings) | deleted (or collapses to a plain kill switch) |
 | `INTENT_CLASSIFIER_INLINE_TIMEOUT` (env) | permanent — the inline budget |
-| `would_be` / `diverged` / `activatable_diverged` | deleted (degenerate) |
+| `proposal_execution` / `proposal_diverged` / `activatable_diverged` | deleted (degenerate) |
 | `scripts/report_inline_shadow.py` | archived |
 
 ## Testing
@@ -277,10 +288,13 @@ The 2D-deletable scaffolding is named and co-located so removal is one cut:
 3. **Failure → deterministic fallback.** Stub `classify_intent_inline` to return each
    `fallback_reason` (`timeout`/`error`/`parse_fail`): no exception escapes, `fallback_used=True`,
    `inline_shadow.fallback_reason` set correctly, plan equals the deterministic route in both active
-   states.
-4. **Trace fields.** Assert `inline_shadow.ran/diverged/activatable_diverged/latency_ms` and the
-   `merged_*` audit fields for diverged-high (activatable), diverged-low (not activatable), and
-   converged cases.
+   states. **Include the `det.confidence=="high"` fallback case** (Finding 2): assert
+   `activatable(merged)` is false and the emitted bundle is the pristine `det_bundle` — a failed
+   classifier never activates even when deterministic confidence was high.
+4. **Trace fields.** Assert `inline_shadow.ran/proposal_diverged/activatable_diverged/latency_ms` and
+   the `merged_*` audit fields across: diverged-high (`proposal_diverged && activatable_diverged`),
+   diverged-low (`proposal_diverged && !activatable_diverged` — proposal differs but confidence
+   medium/low), and converged (`!proposal_diverged`) cases.
 5. **Kill switch.** `(inline=off)`: `classify_intent_inline` is **not called** (mock asserts zero
    calls), `inline_shadow.ran=false`, `fallback_reason="none"`.
 6. **Offline report unit.** Synthetic `query_run_stats` rows → aggregator; assert error rate, p95
