@@ -47,8 +47,10 @@ def classify_intent_llm(query: str, deterministic: InferredSignals) -> LlmMarker
     ...  # returns parsed markers, or None on any error/timeout/parse-fail
 ```
 
-- **Model / params:** `settings.INTENT_CLASSIFIER_MODEL` (defaults to `settings.CHAT_MODEL`),
-  `INTENT_CLASSIFIER_TEMPERATURE = 0`, bounded `INTENT_CLASSIFIER_MAX_TOKENS`,
+- **Model / params (settings in `backend/app/config.py`):** `INTENT_CLASSIFIER_MODEL` defaults to
+  `""` and is resolved at the call site as `settings.INTENT_CLASSIFIER_MODEL or settings.CHAT_MODEL`
+  (don't default one settings field to another inside the `Settings` class). Plus
+  `INTENT_CLASSIFIER_TEMPERATURE = 0.0`, bounded `INTENT_CLASSIFIER_MAX_TOKENS`,
   `INTENT_CLASSIFIER_TIMEOUT` — same settings shape as HyDE/groundedness.
 - **Strict JSON schema** (the LLM output contract):
   ```json
@@ -57,14 +59,18 @@ def classify_intent_llm(query: str, deterministic: InferredSignals) -> LlmMarker
   ```
   `requested_format` is **out of scope** in 2B (presentation, not routing — deferred). `entity_scope`
   is **not** asked of the LLM (§3).
-- **Robust parse:** reuse groundedness's strict→fenced→stripped JSON extraction. Validate the
-  shape (booleans + enum) before returning; anything off-contract → treat as parse-fail.
+- **Robust parse:** **extract a shared `parse_llm_json_object(raw) -> dict | None` helper** (the
+  strict→fenced→stripped algorithm currently inside groundedness's private `_parse_groundedness`)
+  into a small shared util, and have both groundedness and the classifier call it — do **not**
+  import the private `_parse_groundedness`. Then validate the classifier shape (booleans + enum)
+  before returning; anything off-contract → treat as parse-fail.
 - **Failure handling:** any exception / timeout / parse-fail / schema-violation → return `None`.
   The merge (§3) turns `None` into a clean deterministic fallback. The classifier never raises to
   its caller.
 
 `LlmMarkers` is a small frozen dataclass: `needs_synthesis: bool`, `needs_discovery: bool`,
-`confidence: str`, `reasons: list[str]`.
+`confidence: Confidence` (reuse the existing `Confidence` alias from `control/inferred.py`, not
+plain `str`), `reasons: list[str]`.
 
 ### Prompt shape
 A short role/task block + the compact schema + minimal rules: "Classify the *routing intent* of a
@@ -103,15 +109,40 @@ On fallback (`llm is None`) the result is the deterministic intent verbatim exce
 
 A script under `backend/scripts/` mirroring `eval_golden_set.py` (CLI, concurrency, JSONL output).
 
-- **Corpus reconstruction:** read `query_run_stats` rows; from `query` (raw text) and `settings_json`
-  recover `entity_mode`, `selected_entities`, and the logged deterministic `intent.confidence`. Skip
-  rows lacking the needed fields. (No new live logging — 2A already persists all of this.)
-- **Replayed bucket:** rows with `confidence ∈ {medium, low}` (the escalation bucket), **plus a
-  bounded random sample of `high`-confidence rows** as a control (the LLM should mostly agree).
-- **Per row:** run `classify_intent_llm` → `merge_intent` → `derive_routing_decision(merged, breadth,
-  cfg)`; compare its `_decision_execution_dict` against the row's logged Design 1 decision.
-- **Concurrency / cost controls:** `--limit`, `--concurrency`, `--delay`, `--high-sample-size`,
-  `--since` (date filter). Deterministic-only rows are never escalated.
+**Source-of-truth table — reconstruct from the logged row; do NOT recompute from current code:**
+
+| Replay input | Source (per `query_run_stats` row) |
+|---|---|
+| query text | `query` column |
+| `entity_mode`, `selected_entities` | `settings_json.resolved_settings` |
+| deterministic intent (`entity_scope`, markers, `confidence`) | `settings_json.routing_trace.intent` |
+| **baseline** `logged_design1_decision` | `settings_json.routing_trace.routing_decision` — **the logged Design 1 decision, not recomputed** |
+| raw infra `enable_hyde / enable_query_expansion / enable_multi_hop` | `settings_json.routing_trace.infra` — **not** top-level `resolved_settings.use_*` (those are *effective* plan outputs; a deterministic query that didn't need multi-hop logs `use_multi_hop=false` even when `cfg.use_multi_hop` was on, which would wrongly veto an LLM discovery flip in replay) |
+| `retrieval_breadth`, `strict_evidence` | `settings_json.routing_trace.policy` |
+
+Rows without a `routing_trace` (pre-2A) are **skipped** and counted (coverage metric §5).
+
+**Replayed bucket (explicit):** rows with deterministic `confidence ∈ {medium, low}` are **always**
+replayed; a bounded random sample of `high`-confidence rows is replayed as a **control**; all other
+`high` rows are **skipped** (counted in coverage). No live row is ever escalated on the request path
+— replay is entirely offline.
+
+**Per row:**
+1. `llm = classify_intent_llm(query, deterministic_intent)`.
+2. `merged = merge_intent(deterministic_intent, llm)`.
+3. Reconstruct a replay `QueryConfig`: behavioral flags from the **logged trace** —
+   `use_hyde / use_query_expansion / use_multi_hop ← infra.enable_*`,
+   `strict_evidence ← policy.strict_evidence`, and a `retrieval_flavor` consistent with
+   `policy.retrieval_breadth`; numeric budget params (`search_limit`, `rrf_max_results`,
+   `rerank_max_top_k`, `hyde_limit`) from the **current** stable `QueryConfig` defaults (global, not
+   per-query — budget tiers are stable config).
+4. `budget = resolve_budget_profile(breadth, merged.entity_scope, merged.needs_synthesis, replay_cfg)`.
+5. `merged_decision = derive_routing_decision(merged, breadth, replay_cfg, budget_reason=budget.reason)`.
+6. `diverged = execution_fields(merged_decision) != execution_fields(logged_design1_decision)`
+   (same field subset as 2A's `_decision_execution_dict`, extracted from the logged decision dict);
+   `activatable = diverged and merged.confidence == "high"`.
+
+**Concurrency / cost controls:** `--limit`, `--concurrency`, `--delay`, `--high-sample-size`, `--since`.
 
 ### Artifacts (mirror `eval_golden_set`)
 - `data/intent_2b_replay_<date>.jsonl` — per query: `{ query, entity_scope, det_markers,
@@ -129,11 +160,21 @@ All descriptive (correctness is 2C):
 | Per-dimension disagreement rate | LLM vs deterministic on `needs_synthesis`, `needs_discovery`, and re-derived `needs_multi_hop` |
 | Confidence-lift rate | fraction where LLM raises a `medium`/`low` to `high` (would un-gate the trust gate in 2C) |
 | Shadow-divergence rate | fraction where the merged-intent routing decision differs from Design 1 (execution-field comparison) |
-| **Activatable-divergence rate** | **divergences at LLM-`high` confidence — the routes that would actually drive once 2C flips the gate. The headline go/no-go number.** |
+| **Activatable-divergence rate** | **divergences at LLM-`high` confidence — the routes that would actually drive once 2C flips the gate. The headline sizing signal.** |
 | Fallback rate | LLM error/timeout/parse-fail → deterministic |
+| Replay coverage / skipped-row rate | replayed rows vs total candidate rows (and why rows were skipped: no `routing_trace`, unsampled `high`) |
+| High-control activatable-divergence rate | activatable-divergence within the `high` control sample — should be low; a high value flags an over-eager LLM or a deterministic-`high` mis-bucketing |
 
 Break each down by the deterministic bucket (`medium` vs `low`) and report the `high`-control
-agreement rate separately.
+sample separately.
+
+**Readiness gates named in 2B are *operational only* — not correctness gates** (correctness needs
+labels, which arrive in 2C). The pre-2C operational gates are: (a) **replay coverage** is sufficient
+(enough escalation-bucket rows actually classified); (b) **fallback / parse-fail rate** is under a
+cap (the classifier is reliable enough to be worth wiring); (c) **high-control agreement** is not
+alarming (the LLM isn't randomly diverging on easy cases). The **activatable-divergence rate** is the
+headline *sizing* signal — "how much would change" — **not proof the changes are correct.** That
+proof is 2C's job.
 
 ---
 
@@ -142,10 +183,11 @@ agreement rate separately.
 | Unit | Responsibility | Where |
 |---|---|---|
 | `classify_intent_llm` | query → `LlmMarkers` (strict JSON, temp 0, never raises) | `backend/app/rag/query/control/llm_classifier.py` (new) |
-| `LlmMarkers` | frozen dataclass of the LLM output contract | same file |
+| `LlmMarkers` | frozen dataclass of the LLM output contract (`confidence: Confidence`) | same file |
 | `merge_intent` | deterministic scope + LLM markers → `InferredSignals` | `backend/app/rag/query/control/inferred.py` |
+| `parse_llm_json_object` | shared strict→fenced→stripped JSON extractor (refactored out of groundedness) | small shared util; groundedness + classifier both call it |
 | `replay_intent_classifier.py` | offline corpus replay → artifacts | `backend/scripts/` |
-| settings | `INTENT_CLASSIFIER_MODEL / _TEMPERATURE / _MAX_TOKENS / _TIMEOUT` | `backend/app/core/config` (settings) |
+| settings | `INTENT_CLASSIFIER_MODEL / _TEMPERATURE / _MAX_TOKENS / _TIMEOUT` | `backend/app/config.py` (`Settings`) |
 
 `classify_intent_llm` and `merge_intent` are pure/isolated and **unit-tested with a mocked LLM**:
 clean JSON, fenced JSON, garbage → fallback, timeout → fallback, schema-violation → fallback, and a
@@ -157,12 +199,15 @@ marker flip (`needs_discovery` false→true on a `none`-scope query) correctly f
 ## 7. Acceptance
 
 - **Live path unchanged:** 2B adds no request-path code; golden-set retrieval-only + full still
-  match the accepted Design 1 baseline.
+  match the accepted Design 1 baseline. The `parse_llm_json_object` refactor is behavior-preserving —
+  existing groundedness parser tests still pass against the extracted helper.
 - **Unit tests green:** classifier (all parse/fallback paths) + merge (ownership, re-derivation,
-  fallback provenance).
+  fallback provenance) + the shared parser helper.
 - **Replay produces evidence:** one replay run over a recent `query_run_stats` window yields the
   artifacts and a readable summary; the **activatable-divergence rate** and per-dimension
-  disagreement profile are the evidence carried into the 2C go/no-go review.
+  disagreement profile are the *sizing* evidence carried into the 2C go/no-go review, gated by the
+  §5 **operational** readiness checks (coverage, fallback/parse-fail under cap, high-control not
+  alarming). Correctness is not asserted in 2B.
 
 ---
 
