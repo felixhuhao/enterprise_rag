@@ -105,3 +105,34 @@ def test_merge_intent_rederives_multi_hop_from_scope_and_discovery():
 
     assert merged.entity_scope == "none"
     assert merged.needs_multi_hop is True
+
+
+def test_merge_intent_preserves_deterministic_positive_markers():
+    deterministic = infer_signals("比较甲公司的报销标准", "single", [])
+    llm = LlmMarkers(
+        needs_synthesis=False,
+        needs_discovery=False,
+        confidence="high",
+        reasons=["plain lookup"],
+    )
+
+    merged = merge_intent(deterministic, llm)
+
+    assert merged.needs_synthesis is True
+    assert "synthesis:marker" in merged.reasons
+
+
+def test_merge_intent_preserves_deterministic_discovery_and_rederives_multi_hop():
+    deterministic = infer_signals("谁负责报销审批？", "none", [])
+    llm = LlmMarkers(
+        needs_synthesis=False,
+        needs_discovery=False,
+        confidence="high",
+        reasons=["plain lookup"],
+    )
+
+    merged = merge_intent(deterministic, llm)
+
+    assert merged.needs_discovery is True
+    assert merged.needs_multi_hop is True
+    assert "discovery:keyword" in merged.reasons

@@ -88,12 +88,14 @@ def merge_intent(deterministic: InferredSignals, llm: "LlmMarkers | None") -> In
             fallback_used=True,
         )
 
-    needs_multi_hop = deterministic.entity_scope in ("broad", "none") and llm.needs_discovery
+    needs_synthesis = deterministic.needs_synthesis or llm.needs_synthesis
+    needs_discovery = deterministic.needs_discovery or llm.needs_discovery
+    needs_multi_hop = deterministic.entity_scope in ("broad", "none") and needs_discovery
     llm_reasons = [f"llm:{reason}" for reason in llm.reasons]
     return dataclasses.replace(
         deterministic,
-        needs_synthesis=llm.needs_synthesis,
-        needs_discovery=llm.needs_discovery,
+        needs_synthesis=needs_synthesis,
+        needs_discovery=needs_discovery,
         needs_multi_hop=needs_multi_hop,
         confidence=llm.confidence,
         reasons=[*deterministic.reasons, *llm_reasons],

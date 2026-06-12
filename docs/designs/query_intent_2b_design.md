@@ -92,7 +92,10 @@ def merge_intent(deterministic: InferredSignals, llm: LlmMarkers | None) -> Infe
 
 - **`entity_scope`** ← deterministic, untouched (authoritative entity-linking grounding; the LLM
   has no entity table and is never asked for it).
-- **`needs_synthesis`, `needs_discovery`** ← LLM when it ran; deterministic on fallback.
+- **`needs_synthesis`, `needs_discovery`** ← monotonic merge: deterministic-positive markers are
+  sticky, and the LLM may only add missing markers (`deterministic OR llm`). On fallback the
+  deterministic markers are preserved unchanged. This protects high-precision keyword/control cases
+  from high-confidence LLM erasure while still allowing 2B to recover implicit markers.
 - **`needs_multi_hop`** ← **re-derived** from `(deterministic entity_scope, merged needs_discovery)`
   using the exact existing rule (`scope ∈ {broad, none} AND needs_discovery`). "Derive once",
   better input — not taken from the LLM directly.
