@@ -38,35 +38,50 @@ activation flip. It is **not** a behavior change — correctness against labels 
 All changes land in `backend/app/rag/query/planner.py` (`_resolve_routing`, `query_plan_node`) plus
 the trace builder in `control/routing.py`. The resolution flow:
 
+A **routing bundle** is the triple `(intent, decision, budget)` — the three things that must stay
+mutually consistent because `_plan_from_routing` derives `prompt_policy`/`budget.reason` from the
+*decision* and the budget is resolved from the *intent*. The gate selects a whole bundle, never a
+loose decision.
+
 ```
-infer_signals(query, entity_mode, matched)            → det                (always)
-det_decision,  det_budget  = route_for_intent(det, breadth, cfg)            (always; authoritative
+det_bundle = (det, *route_for_intent(det, breadth, cfg))                    (always; authoritative
                                                                             entity_scope + safe-default floor)
 
-if INLINE_ENABLED:                                                          (full traffic, synchronous)
+if intent.inline_enabled:                                                   (full traffic, synchronous)
     result  = classify_intent_inline(query, det)      (envelope: markers|None, reason, latency_ms)
     merged  = merge_intent(det, result.markers)       (fallback_used when markers is None)
-    merged_decision, merged_budget = route_for_intent(merged, breadth, cfg)
-    gated_decision, gated_budget   = trust_gate_with_budget(
-                                         merged, (merged_decision, merged_budget),
-                                                 (det_decision,    det_budget))   (real, not inert)
+    merged_bundle = (merged, *route_for_intent(merged, breadth, cfg))
+    gated_bundle  = trust_gate_bundle(merged_bundle, det_bundle)            (merged bundle iff
+                                                                            merged.confidence=="high",
+                                                                            else det_bundle)
+    inline_shadow = build_inline_shadow(result, merged_bundle, det_bundle)
 else:
-    merged = det
-    gated_decision, gated_budget = det_decision, det_budget                 (classifier never runs)
+    merged, gated_bundle, inline_shadow = det, det_bundle, INACTIVE         (classifier never runs)
 
-emitted_decision, emitted_budget = (
-    (gated_decision, gated_budget) if ACTIVE_MODE else (det_decision, det_budget))   (dark-wiring branch)
+emitted_bundle = gated_bundle if intent.active_mode else det_bundle         (the dark-wiring branch)
+emitted_intent, emitted_decision, emitted_budget = emitted_bundle
 plan = _plan_from_routing(flavor, breadth, emitted_decision, emitted_budget, cfg)
 ```
 
-**Decision and budget travel together.** `_plan_from_routing` already takes `budget` separately
-(`planner.py:97`), and the budget is resolved *from the intent* (`entity_scope`, `needs_synthesis` —
-`planner.py:92`). If the gated decision came from the merged intent but the plan kept the
-deterministic budget, a synthesis/discovery route would get a mismatched `budget`, `budget.reason`,
-and (via `decision.prompt_variant`) `prompt_policy`. So the route helper returns **`(decision,
-budget)`** as a pair, the trust gate selects the *matching* pair, and `emitted_budget` tracks
-`emitted_decision`. `trust_gate_with_budget` is `trust_gate` lifted to carry the budget alongside its
-decision (returns the merged pair iff `confidence == "high"`, else the deterministic pair).
+**The whole bundle is selected together, so intent, decision, and budget never disagree.**
+`trust_gate_bundle(merged_bundle, det_bundle)` returns the **merged** bundle iff
+`merged.confidence == "high"`, else the **deterministic** bundle. Two consequences this fixes:
+
+1. *Budget tracks decision* (Finding 1): a merged-intent route can't inherit the deterministic
+   budget — they come from the same bundle. Without this, a synthesis/discovery route would get a
+   mismatched `budget`, `budget.reason`, and (via `decision.prompt_variant`) `prompt_policy`.
+2. *Intent tracks decision* (Finding 2): when the gate falls back on low/medium confidence, the
+   emitted **intent is the deterministic one** — so top-level `routing_trace.intent` is deterministic
+   exactly when the emitted decision is. The merged proposal is *only* in `inline_shadow`; it never
+   leaks into the top-level trace unless it actually won the gate (`confidence == "high"` and active).
+
+`route_for_intent(intent, breadth, cfg)` denotes the per-intent budget+derive step the planner
+*already* performs for the deterministic route (`resolve_budget_profile` → `derive_routing_decision`,
+`planner.py:92-93`), returning the `(decision, budget)` pair (the bundle prepends `intent`). 2C-2
+factors it into a small **planner-local** helper so deterministic and merged routes resolve
+identically. It is **not** an import from `control/route_scoring.py` — that module is offline scoring
+and must not be pulled into the live path; if a single shared helper is wanted, it moves to
+`control/routing.py` and both the planner and the scorer import it from there.
 
 `route_for_intent(intent, breadth, cfg)` denotes the per-intent budget+derive step the planner
 *already* performs for the deterministic route (`resolve_budget_profile` → `derive_routing_decision`,
@@ -86,6 +101,13 @@ the classifier *tuning* params (`INTENT_CLASSIFIER_MODEL`, `_TIMEOUT`, `_TEMPERA
 `_MAX_TOKENS`), which stay in env-backed pydantic `Settings` where a restart is acceptable. Putting
 the kill switch in env `Settings` would make "no deploy" false; putting it in `runtime_settings`
 makes the instant flip real.
+
+**The two keys are registered in `_DEFAULTS`** (`runtime_settings.py:10`), not left to falsy-by-
+absence. Today `_DEFAULTS` is generated purely from `QueryConfig`; 2C-2 adds two static entries
+(`"intent.inline_enabled": "false"`, `"intent.active_mode": "false"`). This makes them visible to the
+settings API and the report before any first write, and gives `get_cached` a real default. A small
+helper `_intent_flag(key) -> bool` does the `"true"/"false"` string→bool read so the planner doesn't
+parse strings inline.
 
 | Flag (runtime_settings key) | Meaning | Role |
 | --- | --- | --- |
@@ -117,16 +139,31 @@ while inert (a hang would delay every plan). Three layers:
    should keep a generous budget so batch runs aren't skewed by spurious timeouts). 2C-2 adds a
    separate `INTENT_CLASSIFIER_INLINE_TIMEOUT` (`6s`) used **only** by the inline wrapper — blocking
    the request path for 30s is unacceptable. The offline `INTENT_CLASSIFIER_TIMEOUT` is left at 30s.
-2. **Failure → deterministic fallback via a result envelope.** `classify_intent_llm` currently
-   collapses timeout/error/parse-fail into a bare `None`, so it cannot tell the three apart. 2C-2
-   adds a thin inline wrapper `classify_intent_inline(query, det) -> ClassifyResult` that times the
-   call and classifies the failure: `TimeoutError` → `"timeout"`, any other exception → `"error"`,
-   a successful call whose body fails `parse_llm_markers` → `"parse_fail"`, success → `"none"`. The
-   envelope is `ClassifyResult(markers: LlmMarkers | None, fallback_reason: str, latency_ms: int)`.
+2. **Failure → deterministic fallback via a result envelope over a shared raw seam.**
+   `classify_intent_llm` currently catches *every* exception and parse failure into a bare `None`
+   (`llm_classifier.py:38`), so a wrapper around it **cannot** recover the reason — the information is
+   already lost inside the `except`. So 2C-2 factors out the raw seam rather than wrapping the lossy
+   function:
+   - `_invoke_classifier(query, det, timeout) -> str` — builds the `ChatOpenAI` client and invokes
+     it, returning the raw response content. It does **not** catch; timeout/transport exceptions
+     propagate.
+   - `classify_intent_inline(query, det) -> ClassifyResult` owns the try/except and the taxonomy:
+     `_is_timeout(exc)` → `"timeout"`, any other exception → `"error"`, a successful call whose body
+     fails `parse_llm_markers` → `"parse_fail"`, success → `"none"`. It times the call and applies
+     `_calibrate_confidence`. Envelope:
+     `ClassifyResult(markers: LlmMarkers | None, fallback_reason: str, latency_ms: int)`.
+   - `_is_timeout(exc)` recognizes the real provider/client timeout types, not just builtin
+     `TimeoutError` — `openai.APITimeoutError`, `httpx.TimeoutException`, `concurrent.futures.TimeoutError`
+     (matched defensively by class name to avoid hard imports), falling through to `"error"` otherwise.
+     The plan includes a unit test asserting each of these classifies as `"timeout"`.
+   - `classify_intent_llm` is **refactored to delegate** to `_invoke_classifier` + `parse_llm_markers`
+     + `_calibrate_confidence` inside its existing `except → None`, so it keeps its `-> LlmMarkers |
+     None` contract and the offline scorer/replay are unchanged, while sharing one invoke/parse seam
+     with the inline path (no duplicated ChatOpenAI construction).
+
    `merge_intent(det, result.markers)` returns the deterministic intent with `fallback_used=True`
    whenever `markers is None`. A classifier failure degrades to the exact 2A route — never an
-   exception into the request path. `classify_intent_llm` is left unchanged so the offline
-   scorer/replay keep their existing signature.
+   exception into the request path.
 3. **Kill switch = `intent.inline_enabled=false`.** Skips the wrapper call entirely — instant removal
    of added latency/cost, back to 2A resting state, no restart (runtime_settings flip).
 4. **WARN counters (kill switch's eyes).** On every fallback path emit a structured WARN with
@@ -161,13 +198,15 @@ key:
 }
 ```
 
-- **Top-level `routing_trace.intent` stays the *emitted* intent.** In 2C-2 (`active_mode=false`) the
-  emitted intent is deterministic, so the top-level intent/decision fields are byte-for-byte 2A —
-  the trace's primary fields stay stable. The merged would-be view (markers, reasons, source,
-  confidence) lives **inside** `inline_shadow` for audit, so a reviewer sees exactly what the LLM
-  proposed without the top-level trace shifting. When `active_mode` flips at 2C-3 the top-level
-  intent/decision become the merged/gated ones by construction; `query_plan` byte-for-byte stability
-  is asserted only for the 2C-2 `(on, off)` state, not across the 2C-3 flip.
+- **Top-level `routing_trace.intent` is the *emitted bundle's* intent.** Because the gate selects a
+  whole bundle, the top-level intent always matches the emitted decision/budget. In 2C-2
+  (`active_mode=false`) the emitted bundle is the deterministic one, so the top-level intent/decision
+  fields are byte-for-byte 2A. The merged would-be view (markers, reasons, source, confidence) lives
+  **inside** `inline_shadow` for audit. When `active_mode` flips at 2C-3, the top-level intent
+  becomes the **gated** bundle's intent — which is the merged intent *only when*
+  `confidence == "high"`, and otherwise still the deterministic intent (the gate fell back). So even
+  post-flip, top-level intent never shows an un-activated merged proposal. `query_plan` byte-for-byte
+  stability is asserted only for the 2C-2 `(on, off)` state, not across the 2C-3 flip.
 - `diverged` — `would_be_execution != det execution`, using the existing normalized
   execution-field comparison (`decision_execution_dict`), not reasons/vetoes.
 - `activatable_diverged` — `diverged AND confidence == "high"`. The headline: these queries change
@@ -199,16 +238,15 @@ reviews the `activatable_diverged` rows before 2C-3.
 
 The 2D-deletable scaffolding is named and co-located so removal is one cut:
 
-- **One gating function** `_inline_intent(query, det, (det_decision, det_budget), breadth, cfg) ->
-  (merged, (gated_decision, gated_budget), inline_shadow)` holds the entire dark-wiring surface: the
-  `intent.inline_enabled` check, classifier call, merge, gate, and the `inline_shadow` block.
-  `query_plan_node` calls it, then `emitted = (gated_decision, gated_budget) if intent.active_mode
-  else (det_decision, det_budget)`.
+- **One gating function** `_inline_intent(query, det_bundle, breadth, cfg) -> (gated_bundle,
+  inline_shadow)` holds the entire dark-wiring surface: the `intent.inline_enabled` check, classifier
+  call, merge, `trust_gate_bundle`, and the `inline_shadow` block. `query_plan_node` calls it, then
+  `emitted_bundle = gated_bundle if intent.active_mode else det_bundle`.
 - **2D deletion is mechanical:** drop both flag reads, make `_inline_intent` unconditional (rename to
-  the permanent classifier step), set `emitted = (gated_decision, gated_budget)` always, delete
-  `diverged`/`activatable_diverged`/`would_be_execution` (degenerate once `gated` *is* the plan).
-  What remains is the permanent residue: inline classifier + merge + gate + `latency_ms`/`fallback`
-  telemetry + WARN counters.
+  the permanent classifier step), set `emitted_bundle = gated_bundle` always, delete
+  `diverged`/`activatable_diverged`/`would_be_execution` (degenerate once `gated_bundle` *is* the
+  plan). What remains is the permanent residue: inline classifier + merge + gate +
+  `latency_ms`/`fallback` telemetry + WARN counters.
 - **No `would_be` logic leaks** into `_plan_from_routing` or downstream nodes — they only ever see
   the single `emitted_decision`. That containment is what makes the cut clean.
 
