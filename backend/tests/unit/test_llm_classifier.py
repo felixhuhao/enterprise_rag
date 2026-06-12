@@ -101,6 +101,43 @@ def test_classify_intent_llm_parses_fenced_json():
     assert markers.confidence == "high"
 
 
+def test_classify_intent_llm_downgrades_high_no_marker_on_non_high_deterministic():
+    with patch("app.rag.query.control.llm_classifier.ChatOpenAI") as mock_llm:
+        mock_llm.return_value.invoke.return_value.content = (
+            '{"needs_synthesis":false,"needs_discovery":false,'
+            '"confidence":"high","reasons":["plain lookup"]}'
+        )
+        markers = classify_intent_llm("流程最后算到哪儿？", infer_signals("q", "none", []))
+
+    assert markers is not None
+    assert markers.confidence == "medium"
+    assert "calibrated:no routing marker" in " ".join(markers.reasons)
+
+
+def test_classify_intent_llm_keeps_high_when_marker_added():
+    with patch("app.rag.query.control.llm_classifier.ChatOpenAI") as mock_llm:
+        mock_llm.return_value.invoke.return_value.content = (
+            '{"needs_synthesis":false,"needs_discovery":true,'
+            '"confidence":"high","reasons":["implicit discovery"]}'
+        )
+        markers = classify_intent_llm("流程最后算到哪儿？", infer_signals("q", "none", []))
+
+    assert markers is not None
+    assert markers.confidence == "high"
+
+
+def test_classify_intent_llm_keeps_high_no_marker_on_high_deterministic():
+    with patch("app.rag.query.control.llm_classifier.ChatOpenAI") as mock_llm:
+        mock_llm.return_value.invoke.return_value.content = (
+            '{"needs_synthesis":false,"needs_discovery":false,'
+            '"confidence":"high","reasons":["plain broad lookup"]}'
+        )
+        markers = classify_intent_llm("所有公司的报销标准", infer_signals("q", "broad", []))
+
+    assert markers is not None
+    assert markers.confidence == "high"
+
+
 def test_classify_intent_llm_returns_none_on_garbage_response():
     with patch("app.rag.query.control.llm_classifier.ChatOpenAI") as mock_llm:
         mock_llm.return_value.invoke.return_value.content = "not json"

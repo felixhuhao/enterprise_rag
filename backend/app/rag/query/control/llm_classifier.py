@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -55,7 +55,8 @@ def classify_intent_llm(query: str, deterministic: InferredSignals) -> LlmMarker
             timeout=settings.INTENT_CLASSIFIER_TIMEOUT,
         )
         raw = response.content if hasattr(response, "content") else str(response)
-        return parse_llm_markers(str(raw or ""))
+        markers = parse_llm_markers(str(raw or ""))
+        return _calibrate_confidence(markers, deterministic)
     except Exception:
         logger.warning("Intent classifier LLM call failed", exc_info=True)
         return None
@@ -88,6 +89,23 @@ def parse_llm_markers(raw: str) -> LlmMarkers | None:
     )
 
 
+def _calibrate_confidence(markers: LlmMarkers | None, deterministic: InferredSignals) -> LlmMarkers | None:
+    """Prevent non-routing no-op classifications from becoming activatable."""
+    if markers is None:
+        return None
+    if markers.confidence != "high":
+        return markers
+    if deterministic.confidence == "high":
+        return markers
+    if markers.needs_synthesis or markers.needs_discovery:
+        return markers
+    return replace(
+        markers,
+        confidence="medium",
+        reasons=[*markers.reasons, "calibrated:no routing marker from non-high deterministic intent"],
+    )
+
+
 def _classifier_model() -> str:
     return settings.INTENT_CLASSIFIER_MODEL or settings.CHAT_MODEL
 
@@ -103,6 +121,12 @@ Deterministic context:
 - deterministic_needs_discovery: {str(deterministic.needs_discovery).lower()}
 - deterministic_confidence: {deterministic.confidence}
 
+Confidence contract:
+- high means the routing implication is clear enough to drive retrieval.
+- medium means plausible but not safe to activate without falling back.
+- low means insufficient routing evidence.
+- If you decline all routing markers on a medium/low deterministic case, prefer medium over high.
+
 Examples:
 Q: 星辰科技和远景能源的差旅住宿标准有什么区别？
 {{"needs_synthesis":true,"needs_discovery":false,"confidence":"high","reasons":["implicit comparison across entities"]}}
@@ -111,7 +135,7 @@ Q: 谁负责供应商付款审批？
 {{"needs_synthesis":false,"needs_discovery":true,"confidence":"high","reasons":["responsibility discovery"]}}
 
 Q: 星辰科技的报销标准是多少？
-{{"needs_synthesis":false,"needs_discovery":false,"confidence":"high","reasons":["plain entity lookup"]}}
+{{"needs_synthesis":false,"needs_discovery":false,"confidence":"medium","reasons":["plain entity lookup"]}}
 
 Return JSON for the question only.
 """

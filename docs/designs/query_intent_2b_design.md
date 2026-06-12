@@ -59,6 +59,10 @@ def classify_intent_llm(query: str, deterministic: InferredSignals) -> LlmMarker
   ```
   `requested_format` is **out of scope** in 2B (presentation, not routing — deferred). `entity_scope`
   is **not** asked of the LLM (§3).
+- **Confidence calibration:** confidence is for activation, not answerability. `high` means the
+  routing implication is clear enough to drive retrieval. A high-confidence response that declines
+  all routing markers on a non-high deterministic case is downgraded to `medium` post-parse, so a
+  confident no-op does not become activatable.
 - **Robust parse:** **extract the shared strict→fenced→stripped algorithm** currently inside
   groundedness's private `_parse_groundedness` into a small shared util. Keep a generic
   `parse_llm_json(raw) -> Any | None` for groundedness compatibility and expose
