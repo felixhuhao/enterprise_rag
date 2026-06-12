@@ -76,7 +76,8 @@ docs/*
 !docs/project_market_evaluation.md
 !docs/prompt_reliability_implementation_plan.md
 !docs/query_flavor_roadmap.md
-!docs/query_intent_routing_design_stub.md
+!docs/query_intent_routing_roadmap.md
+!docs/query_intent_2a_design.md
 !docs/refactoring_plan.md
 !docs/retrieval_control_model_design.md
 !docs/retrieval_control_model_plan.md

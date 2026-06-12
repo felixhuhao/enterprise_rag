@@ -3,7 +3,8 @@
 **Date:** 2026-06-12
 **Status:** Proposed
 **Source plan:** `docs/prompt_reliability_implementation_plan.md` → "Requires Query-Intent Design" lane.
-**Downstream consumer:** `docs/query_intent_routing_design_stub.md` (Design 2).
+**Downstream consumer:** `docs/query_intent_routing_roadmap.md` (Design 2 roadmap) →
+`docs/query_intent_2a_design.md` (Stage 2A).
 
 This is **Design 1** of two. It reorganizes today's routing knobs into a four-tier control
 model with a single authority chain. It adds **no inference, no LLM, and no `QueryIntent`
