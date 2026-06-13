@@ -248,7 +248,7 @@ def test_inline_runs_classifier_below_high_confidence(monkeypatch):
     assert out["routing_trace"]["intent"]["source"] == "llm_escalated"
 
 
-def test_active_mode_drives_gated_route_and_budget(monkeypatch):
+def test_activation_drives_when_merged_confidence_high(monkeypatch):
     monkeypatch.setattr(llm_classifier, "classify_intent_inline", _divergent_high())
     _set_flags(monkeypatch, inline=False, active=False)
     baseline = query_plan_node(_STATE, _CONFIG)["query_plan"]

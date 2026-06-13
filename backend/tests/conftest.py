@@ -6,6 +6,18 @@ import tempfile
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _pin_intent_flags_off():
+    """Keep unit tests deterministic after shipped defaults enable inline intent."""
+    from app.core.runtime_settings import runtime_settings
+
+    prev = dict(runtime_settings._cache)
+    runtime_settings._cache["intent.inline_enabled"] = "false"
+    runtime_settings._cache["intent.active_mode"] = "false"
+    yield
+    runtime_settings._cache = prev
+
+
 @pytest.fixture
 def sample_markdown():
     """含多级标题 + Markdown 表格 + HTML 表格的测试 MD。"""

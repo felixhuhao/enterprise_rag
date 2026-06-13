@@ -24,8 +24,8 @@ def _build_query_defaults() -> dict[str, str]:
 _DEFAULTS.update(_build_query_defaults())
 _DEFAULTS.update(
     {
-        "intent.inline_enabled": "false",
-        "intent.active_mode": "false",
+        "intent.inline_enabled": "true",
+        "intent.active_mode": "true",
     }
 )
 

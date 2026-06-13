@@ -48,6 +48,29 @@
   correctness on divergent routing cases. 2C-3's paired challenge-set eval is the representative
   no-harm/leak gate and may legitimately report `activatable_ids=[]`.
 
+**2026-06-13 execution closeout evidence after Commit 1b (`36f1caa`):**
+- Live dark-launch smoke (`inline_enabled=true`, `active_mode=false`) over 4 non-eval chat queries:
+  4/4 success, 2 high-confidence skips (`skip_reason=high_confidence`), 2 classifier runs,
+  classifier p95 4863ms, no fallbacks, no `activatable_diverged` rows.
+- 2C-1 positive divergent-route evidence remains green at
+  `data/routing_golden_set_v1_scored_summary.json`: 40 cases, clear expected-route accuracy 93.33%,
+  clear wrong-route count 0, ambiguous confident-wrong count 0, no clear-control regression.
+- 2C-3 paired retrieval-only no-harm gate rerun with host eval env
+  `EMBEDDING_MODEL_PATH=/home/hao/models/BAAI/bge-m3`:
+  `data/eval_results/2c3_after_gate_off_retrieval.jsonl` and
+  `data/eval_results/2c3_after_gate_on_retrieval.jsonl`.
+- Comparator result: common 31, `route_changed_ids=[]`, `activatable_ids=[]`, `leak_ids=[]`,
+  `hit_regression_ids=[]`, `gates.no_leak=true`, `gates.no_hit_regression=true`. Ranked-key churn
+  remains diagnostic only.
+- ON-run inline-shadow distribution: 20 classifier runs, 11 high-confidence skips, 13 successful
+  classifier responses, 7 timeout fallbacks, classifier p95 5716ms, no proposal or activatable route
+  divergence. OFF/ON retrieval hit@5 and hit@10 both remained 100% on the 28 hit-bearing cases.
+- The full answer-quality pair was skipped as low-signal because the paired retrieval gate had no
+  activatable route changes; 2C-1 remains the positive correctness signal for divergent routes.
+- Activation decision: proceed to Commit 2 default flip; existing deployments still need runtime
+  settings set to `intent.inline_enabled=true` and `intent.active_mode=true` because DB values override
+  baked defaults.
+
 **Test runner:** from repo root, `source .venv/bin/activate` once, then run pytest from `backend/`:
 ```bash
 cd /home/hao/workspace/enterprise_rag && source .venv/bin/activate && cd backend
