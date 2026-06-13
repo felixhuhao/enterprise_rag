@@ -24,7 +24,8 @@ Current leading discovery-retirement candidate:
   - broad prompt for non-`multi` discovery intent
   - explicit discovery-shaped balanced budget
   - multi-hop still gated by `query.use_multi_hop`
-- Pair retirement with `query.use_multi_hop=true` if broader gates pass.
+- Pair retirement with `query.use_multi_hop=true` if broader gates pass, and bake that as the
+  versioned `QueryConfig` default so fresh installs do not silently run the weaker Option 1 shape.
 - Keep `intent.inline_enabled` and `intent.active_mode` for now; do not remove rollback in the same
   commit.
 
@@ -51,6 +52,8 @@ Verification:
 ### Commit B — Discovery retirement implementation
 
 Behavior-changing. Do not land unless the gates in this plan pass.
+
+Includes the versioned `QueryConfig` default change to `query.use_multi_hop=true` if the gates pass.
 
 ### Commit C — Operational activation of new multi-hop default
 
@@ -86,8 +89,13 @@ Update/add tests that express the new contract:
 - `test_multi_hop.py`
   - multi-hop still runs when inferred discovery intent + `query.use_multi_hop=true`
   - multi-hop does not run when the infra flag is false
+- `test_runtime_settings_defaults.py` / config-default coverage
+  - versioned `QueryConfig` default is `use_multi_hop=true` once 2D-B lands
 - `test_routing_golden_set_fixture.py`
   - remove `discovery` from allowed `retrieval_breadth` values if fixture rows change
+- comparator tests, if `compare_activation_eval.py` is extended
+  - expected discovery-retirement IDs are reported as allowed route changes, not leaks
+  - non-allowlisted non-activatable route changes still fail the leak gate
 
 ### Contract details
 
@@ -135,9 +143,13 @@ Files:
 - `backend/app/rag/query/config.py`
   - keep accepting `retrieval_flavor=discovery` during the compatibility window, but treat it as
     deprecated input
+  - set the versioned `query.use_multi_hop` default to `true` if the gates pass
 - `backend/app/services/query_stats_service.py`
   - keep historical `"discovery"` grouping support until the stats/UI migration; new rows should
     emit `balanced`
+- `backend/scripts/compare_activation_eval.py`
+  - add an expected-route-change allowlist, or equivalent non-discovery filtering, so intended
+    discovery-retirement deltas do not masquerade as activation leaks
 
 Do not remove `intent.active_mode` or `intent.inline_enabled` in this commit.
 
@@ -166,7 +178,7 @@ Required gates after implementation:
 2. Routing golden scorer:
    ```bash
    python -m scripts.score_routing_golden_set \
-     --input ../data/routing_golden_set_v1.jsonl \
+     --corpus ../data/routing_golden_set_v1.jsonl \
      --output ../data/routing_golden_set_v1_scored.jsonl
    ```
    Gate: same 2C-1 safety gates remain green.
@@ -196,6 +208,27 @@ Required gates after implementation:
 
 ## Task 4: Full-Set Blast Radius
 
+The activation comparator's original leak invariant is "route changes must be activatable." That is
+not true during discovery retirement: the five legacy discovery rows are expected to change
+deterministically, and many of them are high-confidence rows where the classifier is skipped. Task 4
+therefore must either compare a non-discovery-filtered slice or pass an expected-change allowlist.
+
+Use the allowlist form so the full artifact is still inspected:
+
+```text
+discovery_multi_001
+discovery_multi_002
+discovery_multi_003
+discovery_hop_001
+discovery_hop_002
+```
+
+First confirm the accepted 2C-3 ON baseline exists:
+
+```bash
+test -f ../data/eval_results/2c3_after_gate_on_retrieval.jsonl
+```
+
 Run full retrieval-only with `query.use_multi_hop=true`:
 
 ```bash
@@ -213,14 +246,26 @@ Compare against the latest accepted 2C-3 active retrieval artifact:
 ```bash
 python -m scripts.compare_activation_eval \
   --off ../data/eval_results/2c3_after_gate_on_retrieval.jsonl \
-  --on ../data/eval_results/2d_full_challenge_retired_retrieval.jsonl
+  --on ../data/eval_results/2d_full_challenge_retired_retrieval.jsonl \
+  --allowed-route-change-id discovery_multi_001 \
+  --allowed-route-change-id discovery_multi_002 \
+  --allowed-route-change-id discovery_multi_003 \
+  --allowed-route-change-id discovery_hop_001 \
+  --allowed-route-change-id discovery_hop_002
 ```
 
 Gate:
 
 - `no_hit_regression=true`
-- route changes are either expected discovery-retirement deltas or activatable LLM improvements
-- no non-activatable route leak
+- allowlisted discovery rows are the only non-activatable deterministic route changes
+- route changes outside the allowlist are activatable LLM improvements
+- no unallowlisted non-activatable route leak
+
+This is a full-set retrieval gate, not a full-set answer-quality gate. The plan accepts full-set
+answer-quality impact from global `query.use_multi_hop=true` as post-flip-monitored risk because the
+retrieval gate is green, the discovery slice gets full/judge coverage, and rollback is a single
+runtime setting (`query.use_multi_hop=false`). If stronger pre-flip coverage is needed, add a full
+`challenge_golden_set_v1 --mode full --judge` run before Commit C.
 
 If route changes occur outside the discovery slice, decide whether to run full/judge on those cases
 before committing.

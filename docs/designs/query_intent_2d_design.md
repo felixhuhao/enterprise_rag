@@ -1,6 +1,7 @@
 # Query-Intent Routing 2D Design
 
-**Status:** Draft after 2C-3 activation. Implementation plan not written yet.
+**Status:** Draft after 2C-3 activation. Implementation plan drafted in
+`query_intent_2d_plan.md`.
 **Depends on:** 2C-3 active-mode closeout (`36f1caa`, `4260324`) and the 2C-1 routing golden set.
 
 2D has two different jobs that should not be collapsed into one commit:
@@ -198,9 +199,13 @@ That is the main open operational decision:
 
 Initial five-case evidence favors Option 2 over Option 1, but that is not enough to flip the
 default blindly. The implementation plan should treat Option 2 as the leading candidate and add a
-blast-radius check for non-discovery traffic before changing `query.use_multi_hop` globally. This is
-the one place where deleting the legacy knob can easily remove real retrieval capability or widen
-retrieval in places we did not intend.
+blast-radius check for non-discovery traffic before changing `query.use_multi_hop` globally. If the
+gate passes, `query.use_multi_hop=true` should be baked as the versioned `QueryConfig` default, not
+only applied as a one-off runtime override. Existing deployments still need a runtime settings update
+because DB values win over baked defaults.
+
+This is the one place where deleting the legacy knob can easily remove real retrieval capability or
+widen retrieval in places we did not intend.
 
 ---
 
@@ -221,6 +226,9 @@ Before removing the `discovery` breadth row:
    - clear wrong-route count remains 0
    - ambiguous confident-wrong count remains 0
    - no clear-control regression
+6. Run full-set blast-radius comparison with expected discovery IDs allowlisted, or against a
+   non-discovery-filtered slice. Discovery retirement intentionally changes those routes
+   deterministically, so they must not be counted as activation leaks.
 
 Expected route deltas must be named in the summary:
 
@@ -229,6 +237,8 @@ Expected route deltas must be named in the summary:
 - old multi-hop bypass removed
 - fallback now follows breadth
 - HyDE/expansion now follow breadth
+- context diversification now follows the explicit discovery budget reason rather than
+  `retrieval_flavor=discovery`
 
 No unnamed accepted delta.
 
@@ -295,6 +305,13 @@ Artifact (ignored, not committed):
 
 Takeaway: the first blast-radius check did not find a retrieval regression from enabling multi-hop,
 but answer-quality impact outside the five discovery cases is still unmeasured.
+
+2D-B intentionally does not require a full-set full/judge gate before the multi-hop default flip.
+That is a conscious coverage tradeoff, not an omission: full-set retrieval is pre-gated, the
+discovery slice gets full/judge coverage, and any global multi-hop answer-quality risk is monitored
+post-flip with an immediate `query.use_multi_hop=false` rollback. If that risk feels too large before
+landing Commit C, the heavier alternative is a full `challenge_golden_set_v1 --mode full --judge`
+run under `query.use_multi_hop=true`.
 
 ---
 
