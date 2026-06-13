@@ -50,7 +50,7 @@ only the two settings components carry hardcoded `discovery` literals that must 
 | --- | --- |
 | `frontend/src/utils/labelMaps.ts` | **Primary edit.** Remove `discovery` from `FLAVOR_KEYS` (cascades to `FLAVOR_OPTIONS` and all consumers below). **Keep** the `discovery` entry in the label/description maps used by `flavorLabel`. Add `normalizeFlavor(value): FlavorKey` (`discovery`/unknown → `balanced`). |
 | `frontend/src/components/settings/StrategyTuningPanel.vue` | Hand edit: drop `discovery` from the `FlavorKey` type and the `['balanced','exact','recall','discovery']` literal arrays. |
-| `frontend/src/components/settings/SettingsView.vue` | Hand edit: drop the `discovery` `strategyProfiles` tuning tab + `FlavorKey` type; `normalizeFlavor(...)` on the `query.retrieval_flavor` read; flip `useMultiHop` init + `readBool(..., 'query.use_multi_hop', …)` fallback `false` → `true`. |
+| `frontend/src/components/settings/SettingsView.vue` | Hand edit: drop the `discovery` `strategyProfiles` tuning tab + `FlavorKey` type; **reattach the `multiHopMaxDiscovered` budget control to `flavors: ['balanced']`** (see below); `normalizeFlavor(...)` on the `query.retrieval_flavor` read; flip `useMultiHop` init + `readBool(..., 'query.use_multi_hop', …)` fallback `false` → `true`. |
 | `QueryChatView.vue`, `RetrievalTestView.vue`, `QueryStatsCards.vue`, `EvalRunPanel.vue` | **No edit needed** — they derive options from `FLAVOR_KEYS`/`FLAVOR_OPTIONS` and update automatically once the primary edit lands. (Verify each renders correctly post-change.) |
 
 Display-only rendering (`RetrievalInfo.vue`, `QueryStatsRecords.vue` rows, eval tables) needs **no**
@@ -65,6 +65,20 @@ retired flavor. This is an accepted minor trade (YAGNI: filtering history by a r
 and the rows remain visible). If historical-by-discovery filtering is actually wanted, the stats
 filter would need its own option list that augments `FLAVOR_OPTIONS` with `discovery` — explicitly out
 of scope here unless requested.
+
+## Relocate the multi-hop knob (do not orphan it)
+
+The `multiHopMaxDiscovered` budget control (`query.multi_hop_max_discovered`, backend default `5`,
+still live beside `use_multi_hop=True` in `config.py`) is today attached to `flavors: ['discovery']`
+in `SettingsView.vue`'s `budgetControls`. Its **value is always persisted** (the save block writes
+`query.multi_hop_max_discovered` unconditionally), but its **editing control only renders under the
+active tab whose flavor matches** (`activeControls = budgetControls.filter(c => c.flavors.includes(activeFlavor))`).
+Deleting the discovery tab would therefore make the knob uneditable — silently freezing it at the
+loaded value — even though multi-hop now runs on the default `balanced` path.
+
+Fix: change that control's `flavors` from `['discovery']` to `['balanced']`. Multi-hop discovery is
+now a balanced-path behavior, so the balanced profile is its correct home. This is a one-line edit in
+`budgetControls` and needs no save-logic change (the key is already written unconditionally).
 
 ## Multi-hop default alignment
 
@@ -94,6 +108,8 @@ Frontend unit tests (Vitest, matching existing `frontend/src` test patterns):
 4. `SettingsView` initializes `useMultiHop` to `true` and a settings response **without**
    `query.use_multi_hop` yields `useMultiHop === true`; a response with `"false"` yields `false`.
 5. `SettingsView` loading `query.retrieval_flavor = "discovery"` shows `balanced` in the selector.
+6. The `multiHopMaxDiscovered` budget control is reachable under the `balanced` tab (its
+   `flavors` includes `'balanced'`) and `query.multi_hop_max_discovered` is still written on save.
 
 Manual: confirm the settings/eval/chat flavor dropdowns no longer list discovery, and that a
 historical stats record with `retrieval_flavor=discovery` still renders `关联查找`.
