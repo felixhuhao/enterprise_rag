@@ -24,8 +24,9 @@ internal tool) and "hard-remove including labels" (would break rendering of hist
 `query_run_stats` / eval rows that still carry `retrieval_flavor=discovery`).
 
 The frontend does **not** need pervasive coercion, because the backend already maps any incoming
-`discovery → balanced`. The only place a persisted `discovery` value reaches a selector is the
-settings form reading `query.retrieval_flavor`; that single read is normalized.
+`discovery → balanced`. Coercion is only needed when a persisted `discovery` value is loaded into a
+control whose selectable set has lost `discovery`: the settings form's `query.retrieval_flavor` read,
+and the eval draft/case editor's `preferred_flavor` load.
 
 ### Contract — three lists, deliberately distinct
 
@@ -65,7 +66,7 @@ display/iteration order for per-flavor summaries. Those must split:
 
 | File | Change |
 | --- | --- |
-| `frontend/src/utils/labelMaps.ts` | **Primary edit.** Keep `FLAVOR_KEYS` (with `discovery`) as the display/order list. Add `SELECTABLE_FLAVOR_KEYS = ['balanced','exact','recall']` and change `FLAVOR_OPTIONS` to derive from it. **Keep** the `discovery` entry in the label/description maps used by `flavorLabel`. Add `normalizeFlavor(value): FlavorKey` (`discovery`/unknown → `balanced`). |
+| `frontend/src/utils/labelMaps.ts` | **Primary edit.** Keep `FLAVOR_KEYS` (with `discovery`) as the display/order list. Add `SELECTABLE_FLAVOR_KEYS = ['balanced','exact','recall']`, derive `SelectableFlavorKey = typeof SELECTABLE_FLAVOR_KEYS[number]`, and change `FLAVOR_OPTIONS` to derive from `SELECTABLE_FLAVOR_KEYS`. **Keep** the `discovery` entry in the label/description maps used by `flavorLabel`. Add `normalizeFlavor(value): SelectableFlavorKey` (`discovery`/unknown → `balanced`). |
 | `frontend/src/components/settings/StrategyTuningPanel.vue` | Hand edit: drop `discovery` from the `FlavorKey` type and the `['balanced','exact','recall','discovery']` literal arrays. |
 | `frontend/src/components/settings/SettingsView.vue` | Hand edit: drop the `discovery` `strategyProfiles` tuning tab + `FlavorKey` type; **reattach the `multiHopMaxDiscovered` budget control to `flavors: ['balanced']`** (see below); `normalizeFlavor(...)` on the `query.retrieval_flavor` read; flip `useMultiHop` init + `readBool(..., 'query.use_multi_hop', …)` fallback `false` → `true`. |
 | `frontend/src/components/evaluate/EvalRunPanel.vue` | Hand edit: the run-pills (`:57`) and draft-editor (`:348`) `v-for="mode in FLAVOR_KEYS"` are **selectable** controls → switch to `SELECTABLE_FLAVOR_KEYS` (and import it). Apply `normalizeFlavor(...)` to `preferred_flavor` in `openDraftEditor` (`:840`) and `openGoldenCaseEditor` (`:860`) so persisted `discovery` cases load as `balanced`. **Leave** the `flavorRows` `per_flavor` summary (`:555`) on `FLAVOR_KEYS` so historical discovery metrics still render. |
@@ -118,25 +119,35 @@ this only fixes the absent-key fallback and the pre-load initial state.
 
 ## Testing
 
-Frontend unit tests (Vitest, matching existing `frontend/src` test patterns):
+The frontend has **no test runner today** (only `vue-tsc` type-checking + manual verification). This
+cleanup adds a **minimal pure-unit Vitest** setup — `node` environment, no jsdom/`@vue/test-utils`,
+no component mounting — and covers only the pure helpers in `labelMaps.ts`. Component-level behavior
+is covered by type-checking (`vue-tsc -b`, which catches the list-split type breaks) plus the manual
+checklist. This is a deliberately light precedent for an untested app; heavier component-mount testing
+is out of scope for this cleanup.
+
+**Automated (pure-unit Vitest):**
 
 1. `normalizeFlavor('discovery') === 'balanced'`; `normalizeFlavor('balanced') === 'balanced'`;
-   unknown → `'balanced'`; the other valid flavors pass through.
+   unknown → `'balanced'`; the other selectable flavors pass through; its return type is
+   `SelectableFlavorKey`, not the display-order `FlavorKey`.
 2. `SELECTABLE_FLAVOR_KEYS` does **not** contain `discovery`, and `FLAVOR_OPTIONS` (derived from it)
    has no `discovery` option; `FLAVOR_KEYS` **still** contains `discovery` (display-order guarantee).
-3. The display label map still resolves `discovery → '关联查找'` (historical-render guarantee).
-4. `SettingsView` initializes `useMultiHop` to `true` and a settings response **without**
-   `query.use_multi_hop` yields `useMultiHop === true`; a response with `"false"` yields `false`.
-5. `SettingsView` loading `query.retrieval_flavor = "discovery"` shows `balanced` in the selector.
-6. The `multiHopMaxDiscovered` budget control is reachable under the `balanced` tab (its
-   `flavors` includes `'balanced'`) and `query.multi_hop_max_discovered` is still written on save.
-7. Per-flavor summary rows still surface a `discovery` bucket when present: given `per_flavor`
-   (or `byFlavor`) data containing a `discovery` entry, the rendered rows include it with its
-   `关联查找` label — guarding the display-iteration path against accidental omission.
-8. Opening the eval editor on a draft/case with `preferred_flavor: 'discovery'` yields
-   `draftForm.preferred_flavor === 'balanced'` (so a valid editor button is active and a re-save
-   no longer persists the retired value).
+3. `flavorLabel('discovery') === '关联查找'` (historical-render guarantee) and the label map still
+   carries the `discovery` entry.
 
-Manual: confirm the settings / eval / chat / retrieval-test flavor selectors no longer list
-discovery, and that a historical stats record with `retrieval_flavor=discovery` still renders
-`关联查找`.
+**Type-checked (`vue-tsc -b`) + manual:** the wiring changes — `SettingsView` `useMultiHop` default
+and `query.retrieval_flavor` coercion, the `multiHopMaxDiscovered` relocation to the `balanced` tab,
+the per-flavor summary still iterating `FLAVOR_KEYS`, and the eval-editor `preferred_flavor` coercion
+— are guarded by the type system (the `SelectableFlavorKey` split makes a stale `discovery` literal a
+compile error) and confirmed by the manual checklist below.
+
+**Manual checklist:**
+
+- The settings / eval / chat / retrieval-test flavor selectors no longer list discovery.
+- A historical stats record with `retrieval_flavor=discovery` still renders `关联查找`, and a
+  per-flavor summary still shows a `discovery` bucket when the data contains one.
+- The `multiHopMaxDiscovered` slider is editable under the `balanced` tab; saving persists
+  `query.multi_hop_max_discovered`.
+- `useMultiHop` shows on (checked) by default; opening an old eval case with `preferred_flavor:
+  discovery` shows `balanced` selected (no orphaned/blank button).
