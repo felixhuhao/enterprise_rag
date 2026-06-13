@@ -54,7 +54,7 @@
           <span>策略</span>
           <span class="run-flavor-pills" role="radiogroup" aria-label="运行策略">
             <button
-              v-for="mode in FLAVOR_KEYS"
+              v-for="mode in SELECTABLE_FLAVOR_KEYS"
               :key="mode"
               type="button"
               class="run-flavor-pill"
@@ -345,7 +345,7 @@
               </span>
               <div class="segmented-control flavor-segments" role="radiogroup" aria-label="策略">
                 <button
-                  v-for="mode in FLAVOR_KEYS"
+                  v-for="mode in SELECTABLE_FLAVOR_KEYS"
                   :key="mode"
                   type="button"
                   :class="{ active: draftForm.preferred_flavor === mode }"
@@ -440,7 +440,7 @@ import {
   formatEvalScore as formatScore,
   judgeCacheLabel,
 } from '../../utils/evalLabels'
-import { FLAVOR_KEYS, flavorLabel } from '../../utils/labelMaps'
+import { FLAVOR_KEYS, SELECTABLE_FLAVOR_KEYS, flavorLabel, normalizeFlavor } from '../../utils/labelMaps'
 import EvalCaseDetailDrawer from './EvalCaseDetailDrawer.vue'
 import EvalCaseTable from './EvalCaseTable.vue'
 
@@ -837,7 +837,7 @@ function openDraftEditor(draft: GoldenDraft) {
   editingCaseId.value = ''
   draftForm.value = {
     question: draft.question || '',
-    preferred_flavor: draft.preferred_flavor || 'balanced',
+    preferred_flavor: normalizeFlavor(draft.preferred_flavor),
     strict_evidence: Boolean(draft.strict_evidence),
     eval_type: draft.eval_type || 'llm_judge',
     expected_answer: draft.expected_answer || '',
@@ -857,7 +857,7 @@ function openGoldenCaseEditor(item: GoldenSetCase) {
   editingCaseId.value = item.id
   draftForm.value = {
     question: item.question || '',
-    preferred_flavor: item.preferred_flavor || 'balanced',
+    preferred_flavor: normalizeFlavor(item.preferred_flavor),
     strict_evidence: Boolean(item.strict_evidence),
     eval_type: item.eval_type || 'llm_judge',
     expected_answer: item.expected_answer || '',

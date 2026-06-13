@@ -114,8 +114,9 @@ import RecentJobsPanel from './RecentJobsPanel.vue'
 import SystemStatusPanel from './SystemStatusPanel.vue'
 import TagGovernancePanel from './TagGovernancePanel.vue'
 import TokenSettingsPanel from './TokenSettingsPanel.vue'
+import { normalizeFlavor } from '../../utils/labelMaps'
 
-type FlavorKey = 'balanced' | 'exact' | 'recall' | 'discovery'
+type FlavorKey = 'balanced' | 'exact' | 'recall'
 type FormNumberKey =
   | 'searchLimit'
   | 'hydeLimit'
@@ -189,7 +190,7 @@ const form = reactive<Record<string, any>>({
   useContextExpand: true,
   useRerank: true,
   useGroundedness: false,
-  useMultiHop: false,
+  useMultiHop: true,
 })
 
 const tagForm = reactive({
@@ -218,21 +219,15 @@ const strategyProfiles: Array<{ key: FlavorKey; label: string; description: stri
     description: '固定大预算，使用扩展查询并行召回，适合模糊、同义表达问题。',
     reason: 'recall_high_coverage',
   },
-  {
-    key: 'discovery',
-    label: '关联查找',
-    description: '多跳发现路径，先找相关实体，再围绕发现实体继续检索。',
-    reason: 'discovery_current_path',
-  },
 ]
 
 const budgetControls: BudgetControl[] = [
-  { key: 'searchLimit', label: '主检索候选', min: 1, max: 50, flavors: ['balanced', 'discovery'] },
+  { key: 'searchLimit', label: '主检索候选', min: 1, max: 50, flavors: ['balanced'] },
   { key: 'hydeLimit', label: '语义扩展候选', min: 1, max: 50, flavors: ['balanced'] },
-  { key: 'rrfMaxResults', label: '融合结果上限', min: 1, max: 50, flavors: ['balanced', 'discovery'] },
-  { key: 'rerankMaxTopK', label: '重排/最终上下文上限', min: 1, max: 30, flavors: ['balanced', 'discovery'] },
+  { key: 'rrfMaxResults', label: '融合结果上限', min: 1, max: 50, flavors: ['balanced'] },
+  { key: 'rerankMaxTopK', label: '重排/最终上下文上限', min: 1, max: 30, flavors: ['balanced'] },
   { key: 'queryExpansionCount', label: '扩展查询数量', min: 2, max: 4, flavors: ['recall'] },
-  { key: 'multiHopMaxDiscovered', label: '多跳发现实体上限', min: 1, max: 10, flavors: ['discovery'] },
+  { key: 'multiHopMaxDiscovered', label: '多跳发现实体上限', min: 1, max: 10, flavors: ['balanced'] },
 ]
 
 const settingsCount = computed(() => Object.keys(rawSettings.value).length)
@@ -362,7 +357,7 @@ async function loadRecentJobs() {
 
 function applySettings(data: Record<string, string>) {
   form.token = ''
-  form.retrievalFlavor = readString(data, 'query.retrieval_flavor', 'balanced')
+  form.retrievalFlavor = normalizeFlavor(readString(data, 'query.retrieval_flavor', 'balanced'))
   form.searchLimit = readNumber(data, 'query.search_limit', 10)
   form.hydeLimit = readNumber(data, 'query.hyde_limit', 10)
   form.rrfMaxResults = readNumber(data, 'query.rrf_max_results', 20)
@@ -383,7 +378,7 @@ function applySettings(data: Record<string, string>) {
   form.useContextExpand = readBool(data, 'query.use_context_expand', true)
   form.useRerank = readBool(data, 'query.use_rerank', true)
   form.useGroundedness = readBool(data, 'query.use_groundedness', false)
-  form.useMultiHop = readBool(data, 'query.use_multi_hop', false)
+  form.useMultiHop = readBool(data, 'query.use_multi_hop', true)
 }
 
 async function saveRetrievalSettings() {
@@ -540,17 +535,6 @@ function buildBudget(flavor: FlavorKey): Array<{ label: string; value: string; n
       perEntity: 8,
     }, `扩展查询 ${form.queryExpansionCount} 条`)
   }
-  if (flavor === 'discovery') {
-    return budgetRows({
-      search: form.searchLimit,
-      hyde: 0,
-      rrf: form.rrfMaxResults,
-      candidates: form.rerankMaxTopK,
-      final: form.rerankMaxTopK,
-      chars: 8000,
-      perEntity: 5,
-    }, `发现实体上限 ${form.multiHopMaxDiscovered}`)
-  }
   return budgetRows({
     search: form.searchLimit,
     hyde: form.hydeLimit,
@@ -598,16 +582,10 @@ function buildCapabilities(flavor: FlavorKey): CapabilityStatus[] {
       ...finishing,
     ]
   }
-  if (flavor === 'discovery') {
-    return [
-      ...common,
-      { key: 'multiHop', label: '多跳发现', enabled: true },
-      ...finishing,
-    ]
-  }
   return [
     ...common,
     { key: 'hyde', label: '语义扩展', enabled: Boolean(form.useHyde) },
+    { key: 'multiHop', label: '多跳发现', enabled: Boolean(form.useMultiHop) },
     ...finishing,
   ]
 }

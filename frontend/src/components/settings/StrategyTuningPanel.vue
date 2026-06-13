@@ -84,7 +84,7 @@
 </template>
 
 <script setup lang="ts">
-type FlavorKey = 'balanced' | 'exact' | 'recall' | 'discovery'
+type FlavorKey = 'balanced' | 'exact' | 'recall'
 
 interface StrategyProfile {
   key: FlavorKey
@@ -126,7 +126,7 @@ const emit = defineEmits<{
 }>()
 
 function onFlavorTabChange(key: string | number) {
-  if (['balanced', 'exact', 'recall', 'discovery'].includes(String(key))) {
+  if (['balanced', 'exact', 'recall'].includes(String(key))) {
     emit('update:activeFlavor', String(key) as FlavorKey)
   }
 }

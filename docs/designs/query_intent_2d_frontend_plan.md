@@ -17,7 +17,7 @@
 | File | Responsibility | Change |
 | --- | --- | --- |
 | `frontend/package.json` | deps + scripts | Add `vitest` devDep + `"test": "vitest run"` script |
-| `frontend/vite.config.ts` | build + test config | Add Vitest `test` block (`node` env) |
+| `frontend/vitest.config.ts` | test config | New Vitest config (`node` env); keep production `vite.config.ts` unchanged |
 | `frontend/src/utils/labelMaps.ts` | flavor lists, labels, `normalizeFlavor` | Primary edit — the two-list split + helper |
 | `frontend/src/utils/labelMaps.test.ts` | pure-unit tests | New — covers the split + `normalizeFlavor` + label retention |
 | `frontend/src/components/settings/SettingsView.vue` | settings form | Drop discovery tab/type, relocate multi-hop knob, coerce flavor read, flip `useMultiHop` default |
@@ -32,7 +32,7 @@ Components consuming `FLAVOR_OPTIONS` (`QueryChatView.vue`, `RetrievalTestView.v
 
 **Files:**
 - Modify: `frontend/package.json`
-- Modify: `frontend/vite.config.ts`
+- Create: `frontend/vitest.config.ts`
 - Modify: `frontend/src/utils/labelMaps.ts:15-25`
 - Test: `frontend/src/utils/labelMaps.test.ts` (create)
 
@@ -67,36 +67,19 @@ Edit `frontend/package.json`. Add the `test` script and the `vitest` devDependen
 Run: `cd frontend && npm install`
 Expected: `vitest` added to `node_modules`, `package-lock.json` updated, no errors.
 
-- [ ] **Step 3: Add the Vitest config block to `vite.config.ts`**
+- [ ] **Step 3: Add a dedicated Vitest config**
 
-Change the import on line 1 from `vite` to `vitest/config` (re-exports vite's `defineConfig` with `test` typing) and add a `test` block. Final file:
+Create `frontend/vitest.config.ts`. Keep `frontend/vite.config.ts` unchanged; with the current Vite 8
+stack, importing production `defineConfig` from `vitest/config` creates incompatible Vite/Rollup type
+copies during `vue-tsc -b`.
 
 ```ts
 import { defineConfig } from 'vitest/config'
-import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
-  plugins: [vue()],
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts'],
-  },
-  server: {
-    port: 5173,
-    proxy: {
-      '/api': {
-        target: process.env.VITE_API_TARGET || 'http://localhost:8010',
-        changeOrigin: true,
-        // SSE 路径需要禁用缓冲，否则前端收不到流式事件
-        configure: (proxy) => {
-          proxy.on('proxyRes', (proxyRes) => {
-            // 告诉代理不要缓冲 SSE 响应
-            proxyRes.headers['x-accel-buffering'] = 'no'
-            proxyRes.headers['cache-control'] = 'no-cache'
-          })
-        },
-      },
-    },
   },
 })
 ```
@@ -212,7 +195,7 @@ Expected: PASS — all tests in `labelMaps.test.ts` green.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add frontend/package.json frontend/package-lock.json frontend/vite.config.ts frontend/src/utils/labelMaps.ts frontend/src/utils/labelMaps.test.ts
+git add frontend/package.json frontend/package-lock.json frontend/vitest.config.ts frontend/src/utils/labelMaps.ts frontend/src/utils/labelMaps.test.ts
 git commit -m "feat(2D-fe): split flavor lists + add normalizeFlavor with pure-unit Vitest
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
