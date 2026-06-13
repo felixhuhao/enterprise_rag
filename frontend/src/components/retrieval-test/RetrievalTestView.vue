@@ -10,6 +10,22 @@
             allow-clear
           />
         </div>
+      </div>
+
+      <div class="mode-run-row">
+        <div class="mode-strip">
+          <button
+            v-for="mode in flavorModes"
+            :key="mode.id"
+            class="mode-card"
+            :class="{ active: retrievalFlavor === mode.id }"
+            type="button"
+            @click="retrievalFlavor = mode.id"
+          >
+            <span class="mode-name">{{ mode.name }}</span>
+            <span class="mode-desc">{{ mode.desc }}</span>
+          </button>
+        </div>
         <div class="run-controls">
           <label class="control-item">
             <span>Top K</span>
@@ -20,20 +36,6 @@
             开始测试
           </a-button>
         </div>
-      </div>
-
-      <div class="mode-strip">
-        <button
-          v-for="mode in flavorModes"
-          :key="mode.id"
-          class="mode-card"
-          :class="{ active: retrievalFlavor === mode.id }"
-          type="button"
-          @click="retrievalFlavor = mode.id"
-        >
-          <span class="mode-name">{{ mode.name }}</span>
-          <span class="mode-desc">{{ mode.desc }}</span>
-        </button>
       </div>
     </section>
 
@@ -620,18 +622,18 @@ function filterToScope(filter: string) {
 }
 
 .query-toolbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 150px;
-  gap: 12px;
+  display: flex;
   align-items: stretch;
 }
 
 .query-field {
   display: flex;
+  flex: 1;
   min-width: 0;
 }
 
 .query-field :deep(.arco-textarea-wrapper) {
+  width: 100%;
   height: 100%;
 }
 
@@ -656,11 +658,18 @@ function filterToScope(filter: string) {
   width: 92px;
 }
 
+.mode-run-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  gap: 12px;
+  align-items: stretch;
+  margin-top: 14px;
+}
+
 .mode-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  grid-template-columns: repeat(3, minmax(130px, 1fr));
   gap: 8px;
-  margin-top: 14px;
 }
 
 .mode-card {
@@ -1305,7 +1314,7 @@ function filterToScope(filter: string) {
 }
 
 @media (max-width: 760px) {
-  .query-toolbar {
+  .mode-run-row {
     grid-template-columns: 1fr;
   }
 

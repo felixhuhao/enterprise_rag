@@ -248,7 +248,7 @@ onBeforeUnmount(() => {
 
 .mode-cards {
   display: grid;
-  grid-template-columns: repeat(4, minmax(170px, 1fr));
+  grid-template-columns: repeat(3, minmax(170px, 1fr));
   gap: 10px;
 }
 

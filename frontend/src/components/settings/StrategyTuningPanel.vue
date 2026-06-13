@@ -259,8 +259,8 @@ function numberValue(key: string) {
 }
 
 .parameter-grid {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px 12px;
 }
 
@@ -276,9 +276,8 @@ function numberValue(key: string) {
 
 .parameter-field {
   display: grid;
-  grid-template-columns: max-content 86px;
-  width: max-content;
-  min-width: 210px;
+  grid-template-columns: minmax(0, 1fr) 86px;
+  min-width: 0;
   padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -286,6 +285,8 @@ function numberValue(key: string) {
 }
 
 .parameter-field span {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -406,6 +407,7 @@ function numberValue(key: string) {
 
 @media (max-width: 1100px) {
   .metric-strip,
+  .parameter-grid,
   .weight-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -417,6 +419,7 @@ function numberValue(key: string) {
   }
 
   .metric-strip,
+  .parameter-grid,
   .weight-grid {
     grid-template-columns: 1fr;
   }
