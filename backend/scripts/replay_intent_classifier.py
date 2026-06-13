@@ -21,6 +21,7 @@ from app.rag.query.control.budget import resolve_budget_profile
 from app.rag.query.control.inferred import CONFIDENCE_LEVELS, Confidence, InferredSignals, merge_intent
 from app.rag.query.control.llm_classifier import LlmMarkers, classify_intent_llm
 from app.rag.query.control.routing import (
+    activatable as route_activatable,
     decision_execution_dict,
     derive_routing_decision,
 )
@@ -233,7 +234,7 @@ def replay_case(case: ReplayCase) -> dict[str, Any]:
     det_execution = decision_execution_dict(case.logged_design1_decision)
     merged_execution = decision_execution_dict(merged_decision)
     diverged = merged_execution != det_execution
-    activatable = llm is not None and diverged and merged.confidence == "high"
+    activatable_diverged = llm is not None and diverged and route_activatable(merged)
 
     return {
         "id": case.row_id,
@@ -252,7 +253,7 @@ def replay_case(case: ReplayCase) -> dict[str, Any]:
         "det_execution": det_execution,
         "merged_execution": merged_execution,
         "diverged": diverged,
-        "activatable": activatable,
+        "activatable": activatable_diverged,
     }
 
 

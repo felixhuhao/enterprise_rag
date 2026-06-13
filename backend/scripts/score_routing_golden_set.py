@@ -57,6 +57,9 @@ def score_one(case: dict[str, Any]) -> dict[str, Any]:
     design1_decision = route_for_intent(det, breadth, cfg)
     merged_decision = route_for_intent(merged, breadth, cfg)
     expected_route = route_for_intent(expected, breadth, cfg)
+    # The canonical trust gate requires high confidence and no classifier fallback.
+    # Fallback outputs therefore score as the Design 1 safe-default route, which can
+    # shift failure-case metrics compared with the older high-confidence-only gate.
     actual_route = trust_gate(merged, merged_decision, design1_decision)
 
     outcome = score_case(
