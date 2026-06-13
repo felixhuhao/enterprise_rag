@@ -42,10 +42,17 @@ display/iteration order for per-flavor summaries. Those must split:
   list (directly or via `FLAVOR_OPTIONS`), so none offers `discovery`.
 - **Display label map — keeps `discovery`.** `flavorLabel` still resolves `discovery → 关联查找` so
   historical rows and the retained summary bucket render.
-- **One normalization point.** A small `normalizeFlavor(value)` helper maps `discovery → balanced`
-  (and any unknown → `balanced`), applied where the settings form loads the persisted
-  `query.retrieval_flavor`. The chat debug config is a non-persisted `ref` defaulting to `balanced`,
-  so it needs no coercion — only the option removed.
+- **Two normalization points.** A small `normalizeFlavor(value)` helper maps `discovery → balanced`
+  (and any unknown → `balanced`), applied wherever a **persisted** flavor is loaded into a control
+  whose selectable set has lost `discovery`:
+  1. **Settings load** — `query.retrieval_flavor` read in `SettingsView.vue`.
+  2. **Eval draft/case editor load** — `preferred_flavor` copied into `draftForm` by
+     `openDraftEditor` / `openGoldenCaseEditor` in `EvalRunPanel.vue`. An old case with
+     `preferred_flavor: discovery` would otherwise leave the (now-`SELECTABLE_FLAVOR_KEYS`) editor
+     buttons with no active choice and re-save the retired value.
+
+  The chat debug config is a non-persisted `ref` defaulting to `balanced`, so it needs no coercion —
+  only the option removed.
 
 ## Surfaces to change
 
@@ -61,7 +68,7 @@ display/iteration order for per-flavor summaries. Those must split:
 | `frontend/src/utils/labelMaps.ts` | **Primary edit.** Keep `FLAVOR_KEYS` (with `discovery`) as the display/order list. Add `SELECTABLE_FLAVOR_KEYS = ['balanced','exact','recall']` and change `FLAVOR_OPTIONS` to derive from it. **Keep** the `discovery` entry in the label/description maps used by `flavorLabel`. Add `normalizeFlavor(value): FlavorKey` (`discovery`/unknown → `balanced`). |
 | `frontend/src/components/settings/StrategyTuningPanel.vue` | Hand edit: drop `discovery` from the `FlavorKey` type and the `['balanced','exact','recall','discovery']` literal arrays. |
 | `frontend/src/components/settings/SettingsView.vue` | Hand edit: drop the `discovery` `strategyProfiles` tuning tab + `FlavorKey` type; **reattach the `multiHopMaxDiscovered` budget control to `flavors: ['balanced']`** (see below); `normalizeFlavor(...)` on the `query.retrieval_flavor` read; flip `useMultiHop` init + `readBool(..., 'query.use_multi_hop', …)` fallback `false` → `true`. |
-| `frontend/src/components/evaluate/EvalRunPanel.vue` | Hand edit: the run-pills (`:57`) and draft-editor (`:348`) `v-for="mode in FLAVOR_KEYS"` are **selectable** controls → switch to `SELECTABLE_FLAVOR_KEYS` (and import it). **Leave** the `flavorRows` `per_flavor` summary (`:555`) on `FLAVOR_KEYS` so historical discovery metrics still render. |
+| `frontend/src/components/evaluate/EvalRunPanel.vue` | Hand edit: the run-pills (`:57`) and draft-editor (`:348`) `v-for="mode in FLAVOR_KEYS"` are **selectable** controls → switch to `SELECTABLE_FLAVOR_KEYS` (and import it). Apply `normalizeFlavor(...)` to `preferred_flavor` in `openDraftEditor` (`:840`) and `openGoldenCaseEditor` (`:860`) so persisted `discovery` cases load as `balanced`. **Leave** the `flavorRows` `per_flavor` summary (`:555`) on `FLAVOR_KEYS` so historical discovery metrics still render. |
 | `frontend/src/components/evaluate/QueryStatsCards.vue` | **No edit needed** — `flavorRows` (`:157`) is a display summary; it keeps `FLAVOR_KEYS` and thus keeps showing any historical `discovery` bucket. (Verify it renders.) |
 | `QueryChatView.vue`, `RetrievalTestView.vue`, `QueryStatsRecords.vue` | **No edit needed** — they consume `FLAVOR_OPTIONS`, which now drops `discovery` automatically. (Verify each renders.) |
 
@@ -126,6 +133,10 @@ Frontend unit tests (Vitest, matching existing `frontend/src` test patterns):
 7. Per-flavor summary rows still surface a `discovery` bucket when present: given `per_flavor`
    (or `byFlavor`) data containing a `discovery` entry, the rendered rows include it with its
    `关联查找` label — guarding the display-iteration path against accidental omission.
+8. Opening the eval editor on a draft/case with `preferred_flavor: 'discovery'` yields
+   `draftForm.preferred_flavor === 'balanced'` (so a valid editor button is active and a re-save
+   no longer persists the retired value).
 
-Manual: confirm the settings/eval/chat flavor dropdowns no longer list discovery, and that a
-historical stats record with `retrieval_flavor=discovery` still renders `关联查找`.
+Manual: confirm the settings / eval / chat / retrieval-test flavor selectors no longer list
+discovery, and that a historical stats record with `retrieval_flavor=discovery` still renders
+`关联查找`.
