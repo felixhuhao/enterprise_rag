@@ -177,6 +177,7 @@ def test_query_plan_node_returns_plain_dict():
     assert out["routing_trace"]["intent"]["confidence"] == "high"
     assert out["routing_trace"]["inline_shadow"]["ran"] is False
     assert out["routing_trace"]["inline_shadow"]["fallback_reason"] == "none"
+    assert out["routing_trace"]["inline_shadow"]["skip_reason"] == "inline_disabled"
 
 
 def _set_flags(monkeypatch, *, inline, active):
@@ -210,6 +211,43 @@ def test_inline_on_active_off_preserves_plan(monkeypatch):
     assert out["routing_trace"]["inline_shadow"]["activatable_diverged"] is True
 
 
+def test_inline_skips_classifier_for_high_confidence_deterministic(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        llm_classifier,
+        "classify_intent_inline",
+        lambda q, d: calls.append(1) or ClassifyResult(None, "none", 0),
+    )
+    _set_flags(monkeypatch, inline=True, active=True)
+
+    out = query_plan_node(
+        {"query": "哪些公司提到了安全计划？", "entity_mode": "broad"},
+        _CONFIG,
+    )
+
+    assert calls == []
+    shadow = out["routing_trace"]["inline_shadow"]
+    assert shadow["ran"] is False
+    assert shadow["fallback_reason"] == "none"
+    assert shadow["skip_reason"] == "high_confidence"
+
+
+def test_inline_runs_classifier_below_high_confidence(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        llm_classifier,
+        "classify_intent_inline",
+        lambda q, d: calls.append(1) or _divergent_high()(q, d),
+    )
+    _set_flags(monkeypatch, inline=True, active=True)
+
+    out = query_plan_node(_STATE, _CONFIG)
+
+    assert calls == [1]
+    assert out["routing_trace"]["inline_shadow"]["ran"] is True
+    assert out["routing_trace"]["intent"]["source"] == "llm_escalated"
+
+
 def test_active_mode_drives_gated_route_and_budget(monkeypatch):
     monkeypatch.setattr(llm_classifier, "classify_intent_inline", _divergent_high())
     _set_flags(monkeypatch, inline=False, active=False)
@@ -226,21 +264,21 @@ def test_active_mode_drives_gated_route_and_budget(monkeypatch):
     assert out["routing_trace"]["intent"]["source"] == "llm_escalated"
 
 
-def test_failure_fallback_high_det_confidence_never_activates(monkeypatch):
-    state = {"query": "哪些公司提到了安全计划？", "entity_mode": "broad"}
+def test_failure_fallback_below_high_stays_deterministic(monkeypatch):
     monkeypatch.setattr(
         llm_classifier,
         "classify_intent_inline",
         _divergent_high(reason="timeout", markers=False),
     )
     _set_flags(monkeypatch, inline=False, active=False)
-    baseline = query_plan_node(state, _CONFIG)["query_plan"]
+    baseline = query_plan_node(_STATE, _CONFIG)["query_plan"]
 
     _set_flags(monkeypatch, inline=True, active=True)
-    out = query_plan_node(state, _CONFIG)
+    out = query_plan_node(_STATE, _CONFIG)
 
     assert out["query_plan"] == baseline
     shadow = out["routing_trace"]["inline_shadow"]
+    assert shadow["ran"] is True
     assert shadow["fallback_used"] is True
     assert shadow["fallback_reason"] == "timeout"
     assert shadow["activatable_diverged"] is False
@@ -260,6 +298,7 @@ def test_kill_switch_does_not_call_classifier(monkeypatch):
 
     assert calls == []
     assert out["routing_trace"]["inline_shadow"]["ran"] is False
+    assert out["routing_trace"]["inline_shadow"]["skip_reason"] == "inline_disabled"
 
 
 # ---------------------------------------------------------------------------

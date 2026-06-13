@@ -213,7 +213,12 @@ def test_build_inline_shadow_converged():
 
 
 def test_inactive_inline_shadow():
-    assert inactive_inline_shadow() == {"ran": False, "fallback_reason": "none"}
+    assert inactive_inline_shadow() == {
+        "ran": False,
+        "fallback_reason": "none",
+        "skip_reason": "inline_disabled",
+    }
+    assert inactive_inline_shadow("high_confidence")["skip_reason"] == "high_confidence"
 
 
 def test_build_routing_trace_embeds_inline_shadow():

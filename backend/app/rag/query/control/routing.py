@@ -131,9 +131,9 @@ def build_inline_shadow(result, merged_bundle: tuple, det_bundle: tuple) -> dict
     }
 
 
-def inactive_inline_shadow() -> dict:
+def inactive_inline_shadow(skip_reason: str = "inline_disabled") -> dict:
     """Trace block when the inline classifier did not run."""
-    return {"ran": False, "fallback_reason": "none"}
+    return {"ran": False, "fallback_reason": "none", "skip_reason": skip_reason}
 
 
 def build_routing_trace(

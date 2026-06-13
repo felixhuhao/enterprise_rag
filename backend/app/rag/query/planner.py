@@ -70,10 +70,12 @@ def query_plan_node(state: QueryState, config: RunnableConfig) -> dict:
     )
     det_bundle = (det_intent, det_decision, det_budget)
 
-    if _intent_flag("intent.inline_enabled"):
-        gated_bundle, inline_shadow = _inline_intent(query, det_bundle, breadth, cfg)
+    if not _intent_flag("intent.inline_enabled"):
+        gated_bundle, inline_shadow = det_bundle, inactive_inline_shadow("inline_disabled")
+    elif det_intent.confidence == "high":
+        gated_bundle, inline_shadow = det_bundle, inactive_inline_shadow("high_confidence")
     else:
-        gated_bundle, inline_shadow = det_bundle, inactive_inline_shadow()
+        gated_bundle, inline_shadow = _inline_intent(query, det_bundle, breadth, cfg)
 
     emitted_bundle = gated_bundle if _intent_flag("intent.active_mode") else det_bundle
     emitted_intent, emitted_decision, emitted_budget = emitted_bundle
