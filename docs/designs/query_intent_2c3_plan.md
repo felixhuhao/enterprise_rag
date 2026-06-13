@@ -37,7 +37,7 @@ cd /home/hao/workspace/enterprise_rag && source .venv/bin/activate && cd backend
 
 ---
 
-### Task 1: Surface `routing_trace` in the retrieval-test output
+### Task 1: Commit 1 inline-path changes (routing-trace surface + escalation gate + inline budget)
 
 The leak check needs per-case activation evidence. `run_retrieval_test` runs the real `query_plan_node`
 (`retrieval_test_service.py:52`, `search_pipeline.py:142`), so `state["routing_trace"]` (with
@@ -60,8 +60,12 @@ the promotion gate.
 - Modify: `backend/app/services/retrieval_test_service.py:93`
 - Modify: `backend/app/rag/query/control/llm_classifier.py`
 - Modify: `backend/app/config.py`
+- Modify: `backend/app/rag/query/planner.py` (escalation gate)
+- Modify: `backend/app/rag/query/control/routing.py` (`inactive_inline_shadow` skip_reason)
 - Test: `backend/tests/unit/test_retrieval_test_service.py`
 - Test: `backend/tests/unit/test_llm_classifier.py`
+- Test: `backend/tests/unit/test_query_planner.py` (escalation gate; revise high-confidence fallback test)
+- Test: `backend/tests/unit/test_control_routing.py` (`inactive_inline_shadow` shape)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -116,7 +120,191 @@ line immediately after `"query_plan": state.get("query_plan", {}),`:
 Run: `python -m pytest tests/unit/test_retrieval_test_service.py -q`
 Expected: PASS (all existing + 1 new).
 
-- [ ] **Step 5: Do NOT commit yet** — this lands with Task 2 as Commit 1.
+- [ ] **Step 5: Inline classifier budget — write the failing test**
+
+The inline path must run one attempt at a 4s timeout (no client retry), while the offline/replay path
+keeps 30s + one retry. Append to `backend/tests/unit/test_llm_classifier.py`:
+
+```python
+def test_inline_uses_tight_budget_and_no_retry(monkeypatch):
+    seen = {}
+    def fake_invoke(query, det, timeout, max_retries):
+        seen["timeout"] = timeout
+        seen["max_retries"] = max_retries
+        return '{"needs_synthesis":false,"needs_discovery":false,"confidence":"medium","reasons":[]}'
+    monkeypatch.setattr(llm_classifier, "_invoke_classifier", fake_invoke)
+    llm_classifier.classify_intent_inline("q", _det())
+    assert seen == {"timeout": settings.INTENT_CLASSIFIER_INLINE_TIMEOUT, "max_retries": 0}
+
+
+def test_offline_keeps_generous_budget_and_one_retry(monkeypatch):
+    seen = {}
+    def fake_invoke(query, det, timeout, max_retries):
+        seen["timeout"] = timeout
+        seen["max_retries"] = max_retries
+        return '{"needs_synthesis":false,"needs_discovery":false,"confidence":"medium","reasons":[]}'
+    monkeypatch.setattr(llm_classifier, "_invoke_classifier", fake_invoke)
+    llm_classifier.classify_intent_llm("q", _det())
+    assert seen == {"timeout": settings.INTENT_CLASSIFIER_TIMEOUT, "max_retries": 1}
+```
+
+Add `from app.config import settings` to the test imports if absent.
+
+Run: `python -m pytest tests/unit/test_llm_classifier.py -q`
+Expected: FAIL — `_invoke_classifier` takes no `max_retries` argument.
+
+- [ ] **Step 6: Implement the budget split**
+
+In `backend/app/config.py`, change the inline timeout default from `6` to `4`:
+
+```python
+    INTENT_CLASSIFIER_INLINE_TIMEOUT: int = 4
+```
+
+In `backend/app/rag/query/control/llm_classifier.py`, give `_invoke_classifier` a `max_retries`
+parameter and thread the per-path budgets:
+
+```python
+def _invoke_classifier(query: str, deterministic: InferredSignals, timeout: int, max_retries: int) -> str:
+    llm = ChatOpenAI(
+        model=_classifier_model(),
+        api_key=settings.DEEPSEEK_API_KEY,
+        base_url=settings.DEEPSEEK_BASE_URL,
+        timeout=timeout,
+        max_retries=max_retries,
+        temperature=settings.INTENT_CLASSIFIER_TEMPERATURE,
+        max_tokens=settings.INTENT_CLASSIFIER_MAX_TOKENS,
+    )
+    response = llm.invoke(
+        [
+            SystemMessage(content=INTENT_CLASSIFIER_SYSTEM),
+            HumanMessage(content=_classifier_user_prompt(query, deterministic)),
+        ],
+        timeout=timeout,
+    )
+    raw = response.content if hasattr(response, "content") else str(response)
+    return str(raw or "")
+```
+
+Update the two call sites: `classify_intent_llm` passes `settings.INTENT_CLASSIFIER_TIMEOUT, max_retries=1`;
+`classify_intent_inline` passes `settings.INTENT_CLASSIFIER_INLINE_TIMEOUT, max_retries=0`.
+
+Run: `python -m pytest tests/unit/test_llm_classifier.py -q`
+Expected: PASS.
+
+- [ ] **Step 7: Escalation gate + skip_reason — write the failing test**
+
+Append to `backend/tests/unit/test_query_planner.py` (reuses `_set_flags`, `_divergent_high`, `_STATE`,
+`_CONFIG`):
+
+```python
+def test_escalation_skips_classifier_on_high_confidence(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        llm_classifier, "classify_intent_inline",
+        lambda q, d: calls.append(1) or ClassifyResult(None, "none", 0),
+    )
+    _set_flags(monkeypatch, inline=True, active=True)
+    # broad scope -> deterministic confidence "high" -> classifier skipped
+    out = query_plan_node({"query": "哪些公司提到了安全计划？", "entity_mode": "broad"}, _CONFIG)
+    assert calls == []
+    assert out["routing_trace"]["inline_shadow"]["ran"] is False
+    assert out["routing_trace"]["inline_shadow"]["skip_reason"] == "high_confidence"
+
+
+def test_escalation_runs_classifier_below_high(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        llm_classifier, "classify_intent_inline",
+        lambda q, d: calls.append(1) or _divergent_high()(q, d),
+    )
+    _set_flags(monkeypatch, inline=True, active=True)
+    # single entity, no marker -> "medium" -> escalates
+    out = query_plan_node(_STATE, _CONFIG)
+    assert calls == [1]
+    assert out["routing_trace"]["inline_shadow"]["ran"] is True
+```
+
+Run: `python -m pytest tests/unit/test_query_planner.py::test_escalation_skips_classifier_on_high_confidence -q`
+Expected: FAIL — the classifier runs on the high case (no escalation gate yet); `skip_reason` absent.
+
+- [ ] **Step 8: Implement the escalation gate**
+
+In `backend/app/rag/query/control/routing.py`, give `inactive_inline_shadow` a `skip_reason`:
+
+```python
+def inactive_inline_shadow(skip_reason: str = "inline_disabled") -> dict:
+    """Trace block when the inline classifier did not run."""
+    return {"ran": False, "fallback_reason": "none", "skip_reason": skip_reason}
+```
+
+In `backend/app/rag/query/planner.py` `query_plan_node`, replace the inline-enabled branch with the
+escalation gate:
+
+```python
+    if not _intent_flag("intent.inline_enabled"):
+        gated_bundle, inline_shadow = det_bundle, inactive_inline_shadow("inline_disabled")
+    elif det_intent.confidence == "high":
+        gated_bundle, inline_shadow = det_bundle, inactive_inline_shadow("high_confidence")
+    else:
+        gated_bundle, inline_shadow = _inline_intent(query, det_bundle, breadth, cfg)
+```
+
+(`inactive_inline_shadow` and `_inline_intent` are already imported in `query_plan_node` from 2C-2.)
+
+Run: `python -m pytest tests/unit/test_query_planner.py -q`
+Expected: the two new escalation tests PASS; `test_failure_fallback_high_det_confidence_never_activates`
+now FAILS (next step) because its broad/high query no longer reaches the classifier.
+
+- [ ] **Step 9: Revise the now-unreachable 2C-2 high-confidence fallback test**
+
+The escalation gate makes "high det confidence + classifier failure" unreachable (high skips the
+classifier). The `activatable = high AND not fallback_used` guard is still unit-tested in
+`test_control_routing.py::test_activatable_requires_high_and_not_fallback`; the planner-level fallback
+test must move to a **below-high** query so the classifier actually runs and fails. In
+`backend/tests/unit/test_query_planner.py`, replace `test_failure_fallback_high_det_confidence_never_activates`
+with:
+
+```python
+def test_failure_fallback_below_high_stays_deterministic(monkeypatch):
+    # single entity, no marker -> "medium" -> escalates; a classifier timeout must fall back.
+    monkeypatch.setattr(
+        llm_classifier, "classify_intent_inline", _divergent_high(reason="timeout", markers=False)
+    )
+    _set_flags(monkeypatch, inline=False, active=False)
+    baseline = query_plan_node(_STATE, _CONFIG)["query_plan"]
+
+    _set_flags(monkeypatch, inline=True, active=True)
+    out = query_plan_node(_STATE, _CONFIG)
+    assert out["query_plan"] == baseline  # failed classifier never drives
+    shadow = out["routing_trace"]["inline_shadow"]
+    assert shadow["ran"] is True
+    assert shadow["fallback_used"] is True
+    assert shadow["fallback_reason"] == "timeout"
+    assert shadow["activatable_diverged"] is False
+    assert out["routing_trace"]["intent"]["fallback_used"] is False  # emitted intent is deterministic
+```
+
+- [ ] **Step 10: Update the `inactive_inline_shadow` shape test**
+
+`inactive_inline_shadow` now carries `skip_reason`. In `backend/tests/unit/test_control_routing.py`,
+update the existing `test_inactive_inline_shadow`:
+
+```python
+def test_inactive_inline_shadow():
+    assert inactive_inline_shadow() == {
+        "ran": False, "fallback_reason": "none", "skip_reason": "inline_disabled",
+    }
+    assert inactive_inline_shadow("high_confidence")["skip_reason"] == "high_confidence"
+```
+
+- [ ] **Step 11: Run the full suite**
+
+Run: `python -m pytest tests/unit -q`
+Expected: PASS. (The 2C-2 kill-switch test asserts only `ran is False` / `fallback_reason == "none"`,
+both still true; the surface test asserts `ran is False`, still true.)
+
+- [ ] **Step 12: Do NOT commit yet** — this lands with Task 2 as Commit 1.
 
 ---
 
@@ -396,16 +584,26 @@ if __name__ == "__main__":
 Run: `python -m pytest tests/unit/test_compare_activation_eval.py -q`
 Expected: PASS (2 tests).
 
-- [ ] **Step 6: Commit (Commit 1 — eval tooling, defaults unchanged)**
+- [ ] **Step 6: Commit (Commit 1 — eval tooling + escalation gate, defaults unchanged)**
 
 ```bash
 git add backend/app/services/retrieval_test_service.py \
-  backend/tests/unit/test_retrieval_test_service.py \
+  backend/app/rag/query/planner.py \
+  backend/app/rag/query/control/routing.py \
+  backend/app/rag/query/control/llm_classifier.py \
+  backend/app/config.py \
   backend/scripts/eval_golden/cli.py \
-  backend/tests/unit/test_eval_golden_set_config.py \
   backend/scripts/compare_activation_eval.py \
+  backend/tests/unit/test_retrieval_test_service.py \
+  backend/tests/unit/test_llm_classifier.py \
+  backend/tests/unit/test_query_planner.py \
+  backend/tests/unit/test_control_routing.py \
+  backend/tests/unit/test_eval_golden_set_config.py \
   backend/tests/unit/test_compare_activation_eval.py
-git commit -m "feat(2C-3): eval-support tooling for activation leak check (defaults unchanged)
+git commit -m "feat(2C-3): escalation gate + eval-support tooling (defaults unchanged)
+
+Inline classifier escalates only below-high deterministic intent; inline budget
+4s/no-retry; routing_trace surfaced in retrieval-test; paired-run leak comparator.
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
@@ -625,6 +823,14 @@ rollback.
 
 **Spec coverage:**
 - Surface `routing_trace` for eval evidence → **Task 1**.
+- Escalation gate (classify only when `det.confidence != "high"`; `skip_reason` in the inactive trace)
+  + inline budget (4s / `max_retries=0`, offline keeps 30s / 1 retry) → **Task 1** (Steps 5–10). The
+  high-confidence skip makes the 2C-2 "high det + classifier failure" planner test unreachable, so it is
+  reframed to a below-high query (Step 9); the `activatable = high AND not fallback_used` guard stays
+  unit-tested in `test_control_routing.py`.
+- Hard safety gates vs soft lift/efficiency metrics (timeout/error rate is reported, not blocking;
+  volume = curated golden set + smoke window) → encoded in the go-gate (**Task 3**) and the comparator's
+  hard route-leak + Hit@K gates; the comparator does not gate on timeout/error.
 - In-process runtime override for `retrieval_only` eval → **Task 2** (`--runtime-setting` writes the
   local `runtime_settings._cache`, avoiding the fresh-process cache trap).
 - Paired-run comparator / enforceable leak check over normalized fields → **Task 2** (`_route_behavior`

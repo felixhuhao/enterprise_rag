@@ -29,9 +29,24 @@ rollback. Answers *"should we let high-confidence routes actually drive?"*
   ops flip to `"false"` is instant rollback. Matches the trajectory where the classifier becomes the
   permanent path (2D removes the flags entirely).
 - **Activation requires *both* flags.** `active_mode` only has teeth when `inline_enabled` is also on
-  (the classifier must run to produce a route to drive). So 2C-3 versions **both** defaults to
-  `"true"`; every production query then makes an inline classifier call by default — intended
-  (full-traffic, per the 2C-2 decision).
+  (the classifier must run to produce a route to drive). So 2C-3 versions **both** defaults to `"true"`.
+- **Escalate only below-high (revised from 2C-2's full-traffic).** The inline classifier runs **only
+  when `det.confidence != "high"`** — i.e. it escalates *medium/low* deterministic intent and **skips
+  the LLM on deterministic-high cases**, which use the deterministic route directly. This restores the
+  original 2B escalation intent ("it ran because deterministic was unsure"), which 2C-2's full-traffic
+  simplification had drifted from. A 2C-3 dry run confirmed the cost of the drift: a slow remote model
+  in a tight inline budget times out on a meaningful fraction of calls, and most of those calls were on
+  cases the deterministic ladder already routes correctly. Trade-off (accepted): we forgo LLM
+  *enrichment* on high cases (e.g. an extra marker the keyword matcher missed); 2C-1 showed the lift is
+  concentrated below-high, so this is low-risk. No configurable per-bucket overrides (YAGNI) — if a
+  `high` bucket ever needs the LLM, the honest fix is recalibrating the confidence ladder.
+- **Hard safety gates vs soft lift/efficiency metrics.** For a *reversible, flag-gated* activation, the
+  go-gate blocks only on **safety**: no route leak, no Hit@K regression, no confident-wrong activations
+  (2C-1, green), the active-off fallback always yields the deterministic route, and inline latency p95
+  bounded. Classifier timeout/error rate is **not** a blocker — a timeout falls back to the safe
+  deterministic route — so it is reported as a lift/efficiency signal, not a gate. The volume gate is
+  "enough representative cases to audit the activatable divergences" (curated golden set + a small live
+  smoke window), not a fixed production-row count.
 
 ## The activation fact
 
@@ -42,8 +57,23 @@ activate = intent.inline_enabled  AND  intent.active_mode
 2C-2 left both code defaults `"false"` (dark launch; inline enabled operationally for shadow
 gathering). 2C-3 versions both to `"true"`. With both on, `query_plan_node` emits the gated bundle,
 which is the merged proposal **iff** `activatable(merged)` (high confidence and not a fallback) —
-otherwise the deterministic bundle. Nothing about the gate logic changes; only the default flag
-values do.
+otherwise the deterministic bundle. The trust-gate logic is unchanged; the default flag values flip.
+
+### Escalation gate (the classifier runs only below-high)
+
+```
+run_inline = intent.inline_enabled  AND  det.confidence != "high"
+```
+
+`query_plan_node` calls the inline classifier **only when the deterministic intent is not already
+high-confidence**. On a `det.confidence == "high"` case the classifier is skipped and the deterministic
+bundle drives directly (which is `activatable` by definition, so it would have driven anyway). This
+bounds the latency/cost blast radius to the escalated minority and is the structural fix for the
+dry-run timeout findings. The skipped case records `inline_shadow = {"ran": false, "skip_reason":
+"high_confidence"}` so the eval/report can distinguish "skipped because confident" from "skipped
+because the flag is off" (`skip_reason: "inline_disabled"`). The deterministic confidence ladder is now
+load-bearing for *when* to escalate; mis-calibration shows up in the divergence metrics and is tunable
+there.
 
 ### Defaults vs. existing deployments (the precedence reality)
 
@@ -93,11 +123,16 @@ Hit@K regression. **Ignored:** timing, `trace`/`inline_shadow` metadata, latency
 telemetry — these differ whenever inline runs even when retrieval behavior is unchanged, so comparing
 them would create false hard-stops.
 
+**Hard gates (safety — block the flip):**
+
 | Check | Instrument | Gate |
 | --- | --- | --- |
 | **Leak check** (decisive) | paired `retrieval_only`, route-bearing normalized fields per case, partitioned by `inline_shadow.activatable_diverged` | Every case whose route-bearing fields differ between OFF and ON **must** be in the activatable set. A non-activatable route change is a wiring leak — hard stop. |
 | Retrieval non-regression | `retrieval_only` Hit@5/Hit@10 | No Hit@5/Hit@10 drop. Ranked-key churn is diagnostic unless it causes a hit regression or route-bearing change. |
+| Confident-wrong | 2C-1 `ambiguous_confident_wrong_count` | `== 0` (already green). |
 | Answer-quality non-regression | `--mode full --judge` vs baseline | No net answer-quality regression; investigate every case-change (judge noise expected — confirm flips are improvements or neutral, never degradations). |
+| Active-off fallback | activation regression test | With `active_mode` off (or a classifier failure), the emitted route is always the deterministic one. |
+| Inline latency | escalated-call wall-clock p95 | `≤ 6000ms` (one classifier attempt; `max_retries=0`, `4s` request timeout). |
 | Activatable audit | the 2C-2 report's `activatable_diverged` list + the paired-run activatable set | Each flipped route manually confirmed as wanted; re-confirm against the eval answers. |
 
 The leak check is the cheap, decisive correctness signal: because the gate only activates
@@ -105,9 +140,16 @@ high-confidence cases, the set of queries whose route-bearing behavior changes m
 of the activatable set. That catches any bundle/budget wiring bug without treating baseline retrieval
 rank churn as an activation leak.
 
-The go-gate must pass **before** the defaults are baked. 2C-1 gates (already green) and the 2C-2
-shadow report (`classifier_error_rate ≤ 1%`, `latency_ms p95 ≤ 6000`, volume ≥ 200, activatable
-audit) are preconditions.
+**Soft metrics (reported, inform tuning — do *not* block the flip):** classifier timeout/error rate,
+fallback rate, and activatable-divergence rate. These are lift/efficiency signals: a timeout falls
+back to the safe deterministic route, so a high timeout rate means "less LLM lift," not "unsafe."
+Report them prominently — a catastrophic timeout rate is the "is activation even worth the latency?"
+signal — but never gate on them. (The 2C-2 production-shadow report's `≤ 1%` error and `≥ 200` volume
+thresholds were *operational* gates for that stage; they are **not** 2C-3 activation preconditions.)
+
+The go-gate must pass **before** the defaults are baked. The only hard preconditions carried in are the
+2C-1 gates (already green) and the `activatable_diverged` audit; everything else is measured by the
+paired eval above.
 
 **Inline timeout dry-run finding.** The inline path must stay under the 6000ms wall-clock p95 gate
 for one classifier attempt. Provider/client retries multiply that envelope, so 2C-3 keeps the
@@ -153,9 +195,22 @@ would mean running the gate against already-activated defaults — backwards.
 3. **`backend/app/rag/query/control/llm_classifier.py` + `backend/app/config.py`** — keep the
    offline/replay classifier at one retry, run the inline classifier with `max_retries=0`, and set
    the inline request timeout default to `4s` so the wall-clock p95 gate has overhead room.
+4. **`backend/app/rag/query/planner.py` + `backend/app/rag/query/control/routing.py`** — the
+   **escalation gate**: `query_plan_node` calls the inline classifier only when
+   `det.confidence != "high"`; high-confidence cases skip it and use the deterministic bundle.
+   `inactive_inline_shadow(skip_reason)` records `"high_confidence"` vs `"inline_disabled"`. This is a
+   change to the inline seam's *when-to-run* (not the gate logic), and it is inert while the flags are
+   off — but it must land in Commit 1 so the go-gate eval measures the escalation-gated behavior that
+   production will run.
 
 With defaults still `"false"`, the paired eval is driven by **runtime overrides** (set the two
-`runtime_settings` keys `"true"` for the ON run only). This commit changes no default behavior.
+`runtime_settings` keys `"true"` for the ON run only). This commit changes no *default* behavior (the
+flags stay off); it does change the inline seam's escalation condition, which only matters once a flag
+is on.
+
+The escalation gate makes the 2C-2 "high deterministic confidence + classifier failure" planner test
+unreachable (high now skips the classifier), so that test is reframed to a below-high query; the
+`activatable = high AND not fallback_used` guard remains unit-tested in `routing.py`'s tests.
 
 ### Commit 2 — bake activation (only if the go-gate is green)
 
@@ -180,9 +235,10 @@ With defaults still `"false"`, the paired eval is driven by **runtime overrides*
    `monkeypatch.setitem`), so they still work; everything else is pinned deterministic. This fixture
    must land **in the same commit** as the default flip, or the suite would start hitting the live LLM.
 
-**No changes** to the planner seam, `routing.py`, or the classifier — they are already correct from
-2C-2. `build_query_plan` (used by `test_planner_characterization.py` and `get_query_plan`'s fallback)
-never runs the inline seam, so characterization is unaffected by the default flip.
+The planner seam, `routing.py`, and the classifier change only as described above (escalation gate +
+inline budget, both in Commit 1). `build_query_plan` (used by `test_planner_characterization.py` and
+`get_query_plan`'s fallback) never runs the inline seam, so characterization is unaffected by the
+default flip.
 
 ## Testing
 
