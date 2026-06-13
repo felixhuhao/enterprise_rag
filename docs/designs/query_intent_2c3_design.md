@@ -48,11 +48,12 @@ values do.
 ### Defaults vs. existing deployments (the precedence reality)
 
 `get_cached(key)` returns `_cache.get(key, _DEFAULTS.get(key))` (`runtime_settings.py:79`) — the
-DB-loaded `_cache` **wins** over `_DEFAULTS`. The DB seed only writes `query.*` keys
-(`database.py:392`), so on a *fresh* install `intent.*` are absent from `_cache` and fall through to
-`_DEFAULTS` — there, baking `"true"` activates them. But on the **current deployment** the 2C-2
-dark-launch wrote an `intent.inline_enabled` row via the settings API, so `_cache` already holds
-`intent.*` values that override the baked default. **Therefore:**
+DB-loaded `_cache` **wins** over `_DEFAULTS`. The seed loop currently inserts only `query.*` keys
+(`database.py:391`, `if key.startswith("query."):`), so `intent.*` are not seeded as rows; on a
+*fresh* DB they are absent from `_cache` and resolve to `_DEFAULTS` — there, baking `"true"` activates
+them. But a deployment initialized/used **before 2C-3** may already hold explicit `intent.*` rows: the
+2C-2 dark launch wrote `intent.inline_enabled` via the settings API, and a settings-save can persist
+the full key set. Those rows win over the baked default. **Therefore:**
 
 - Baking `_DEFAULTS = "true"` governs **fresh installs / missing keys only** — it makes activation the
   reproducible, version-controlled default.
@@ -93,7 +94,7 @@ behavior is unchanged, so comparing them would create false hard-stops.
 | --- | --- | --- |
 | **Leak check** (decisive) | paired `retrieval_only`, normalized fields per case, partitioned by `inline_shadow.activatable_diverged` | Every case whose normalized fields differ between OFF and ON **must** be in the activatable set. A non-activatable case that moves is a wiring leak — hard stop. |
 | Retrieval non-regression | `retrieval_only` Hit@5/Hit@10, aggregate over activatable cases | No drop on the activatable cases. |
-| Answer-quality non-regression | `full_judge` vs baseline | No net answer-quality regression; investigate every case-change (judge noise expected — confirm flips are improvements or neutral, never degradations). |
+| Answer-quality non-regression | `--mode full --judge` vs baseline | No net answer-quality regression; investigate every case-change (judge noise expected — confirm flips are improvements or neutral, never degradations). |
 | Activatable audit | the 2C-2 report's `activatable_diverged` list + the paired-run activatable set | Each flipped route manually confirmed as wanted; re-confirm against the eval answers. |
 
 The leak check is the cheap, decisive correctness signal: because the gate only activates
@@ -119,14 +120,37 @@ traffic, or a confirmed answer-quality regression.
 
 ## Code deliverables
 
-Small and contained — the heavy lifting was 2C-2.
+Small and contained — the heavy lifting was 2C-2. **Split into two commits**, because the go-gate
+*depends on* the eval tooling existing and must pass *before* the defaults are baked. Baking first
+would mean running the gate against already-activated defaults — backwards.
 
-1. **`backend/app/core/runtime_settings.py`** — flip both `_DEFAULTS` entries:
+### Commit 1 — eval-support tooling (defaults stay `"false"`)
+
+1. **`backend/app/services/retrieval_test_service.py`** — surface the routing trace in the
+   retrieval-test return dict (one line), so eval artifacts carry the activation evidence:
+   ```python
+   "routing_trace": state.get("routing_trace", {}),
+   ```
+   `routing_trace` (with `inline_shadow.activatable_diverged` and the proposal/det executions) is
+   already produced by `query_plan_node` and sits in graph state; it is simply not currently returned.
+2. **`backend/scripts/compare_activation_eval.py`** (new, standalone — archived after the flip like
+   the other gate tools) — a paired-run comparator: takes the `active-OFF` and `inline+active-ON`
+   retrieval-test result artifacts, compares the normalized behavior fields per case (ranked keys +
+   `Hit@K` + `decision_execution_dict` + budget), partitions by `inline_shadow.activatable_diverged`,
+   and asserts the changed set ⊆ the activatable set (the leak check). Pure aggregation function +
+   thin file I/O, unit-tested like `aggregate_inline_shadow`.
+
+With defaults still `"false"`, the paired eval is driven by **runtime overrides** (set the two
+`runtime_settings` keys `"true"` for the ON run only). This commit changes no default behavior.
+
+### Commit 2 — bake activation (only if the go-gate is green)
+
+3. **`backend/app/core/runtime_settings.py`** — flip both `_DEFAULTS` entries:
    ```python
    "intent.inline_enabled": "true",
    "intent.active_mode": "true",
    ```
-2. **`backend/tests/conftest.py`** — autouse fixture pinning both flags `"false"` for the unit suite,
+4. **`backend/tests/conftest.py`** — autouse fixture pinning both flags `"false"` for the unit suite,
    so `query_plan_node` tests stay offline/deterministic unless they opt in:
    ```python
    @pytest.fixture(autouse=True)
@@ -139,20 +163,8 @@ Small and contained — the heavy lifting was 2C-2.
        runtime_settings._cache = prev
    ```
    The 2C-2 inline/active tests set their flags *after* this fixture runs (via
-   `monkeypatch.setitem`), so they still work; everything else is pinned deterministic.
-3. **`backend/app/services/retrieval_test_service.py`** — surface the routing trace in the
-   retrieval-test return dict (one line), so eval artifacts carry the activation evidence:
-   ```python
-   "routing_trace": state.get("routing_trace", {}),
-   ```
-   `routing_trace` (with `inline_shadow.activatable_diverged` and the proposal/det executions) is
-   already produced by `query_plan_node` and sits in graph state; it is simply not currently returned.
-4. **`backend/scripts/compare_activation_eval.py`** (new, standalone — archived after the flip like
-   the other gate tools) — a paired-run comparator: takes the `active-OFF` and `inline+active-ON`
-   retrieval-test result artifacts, compares the normalized behavior fields per case (ranked keys +
-   `Hit@K` + `decision_execution_dict` + budget), partitions by `inline_shadow.activatable_diverged`,
-   and asserts the changed set ⊆ the activatable set (the leak check). Pure aggregation function +
-   thin file I/O, unit-tested like `aggregate_inline_shadow`.
+   `monkeypatch.setitem`), so they still work; everything else is pinned deterministic. This fixture
+   must land **in the same commit** as the default flip, or the suite would start hitting the live LLM.
 
 **No changes** to the planner seam, `routing.py`, or the classifier — they are already correct from
 2C-2. `build_query_plan` (used by `test_planner_characterization.py` and `get_query_plan`'s fallback)
@@ -185,16 +197,20 @@ scorer and 2C-2 dark-launch runs).
 ## Operational steps (manual, like 2C-1/2C-2)
 
 1. Confirm preconditions: 2C-1 gates green, 2C-2 shadow report green + `activatable_diverged` audited.
-2. Run the paired eval (`active-OFF` then `inline+active` ON) via `eval_golden_set.py` in
-   `retrieval_only` and `full_judge`; run `compare_activation_eval.py` on the two artifacts and verify
-   the go-gate table (leak check, non-regression, audit).
-3. If green, land the code change (surface `routing_trace`, comparator, bake `_DEFAULTS` true + tests)
-   and record the eval summary to a `data/` artifact + a closeout note (matching how
-   2B/2C-1/control_model results were recorded).
-4. **Activate the running deployment:** set `intent.inline_enabled="true"` and
+2. **Land Commit 1** (routing-trace surfacing + comparator + comparator unit test); defaults stay
+   `"false"`.
+3. Run the paired eval with **runtime overrides** (defaults still false): `active-OFF` baseline, then
+   set the two `runtime_settings` keys `"true"` and run `inline+active` ON — each via
+   `eval_golden_set.py --mode retrieval_only` and `--mode full --judge`. Run
+   `compare_activation_eval.py` on the two artifacts and verify the go-gate table (leak check,
+   non-regression, audit). Reset the runtime overrides afterward.
+4. If green, **land Commit 2** (bake `_DEFAULTS` true + the conftest autouse pin + the activation
+   regression and shipped-default tests) and record the eval summary to a `data/` artifact + a
+   closeout note (matching how 2B/2C-1/control_model results were recorded).
+5. **Activate the running deployment:** set `intent.inline_enabled="true"` and
    `intent.active_mode="true"` via the settings API / `runtime_settings.set` — the baked default only
    covers fresh installs; the existing DB rows win until updated.
-5. Post-flip: run `report_inline_shadow.py` over the observation window; hold `intent.active_mode`
+6. Post-flip: run `report_inline_shadow.py` over the observation window; hold `intent.active_mode`
    ready for instant rollback (`"false"`).
 
 ## Out of scope (deferred)
