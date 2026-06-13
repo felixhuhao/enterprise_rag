@@ -249,6 +249,13 @@ because it points at *contract drift* (the call succeeded) rather than infra, an
 their union for context. The gate is **stability + inspectability**, not re-deriving correctness
 (that was 2C-1). The human reviews the `activatable_diverged` rows before 2C-3.
 
+**2C-3 supersession note (2026-06-13).** The `≤ 1%` classifier-error and `≥ 200` observed-volume
+thresholds were useful as a production-scale 2C-2 shadow target, but the 2C-3 dry run/dark launch
+showed they do not fit this local/manual deployment. 2C-3 treats timeout/error rate and volume as
+reported lift/capacity diagnostics, not hard activation prerequisites; the hard activation gates move
+to route safety, Hit@K, answer quality when routes actually change, inline latency p95, and audit of
+any `activatable_diverged` rows.
+
 ## The excisable seam (designing for 2D)
 
 The 2D-deletable scaffolding is named and co-located so removal is one cut:

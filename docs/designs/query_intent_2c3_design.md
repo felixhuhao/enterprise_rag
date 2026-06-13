@@ -1,10 +1,10 @@
 # Query-Intent Routing 2C-3 — Trust-Gated Activation (the flip)
 
 **Date:** 2026-06-13
-**Status:** Spec — approved design, pending implementation plan.
+**Status:** Spec revision after Commit 1 dry run/dark launch; Commit 2 activation pending.
 **Roadmap:** `query_intent_routing_roadmap.md` → Stage 2C-3.
 **Depends on:** 2C-1 (golden correctness, all gates green 2026-06-13), 2C-2 (inline shadow shipped,
-601 green; production-shadow report + `activatable_diverged` audit available).
+601 green; inline shadow plumbing available).
 
 ## Purpose
 
@@ -47,6 +47,27 @@ rollback. Answers *"should we let high-confidence routes actually drive?"*
   deterministic route — so it is reported as a lift/efficiency signal, not a gate. The volume gate is
   "enough representative cases to audit the activatable divergences" (curated golden set + a small live
   smoke window), not a fixed production-row count.
+
+## Findings from the 2C-3 dry run and dark launch
+
+The original 2C-2 report thresholds (`classifier_error_rate <= 1%`, `volume >= 200`) assumed a
+production-traffic environment and a classifier endpoint fast enough to fit a tight inline budget.
+The 2026-06-13 evidence shows those assumptions do not match this project:
+
+- Paired retrieval eval with inline active ON stayed behaviorally safe: no route leaks, no Hit@K
+  regression, and 100% retrieval pass rate.
+- With the inline request timeout reduced to 4s and retries disabled, classifier latency p95 stayed
+  under the 6000ms wall-clock gate, but timeout fallback remained high: 25.8% on the eval slice.
+- A live non-eval dark-launch smoke (`inline_enabled=true`, `active_mode=false`) produced 12/12
+  successful responses, `latency_ms_p95=5195`, `classifier_error_rate=33.33%`, and no
+  `activatable_diverged` rows.
+- The live deployment had only 13 shadow rows after the smoke run. A fixed `volume >= 200` gate is
+  not a realistic local/manual activation prerequisite.
+
+Conclusion: timeout/error rate and raw volume are no longer hard 2C-3 activation gates. They remain
+important lift/capacity diagnostics. A timeout is safe only because it falls back to deterministic
+routing; if timeouts dominate, the classifier simply contributes little live lift. The structural fix
+is to stop calling the LLM on deterministic-high cases and escalate only below-high intent.
 
 ## The activation fact
 
@@ -103,6 +124,16 @@ Run `backend/scripts/eval_golden_set.py` over `data/challenge_golden_set_v1.json
 — once `active-OFF` (baseline) and once `inline+active` ON — the same protocol `intent_2a` and
 `control_model` used (see `data/intent_2a_*`, `data/control_model_*`).
 
+**Evidence split.** 2C-3's paired eval is a **no-harm/leak gate on representative answer traffic**,
+not the primary positive-correctness proof for activatable routing deltas. Positive correctness on
+divergent intent cases is carried by 2C-1's `score_routing_golden_set.py` over
+`data/routing_golden_set_v1.jsonl` (clear expected-route accuracy, ambiguous confident-wrong cap).
+`data/challenge_golden_set_v1.jsonl` is answer-quality oriented and may produce zero
+`activatable_diverged` cases. That is an acceptable and expected outcome: the paired gate then proves
+"activation is a no-op on this observed set, with no leaks or Hit@K regression." Flipping with zero
+observed divergence is acceptable because activation is instantly reversible and lift accrues only on
+future below-high queries where the trust gate produces an activatable divergent route.
+
 **Enforceability prerequisite (a 2C-3 deliverable).** The leak check needs to know which cases the
 classifier activated, but the current eval artifacts don't carry it: `run_retrieval_test()` returns
 `query_plan` and a timing `trace`, not `routing_trace.inline_shadow`
@@ -133,23 +164,23 @@ them would create false hard-stops.
 | Answer-quality non-regression | `--mode full --judge` vs baseline | No net answer-quality regression; investigate every case-change (judge noise expected — confirm flips are improvements or neutral, never degradations). |
 | Active-off fallback | activation regression test | With `active_mode` off (or a classifier failure), the emitted route is always the deterministic one. |
 | Inline latency | escalated-call wall-clock p95 | `≤ 6000ms` (one classifier attempt; `max_retries=0`, `4s` request timeout). |
-| Activatable audit | the 2C-2 report's `activatable_diverged` list + the paired-run activatable set | Each flipped route manually confirmed as wanted; re-confirm against the eval answers. |
+| Activatable audit | paired-run activatable set + any live-shadow `activatable_diverged` rows available | Report the activatable count explicitly. Each flipped route is manually confirmed as wanted; re-confirm against the eval answers. If count is `0`, record that activation is behaviorally a no-op on the observed set. |
 
 The leak check is the cheap, decisive correctness signal: because the gate only activates
 high-confidence cases, the set of queries whose route-bearing behavior changes must be a **subset**
 of the activatable set. That catches any bundle/budget wiring bug without treating baseline retrieval
 rank churn as an activation leak.
 
-**Soft metrics (reported, inform tuning — do *not* block the flip):** classifier timeout/error rate,
-fallback rate, and activatable-divergence rate. These are lift/efficiency signals: a timeout falls
-back to the safe deterministic route, so a high timeout rate means "less LLM lift," not "unsafe."
-Report them prominently — a catastrophic timeout rate is the "is activation even worth the latency?"
-signal — but never gate on them. (The 2C-2 production-shadow report's `≤ 1%` error and `≥ 200` volume
-thresholds were *operational* gates for that stage; they are **not** 2C-3 activation preconditions.)
+**Soft metrics (reported, inform tuning — do *not* block the flip by themselves):** classifier
+timeout/error rate, fallback rate, live-shadow volume, and activatable-divergence rate. These are
+lift/efficiency signals: a timeout falls back to the safe deterministic route, so a high timeout rate
+means "less LLM lift," not "unsafe." Report them prominently — a catastrophic timeout rate is the
+"is activation even worth the latency?" signal — but do not reuse the 2C-2 `≤ 1%` error and `≥ 200`
+volume thresholds as 2C-3 activation preconditions.
 
-The go-gate must pass **before** the defaults are baked. The only hard preconditions carried in are the
-2C-1 gates (already green) and the `activatable_diverged` audit; everything else is measured by the
-paired eval above.
+The go-gate must pass **before** the defaults are baked. The only hard preconditions carried in are
+the 2C-1 correctness gates (already green), the paired-eval safety gates, the inline latency bound,
+and the activatable audit. The shadow report is context, not a separate production-scale gate.
 
 **Inline timeout dry-run finding.** The inline path must stay under the 6000ms wall-clock p95 gate
 for one classifier attempt. Provider/client retries multiply that envelope, so 2C-3 keeps the
@@ -159,24 +190,32 @@ still produced >6s wall-clock p95 in the paired dry run, so the inline request t
 
 ## Post-flip watch & rollback
 
-**Watch (lightweight).** After baking the defaults, watch `classifier_error_rate` / `latency_ms` p95
-via `report_inline_shadow.py` (it already reads these from `query_run_stats`), plus feedback if volume
-permits. This catches golden-set blind spots, not the primary signal.
+**Watch (lightweight).** After baking the defaults, watch `latency_ms` p95, fallback/error slices,
+`activatable_diverged`, and user feedback via `report_inline_shadow.py` (it already reads these from
+`query_run_stats`). This catches golden-set blind spots and tells us whether the classifier is
+providing enough live lift to justify its latency.
 
 **Rollback (single action).** Set `intent.active_mode="false"` in `runtime_settings` (instant, no
 deploy) → back to deterministic routes while the inline shadow keeps running for diagnosis. If the
 inline *call itself* misbehaves (latency/errors), also set `intent.inline_enabled="false"`.
 
-**Rollback triggers:** any hard-gate failure surfaced post-flip, an error/latency regression on real
-traffic, or a confirmed answer-quality regression.
+**Rollback triggers:** any hard-gate failure surfaced post-flip, a latency regression on real traffic,
+a confirmed answer-quality regression, or a classifier failure pattern that makes the feature mostly
+cost with no lift.
 
 ## Code deliverables
 
-Small and contained — the heavy lifting was 2C-2. **Split into two commits**, because the go-gate
-*depends on* the eval tooling existing and must pass *before* the defaults are baked. Baking first
-would mean running the gate against already-activated defaults — backwards.
+Small and contained — the heavy lifting was 2C-2. **Split into eval-support/hardening, escalation
+gate, then activation**, because the go-gate must measure the exact routing behavior that would ship
+*before* the defaults are baked. Baking first would mean running the gate against already-activated
+defaults — backwards.
 
-### Commit 1 — eval-support tooling (defaults stay `"false"`)
+### Commit 1a/1b — eval-support tooling + escalation gate (defaults stay `"false"`)
+
+Commit 1a has already shipped the retrieval-test trace surface, eval runtime override, paired
+comparator, inline `max_retries=0`, and 4s inline request timeout. Commit 1b is the remaining
+escalation-gate slice: skip the LLM on deterministic-high cases and trace why the inline classifier
+did not run.
 
 1. **`backend/app/services/retrieval_test_service.py`** — surface the routing trace in the
    retrieval-test return dict (one line), so eval artifacts carry the activation evidence:
@@ -200,7 +239,7 @@ would mean running the gate against already-activated defaults — backwards.
    `det.confidence != "high"`; high-confidence cases skip it and use the deterministic bundle.
    `inactive_inline_shadow(skip_reason)` records `"high_confidence"` vs `"inline_disabled"`. This is a
    change to the inline seam's *when-to-run* (not the gate logic), and it is inert while the flags are
-   off — but it must land in Commit 1 so the go-gate eval measures the escalation-gated behavior that
+   off — but it must land in Commit 1b so the go-gate eval measures the escalation-gated behavior that
    production will run.
 
 With defaults still `"false"`, the paired eval is driven by **runtime overrides** (set the two
@@ -236,7 +275,7 @@ unreachable (high now skips the classifier), so that test is reframed to a below
    must land **in the same commit** as the default flip, or the suite would start hitting the live LLM.
 
 The planner seam, `routing.py`, and the classifier change only as described above (escalation gate +
-inline budget, both in Commit 1). `build_query_plan` (used by `test_planner_characterization.py` and
+inline budget, both before Commit 2). `build_query_plan` (used by `test_planner_characterization.py` and
 `get_query_plan`'s fallback) never runs the inline seam, so characterization is unaffected by the
 default flip.
 
@@ -244,10 +283,10 @@ default flip.
 
 1. **Activation regression (permanent protection).** With `inline+active` forced on (via
    `monkeypatch.setitem`, overriding the autouse fixture) and `classify_intent_inline` stubbed (no
-   network): a high-confidence divergent intent **drives** the merged route + budget; a
-   `fallback_used`/low-confidence proposal does **not** (stays deterministic). This promotes the 2C-2
-   active-mode + fallback tests to "intended default behavior," guarding against silent regression
-   after the flip.
+   network): a below-high deterministic case whose merged LLM intent becomes high-confidence
+   **drives** the merged route + budget. The classifier-failure fallback path is already pinned by the
+   escalation-gate test (`test_failure_fallback_below_high_stays_deterministic`), so Commit 2 does not
+   duplicate it.
 2. **Shipped-default assertion.** One test that, with the autouse fixture temporarily lifted
    (`runtime_settings._cache` cleared of both keys so `get_cached` falls through to `_DEFAULTS`),
    asserts `runtime_settings.get_cached("intent.active_mode") == "true"` and
@@ -266,14 +305,17 @@ scorer and 2C-2 dark-launch runs).
 
 ## Operational steps (manual, like 2C-1/2C-2)
 
-1. Confirm preconditions: 2C-1 gates green, 2C-2 shadow report green + `activatable_diverged` audited.
-2. **Land Commit 1** (routing-trace surfacing + comparator + comparator unit test); defaults stay
-   `"false"`.
+1. Confirm preconditions: 2C-1 gates green; Commit 1 eval-support tooling shipped; current shadow
+   findings recorded as context (not as a hard `1%/200-row` gate).
+2. **Land the escalation-gate slice** if it is not already in code: inline classifier runs only for
+   `det.confidence != "high"`; defaults stay `"false"`.
 3. Run the paired eval with **runtime overrides** (defaults still false): `active-OFF` baseline, then
-   set the two `runtime_settings` keys `"true"` and run `inline+active` ON — each via
-   `eval_golden_set.py --mode retrieval_only` and `--mode full --judge`. Run
-   `compare_activation_eval.py` on the two artifacts and verify the go-gate table (leak check,
-   non-regression, audit). Reset the runtime overrides afterward.
+   set the two `runtime_settings` keys `"true"` and run `inline+active` ON via
+   `eval_golden_set.py --mode retrieval_only`. Run `compare_activation_eval.py` on the two artifacts
+   and verify the go-gate table (leak check, Hit@K non-regression, latency, audit). Run
+   `--mode full --judge` only when the retrieval pair has activatable route changes or when a release
+   reviewer wants an end-to-end answer check; otherwise record that activation is a no-op on the
+   observed set.
 4. If green, **land Commit 2** (bake `_DEFAULTS` true + the conftest autouse pin + the activation
    regression and shipped-default tests) and record the eval summary to a `data/` artifact + a
    closeout note (matching how 2B/2C-1/control_model results were recorded).

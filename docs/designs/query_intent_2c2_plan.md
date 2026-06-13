@@ -990,9 +990,15 @@ Run the existing non-eval live-query set (the same ~12 queries used to smoke 2B)
 Run: `python -m scripts.report_inline_shadow --since <window-start>`
 Expected: a JSON summary with `gates`. Confirm `classifier_error_rate <= 0.01`, `parse_fail_rate <= 0.02`, `latency_ms_p95 <= 6000`, `volume >= 200`. Manually inspect every printed `activatable_diverged` row — these are exactly the queries that will change route at 2C-3; confirm each proposed flip is one you'd want.
 
+**2C-3 supersession note (2026-06-13).** Do not carry the `classifier_error_rate <= 0.01` and
+`volume >= 200` checks forward as hard 2C-3 activation gates. The 2C-3 dry run/dark launch showed
+they are unrealistic for this local/manual deployment and slow remote classifier endpoint. In 2C-3,
+timeout/error rate and volume are reported lift/capacity diagnostics; route safety, Hit@K, applicable
+answer quality, inline latency p95, and audit of `activatable_diverged` rows are the hard gates.
+
 - [ ] **Step 4: Record the result**
 
-Append the summary JSON + audit notes to the 2C-2 closeout (a short note in the PR / a `data/` artifact, matching how 2B/2C-1 results were recorded). If any hard gate fails, stop — do not proceed to 2C-3; file the divergence/latency/error findings instead.
+Append the summary JSON + audit notes to the 2C-2 closeout (a short note in the PR / a `data/` artifact, matching how 2B/2C-1 results were recorded). For the original 2C-2 plan, a hard-gate failure meant "stop and file findings"; after the 2C-3 supersession above, those findings feed the revised 2C-3 gate model rather than automatically blocking all 2C-3 work.
 
 ---
 
