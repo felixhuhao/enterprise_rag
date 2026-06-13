@@ -196,9 +196,11 @@ That is the main open operational decision:
   multi-hop becomes available by default.
 - Option 3: defer discovery retirement until multi-hop has its own readiness gate.
 
-I recommend Option 3 unless a focused discovery eval shows no Hit@K or answer-quality regression
-with Option 1 or Option 2. This is the one place where deleting the legacy knob can easily remove
-real retrieval capability.
+Initial five-case evidence favors Option 2 over Option 1, but that is not enough to flip the
+default blindly. The implementation plan should treat Option 2 as the leading candidate and add a
+blast-radius check for non-discovery traffic before changing `query.use_multi_hop` globally. This is
+the one place where deleting the legacy knob can easily remove real retrieval capability or widen
+retrieval in places we did not intend.
 
 ---
 
@@ -229,6 +231,70 @@ Expected route deltas must be named in the summary:
 - HyDE/expansion now follow breadth
 
 No unnamed accepted delta.
+
+### Initial Retrieval-Only Spike (2026-06-13)
+
+Ran the five `preferred_flavor=discovery` cases from `challenge_golden_set_v1`:
+
+| Variant | Hit@5 / Hit@10 | Route/search notes |
+| --- | --- | --- |
+| Current `discovery`, `query.use_multi_hop=false` | 5/5, 5/5 | `discovery_current_path` budget for all; hop cases used `multi_hop` via bypass; broad prompt for hop cases. |
+| Simulated retired mapping: `balanced`, `query.use_multi_hop=false` | 5/5, 5/5 | Hit metrics held, but hop cases became plain `hybrid`; prompt changed from `broad` to `default`; budgets became `balanced_synthesis`/`balanced_current_defaults`. |
+| Simulated retired mapping: `balanced`, `query.use_multi_hop=true` | 5/5, 5/5 | Hit metrics held and hop cases used `multi_hop`, but prompt still changed to `default` for hop cases and budgets still changed. |
+
+Artifacts (ignored, not committed):
+
+- `data/eval_results/2d_discovery_current_retrieval.jsonl`
+- `data/eval_results/2d_discovery_balanced_mhop_off_retrieval.jsonl`
+- `data/eval_results/2d_discovery_balanced_mhop_on_retrieval.jsonl`
+
+Takeaway: the tiny retrieval slice does **not** prove a Hit@K blocker, even with multi-hop off. It
+does prove route-shape deltas. Therefore the next gate must include answer-quality review for the
+five discovery cases, especially the two hop cases where prompt and search mode change.
+
+### Initial Full/Judge Spike (2026-06-13)
+
+Ran the same five discovery cases in full answer mode with judge enabled:
+
+| Variant | Avg score | Pass rate | Hit@5 / Hit@10 | Notes |
+| --- | ---: | ---: | --- | --- |
+| Current `discovery`, `query.use_multi_hop=false` | 0.955 | 80% | 5/5, 5/5 | One `judge_uncertain` on `discovery_hop_001`; old bypass active. |
+| Simulated retired mapping: `balanced`, `query.use_multi_hop=false` | 0.925 | 100% | 5/5, 5/5 | No hard failures, but lower scores on `discovery_hop_002`, `discovery_multi_003`, and the already-warn `discovery_hop_001`. |
+| Simulated retired mapping: `balanced`, `query.use_multi_hop=true` | 0.9625 | 100% | 5/5, 5/5 | Best of the three on this tiny slice; no failure categories. |
+
+Artifacts (ignored, not committed):
+
+- `data/eval_results/2d_discovery_current_full_judge.jsonl`
+- `data/eval_results/2d_discovery_balanced_mhop_off_full_judge.jsonl`
+- `data/eval_results/2d_discovery_balanced_mhop_on_full_judge.jsonl`
+
+This does **not** prove discovery retirement is globally safe, but it changes the working
+hypothesis: if we retire explicit `discovery`, pairing it with `query.use_multi_hop=true` looks safer
+than simply mapping `discovery -> balanced` while leaving multi-hop disabled. The remaining concern is
+blast radius: enabling multi-hop globally affects all inferred discovery queries, not only the five
+legacy discovery cases.
+
+### Multi-Hop Default Blast-Radius Spike (2026-06-13)
+
+Ran full `challenge_golden_set_v1` retrieval-only with `query.use_multi_hop=true`, compared to the
+2C-3 active retrieval artifact with `query.use_multi_hop=false`:
+
+- Common cases: 31
+- Hit@5/Hit@10: unchanged at 100% on the 28 hit-bearing cases
+- Hit regressions: none
+- Route-bearing changes: one (`balanced_compare_003`), an activatable LLM synthesis flip
+  (`answer_shape=bullets_or_table`, `budget_reason=balanced_synthesis`), not a multi-hop execution
+  change
+- Comparator: `no_leak=true`, `no_hit_regression=true`
+- Classifier runs in the multi-hop-on pass: 20 (`16` successful, `4` timeout), 11 high-confidence
+  skips
+
+Artifact (ignored, not committed):
+
+- `data/eval_results/2d_full_challenge_mhop_on_retrieval.jsonl`
+
+Takeaway: the first blast-radius check did not find a retrieval regression from enabling multi-hop,
+but answer-quality impact outside the five discovery cases is still unmeasured.
 
 ---
 
