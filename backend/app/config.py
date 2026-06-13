@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     INTENT_CLASSIFIER_TEMPERATURE: float = 0.0
     INTENT_CLASSIFIER_MAX_TOKENS: int = 256
     INTENT_CLASSIFIER_TIMEOUT: int = 30
-    INTENT_CLASSIFIER_INLINE_TIMEOUT: int = 6
+    INTENT_CLASSIFIER_INLINE_TIMEOUT: int = 4
     # 本地模型（vLLM 部署），留空则使用 DashScope 云端模型
     LOCAL_MODEL_URL: str = ""
     LOCAL_MODEL_NAME: str = ""

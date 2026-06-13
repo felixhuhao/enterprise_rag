@@ -4,7 +4,7 @@
 
 **Goal:** Make high-confidence inferred routes actually drive `query_plan` by versioning the activation flags to `"true"`, gated on an offline eval go-gate enforced by a paired-run comparator.
 
-**Architecture:** Two commits. Commit 1 ships eval-support tooling with defaults unchanged (`"false"`): surface `routing_trace` in the retrieval-test output, add an in-process runtime override for `retrieval_only` eval, and add a paired-run comparator that enforces the leak check. The operator then runs the paired eval via explicit runtime overrides. Commit 2 — only if the go-gate is green — flips the `_DEFAULTS` to `"true"` and lands a test-suite pin so the suite stays offline, plus permanent activation-regression protection.
+**Architecture:** Two commits. Commit 1 ships eval-support tooling with defaults unchanged (`"false"`): surface `routing_trace` in the retrieval-test output, add an in-process runtime override for `retrieval_only` eval, and add a paired-run comparator that enforces the route leak check plus Hit@K non-regression. The operator then runs the paired eval via explicit runtime overrides. Commit 2 — only if the go-gate is green — flips the `_DEFAULTS` to `"true"` and lands a test-suite pin so the suite stays offline, plus permanent activation-regression protection.
 
 **Tech Stack:** Python 3, pytest, SQLite-backed `runtime_settings`, the `eval_golden_set` harness (`--mode retrieval_only` runs `run_retrieval_test` in-process). Spec: `docs/designs/query_intent_2c3_design.md`.
 
@@ -45,9 +45,23 @@ The leak check needs per-case activation evidence. `run_retrieval_test` runs the
 `run_retrieval_test` in-process (`scripts/eval_golden/runner.py:176-182`) and stores the whole return
 dict under `row["retrieval_step"]`, so this one line carries activation evidence into eval artifacts.
 
+**2C-3 dry-run refinement:** OFF-vs-OFF retrieval-only runs showed ranked-key churn even when
+route/plan fields and Hit@K were unchanged. Therefore the comparator reports ranked-key changes as
+diagnostics, but the hard leak gate is route-bearing fields only; Hit@5/Hit@10 regression remains a
+separate hard gate.
+
+The same dry run showed timeout fallbacks taking more than one inline timeout window because the
+shared classifier helper allowed one client retry. 2C-3 keeps that retry for offline replay, but the
+inline path must pass `max_retries=0`. A later paired run showed a 6s request timeout still exceeding
+the 6000ms wall-clock p95 gate, so the inline request timeout default is tuned to 4s; 6000ms remains
+the promotion gate.
+
 **Files:**
 - Modify: `backend/app/services/retrieval_test_service.py:93`
+- Modify: `backend/app/rag/query/control/llm_classifier.py`
+- Modify: `backend/app/config.py`
 - Test: `backend/tests/unit/test_retrieval_test_service.py`
+- Test: `backend/tests/unit/test_llm_classifier.py`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -440,8 +454,10 @@ python -m scripts.compare_activation_eval \
   --off ../data/eval_results/2c3_off_retrieval.jsonl \
   --on ../data/eval_results/2c3_on_retrieval.jsonl
 ```
-Expected: `gates.no_leak == true` (exit 0). Any `leak_ids` is a hard stop — a non-activatable case
-changed retrieval, which is a wiring bug, not intent.
+Expected: `gates.no_leak == true` and `gates.no_hit_regression == true` (exit 0). Any `leak_ids` is a
+hard stop — a non-activatable case changed route-bearing fields, which is a wiring bug, not intent.
+`ranked_key_changed_ids` is diagnostic because baseline retrieval can reorder/change candidates across
+identical OFF runs.
 
 - [ ] **Step 5: Answer-quality run + audit**
 
@@ -611,9 +627,11 @@ rollback.
 - Surface `routing_trace` for eval evidence → **Task 1**.
 - In-process runtime override for `retrieval_only` eval → **Task 2** (`--runtime-setting` writes the
   local `runtime_settings._cache`, avoiding the fresh-process cache trap).
-- Paired-run comparator / enforceable leak check over normalized fields → **Task 2** (`_behavior` uses
-  ranked `chunk_key or document_id`, `hit_at_5/10`, routing-decision execution fields, fallback policy,
-  breadth/strict flags, and full budget; excludes timing/classifier telemetry per Finding 3).
+- Paired-run comparator / enforceable leak check over normalized fields → **Task 2** (`_route_behavior`
+  uses routing-decision execution fields, fallback policy, breadth/strict flags, and full budget;
+  `hit_at_5/10` are a separate hard non-regression gate; ranked `chunk_key or document_id` changes are
+  diagnostic only after OFF-vs-OFF showed baseline rank churn; excludes timing/classifier telemetry per
+  Finding 3).
 - Offline go-gate (retrieval_only leak + non-regression, `--mode full --judge` answer quality, audit) →
   **Task 3** (correct CLI: `--mode retrieval_only`, `--mode full --judge`).
 - Versioned defaults flipped to `"true"` + suite pin → **Task 4**.

@@ -1,4 +1,4 @@
-"""Offline LLM intent classifier for Design 2B."""
+"""LLM intent classifier for Design 2B replay and 2C inline shadow routing."""
 
 from __future__ import annotations
 
@@ -67,14 +67,20 @@ def _is_timeout(exc: BaseException) -> bool:
     return False
 
 
-def _invoke_classifier(query: str, deterministic: InferredSignals, timeout: int) -> str:
+def _invoke_classifier(
+    query: str,
+    deterministic: InferredSignals,
+    timeout: int,
+    *,
+    max_retries: int = 1,
+) -> str:
     """Build the client, invoke, return raw content. Does not catch."""
     llm = ChatOpenAI(
         model=_classifier_model(),
         api_key=settings.DEEPSEEK_API_KEY,
         base_url=settings.DEEPSEEK_BASE_URL,
         timeout=timeout,
-        max_retries=1,
+        max_retries=max_retries,
         temperature=settings.INTENT_CLASSIFIER_TEMPERATURE,
         max_tokens=settings.INTENT_CLASSIFIER_MAX_TOKENS,
     )
@@ -92,7 +98,12 @@ def _invoke_classifier(query: str, deterministic: InferredSignals, timeout: int)
 def classify_intent_llm(query: str, deterministic: InferredSignals) -> LlmMarkers | None:
     """Offline entry point: markers or None on any call/parse/contract failure."""
     try:
-        raw = _invoke_classifier(query, deterministic, settings.INTENT_CLASSIFIER_TIMEOUT)
+        raw = _invoke_classifier(
+            query,
+            deterministic,
+            settings.INTENT_CLASSIFIER_TIMEOUT,
+            max_retries=1,
+        )
         return _calibrate_confidence(parse_llm_markers(raw), deterministic)
     except Exception:
         logger.warning("Intent classifier LLM call failed", exc_info=True)
@@ -103,7 +114,12 @@ def classify_intent_inline(query: str, deterministic: InferredSignals) -> Classi
     """Inline entry point: time the call and classify the failure reason."""
     start = time.monotonic()
     try:
-        raw = _invoke_classifier(query, deterministic, settings.INTENT_CLASSIFIER_INLINE_TIMEOUT)
+        raw = _invoke_classifier(
+            query,
+            deterministic,
+            settings.INTENT_CLASSIFIER_INLINE_TIMEOUT,
+            max_retries=0,
+        )
     except Exception as exc:
         reason = "timeout" if _is_timeout(exc) else "error"
         latency_ms = int((time.monotonic() - start) * 1000)

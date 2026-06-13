@@ -86,6 +86,7 @@ def test_classify_intent_llm_uses_settings_and_model_fallback(monkeypatch):
     kwargs = mock_llm.call_args.kwargs
     assert kwargs["model"] == "chat-default"
     assert kwargs["timeout"] == 7
+    assert kwargs["max_retries"] == 1
     assert kwargs["max_tokens"] == 123
 
 
@@ -171,15 +172,25 @@ def _det(confidence="medium"):
 
 
 def test_classify_intent_inline_success(monkeypatch):
+    seen = {}
+
+    def fake_invoke(q, d, t, *, max_retries):
+        seen["timeout"] = t
+        seen["max_retries"] = max_retries
+        return (
+            '{"needs_synthesis":true,"needs_discovery":false,'
+            '"confidence":"high","reasons":["x"]}'
+        )
+
     monkeypatch.setattr(
         llm_classifier,
         "_invoke_classifier",
-        lambda q, d, t: '{"needs_synthesis":true,"needs_discovery":false,'
-        '"confidence":"high","reasons":["x"]}',
+        fake_invoke,
     )
 
     result = llm_classifier.classify_intent_inline("q", _det())
 
+    assert seen == {"timeout": settings.INTENT_CLASSIFIER_INLINE_TIMEOUT, "max_retries": 0}
     assert result.fallback_reason == "none"
     assert result.markers is not None
     assert result.markers.needs_synthesis is True
@@ -187,7 +198,7 @@ def test_classify_intent_inline_success(monkeypatch):
 
 
 def test_classify_intent_inline_parse_fail(monkeypatch):
-    monkeypatch.setattr(llm_classifier, "_invoke_classifier", lambda q, d, t: "not json")
+    monkeypatch.setattr(llm_classifier, "_invoke_classifier", lambda q, d, t, *, max_retries: "not json")
 
     result = llm_classifier.classify_intent_inline("q", _det())
 
@@ -199,7 +210,7 @@ def test_classify_intent_inline_timeout(monkeypatch):
     class APITimeoutError(Exception):
         pass
 
-    def boom(q, d, t):
+    def boom(q, d, t, *, max_retries):
         raise APITimeoutError("slow")
 
     monkeypatch.setattr(llm_classifier, "_invoke_classifier", boom)
@@ -211,7 +222,7 @@ def test_classify_intent_inline_timeout(monkeypatch):
 
 
 def test_classify_intent_inline_error(monkeypatch):
-    def boom(q, d, t):
+    def boom(q, d, t, *, max_retries):
         raise ValueError("boom")
 
     monkeypatch.setattr(llm_classifier, "_invoke_classifier", boom)
@@ -249,7 +260,7 @@ def test_classify_intent_llm_delegates_and_swallows(monkeypatch):
     monkeypatch.setattr(
         llm_classifier,
         "_invoke_classifier",
-        lambda q, d, t: '{"needs_synthesis":false,"needs_discovery":true,'
+        lambda q, d, t, *, max_retries: '{"needs_synthesis":false,"needs_discovery":true,'
         '"confidence":"high","reasons":[]}',
     )
 
@@ -257,7 +268,7 @@ def test_classify_intent_llm_delegates_and_swallows(monkeypatch):
 
     assert markers is not None and markers.needs_discovery is True
 
-    def boom(q, d, t):
+    def boom(q, d, t, *, max_retries):
         raise ValueError("x")
 
     monkeypatch.setattr(llm_classifier, "_invoke_classifier", boom)

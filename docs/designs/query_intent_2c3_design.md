@@ -82,28 +82,38 @@ in the retrieval-test output** (the value is already in graph state from `query_
 simply not returned). With that, a small paired-run comparator partitions cases into activatable vs
 not and enforces the table below.
 
-**Normalized comparison fields (Finding-3 fix).** "Identical" is defined over **behavior-bearing
-fields only**, never raw bytes: ranked retrieval keys (chunk keys / doc IDs in order), `Hit@5`/`Hit@10`,
-and the `query_plan` execution fields (the `decision_execution_dict` set: `use_hyde`,
-`use_query_expansion`, `use_multi_hop`, `use_entity_fallback`, `budget_reason`, `prompt_variant`,
-`answer_shape`, `steps`, plus the resolved `budget`). **Ignored:** timing, `trace`/`inline_shadow`
-metadata, latency, and classifier telemetry — these differ whenever inline runs even when retrieval
-behavior is unchanged, so comparing them would create false hard-stops.
+**Normalized comparison fields (Finding-3 fix, refined by the 2C-3 dry run).** "Identical" is defined
+over **route-bearing fields** for the hard leak gate: the `query_plan` execution fields (the
+`decision_execution_dict` set: `use_hyde`, `use_query_expansion`, `use_multi_hop`,
+`use_entity_fallback`, `budget_reason`, `prompt_variant`, `answer_shape`, `steps`), fallback policy,
+breadth/strict flags, and the resolved `budget`. `Hit@5`/`Hit@10` are a separate hard retrieval
+non-regression gate. Ranked retrieval keys are reported as diagnostics, but not as hard leak evidence:
+the 2C-3 paired dry run showed OFF-vs-OFF ranked-key churn with identical route/plan fields and no
+Hit@K regression. **Ignored:** timing, `trace`/`inline_shadow` metadata, latency, and classifier
+telemetry — these differ whenever inline runs even when retrieval behavior is unchanged, so comparing
+them would create false hard-stops.
 
 | Check | Instrument | Gate |
 | --- | --- | --- |
-| **Leak check** (decisive) | paired `retrieval_only`, normalized fields per case, partitioned by `inline_shadow.activatable_diverged` | Every case whose normalized fields differ between OFF and ON **must** be in the activatable set. A non-activatable case that moves is a wiring leak — hard stop. |
-| Retrieval non-regression | `retrieval_only` Hit@5/Hit@10, aggregate over activatable cases | No drop on the activatable cases. |
+| **Leak check** (decisive) | paired `retrieval_only`, route-bearing normalized fields per case, partitioned by `inline_shadow.activatable_diverged` | Every case whose route-bearing fields differ between OFF and ON **must** be in the activatable set. A non-activatable route change is a wiring leak — hard stop. |
+| Retrieval non-regression | `retrieval_only` Hit@5/Hit@10 | No Hit@5/Hit@10 drop. Ranked-key churn is diagnostic unless it causes a hit regression or route-bearing change. |
 | Answer-quality non-regression | `--mode full --judge` vs baseline | No net answer-quality regression; investigate every case-change (judge noise expected — confirm flips are improvements or neutral, never degradations). |
 | Activatable audit | the 2C-2 report's `activatable_diverged` list + the paired-run activatable set | Each flipped route manually confirmed as wanted; re-confirm against the eval answers. |
 
 The leak check is the cheap, decisive correctness signal: because the gate only activates
-high-confidence cases, the set of queries whose normalized behavior changes must be a **subset** of
-the activatable set. That catches any bundle/budget wiring bug for free.
+high-confidence cases, the set of queries whose route-bearing behavior changes must be a **subset**
+of the activatable set. That catches any bundle/budget wiring bug without treating baseline retrieval
+rank churn as an activation leak.
 
 The go-gate must pass **before** the defaults are baked. 2C-1 gates (already green) and the 2C-2
 shadow report (`classifier_error_rate ≤ 1%`, `latency_ms p95 ≤ 6000`, volume ≥ 200, activatable
 audit) are preconditions.
+
+**Inline timeout dry-run finding.** The inline path must stay under the 6000ms wall-clock p95 gate
+for one classifier attempt. Provider/client retries multiply that envelope, so 2C-3 keeps the
+offline/replay classifier tolerant but sets inline classifier retries to zero. A 6s request timeout
+still produced >6s wall-clock p95 in the paired dry run, so the inline request timeout default is
+4s, leaving client/provider overhead room while preserving deterministic fallback on slow calls.
 
 ## Post-flip watch & rollback
 
@@ -135,22 +145,26 @@ would mean running the gate against already-activated defaults — backwards.
    already produced by `query_plan_node` and sits in graph state; it is simply not currently returned.
 2. **`backend/scripts/compare_activation_eval.py`** (new, standalone — archived after the flip like
    the other gate tools) — a paired-run comparator: takes the `active-OFF` and `inline+active-ON`
-   retrieval-test result artifacts, compares the normalized behavior fields per case (ranked keys +
-   `Hit@K` + `decision_execution_dict` + budget), partitions by `inline_shadow.activatable_diverged`,
-   and asserts the changed set ⊆ the activatable set (the leak check). Pure aggregation function +
-   thin file I/O, unit-tested like `aggregate_inline_shadow`.
+   retrieval-test result artifacts, compares route-bearing fields per case (`decision_execution_dict`
+   + fallback policy + breadth/strict flags + budget), partitions by `inline_shadow.activatable_diverged`,
+   and asserts the route-changed set ⊆ the activatable set (the leak check). It separately enforces no
+   `Hit@K` regression and reports ranked-key changes as diagnostics. Pure aggregation function + thin
+   file I/O, unit-tested like `aggregate_inline_shadow`.
+3. **`backend/app/rag/query/control/llm_classifier.py` + `backend/app/config.py`** — keep the
+   offline/replay classifier at one retry, run the inline classifier with `max_retries=0`, and set
+   the inline request timeout default to `4s` so the wall-clock p95 gate has overhead room.
 
 With defaults still `"false"`, the paired eval is driven by **runtime overrides** (set the two
 `runtime_settings` keys `"true"` for the ON run only). This commit changes no default behavior.
 
 ### Commit 2 — bake activation (only if the go-gate is green)
 
-3. **`backend/app/core/runtime_settings.py`** — flip both `_DEFAULTS` entries:
+4. **`backend/app/core/runtime_settings.py`** — flip both `_DEFAULTS` entries:
    ```python
    "intent.inline_enabled": "true",
    "intent.active_mode": "true",
    ```
-4. **`backend/tests/conftest.py`** — autouse fixture pinning both flags `"false"` for the unit suite,
+5. **`backend/tests/conftest.py`** — autouse fixture pinning both flags `"false"` for the unit suite,
    so `query_plan_node` tests stay offline/deterministic unless they opt in:
    ```python
    @pytest.fixture(autouse=True)
