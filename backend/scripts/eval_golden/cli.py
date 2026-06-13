@@ -13,6 +13,22 @@ from .runner import _get_eval_type, run_eval
 from .summary import build_summary, print_summary
 
 
+def _apply_runtime_overrides(items: list[str]) -> None:
+    """Override runtime settings in this eval process only."""
+    if not items:
+        return
+    from app.core.runtime_settings import runtime_settings
+
+    for item in items:
+        if "=" not in item:
+            raise SystemExit(f"Invalid --runtime-setting {item!r}; expected KEY=VALUE")
+        key, value = item.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise SystemExit(f"Invalid --runtime-setting {item!r}; key is empty")
+        runtime_settings._cache[key] = value.strip()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Golden Set 自动化评估 V2")
     parser.add_argument("--golden-set", required=True, help="JSONL golden set 路径")
@@ -34,6 +50,8 @@ def main():
                         help="评测模式: full | quick | retrieval_only | answer_lite")
     parser.add_argument("--slice", action="append", default=[],
                         help="按 tag/flavor/strict 过滤: --slice exact --slice recall --slice strict")
+    parser.add_argument("--runtime-setting", action="append", default=[],
+                        help="Override local runtime_settings cache for this eval process: KEY=VALUE")
     args = parser.parse_args()
     mode = normalize_eval_mode(args.mode)
     needs_token = mode != "retrieval_only"
@@ -114,6 +132,7 @@ def main():
             judge_config = {"chat_model": judge_model, "api_key": api_key, "base_url": base_url}
 
     # --- Run eval ---
+    _apply_runtime_overrides(args.runtime_setting)
     results = run_eval(
         golden_set,
         args.api_base,

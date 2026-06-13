@@ -134,6 +134,32 @@ def test_run_retrieval_test_returns_strategy_and_paths(monkeypatch):
     assert payload["results"][0]["structured_tags"] == ["approval_rule"]
 
 
+def test_run_retrieval_test_surfaces_routing_trace(monkeypatch):
+    monkeypatch.setattr(svc, "get_default_query_config", lambda: QueryConfig(use_table_expand=False))
+    monkeypatch.setattr(svc, "_entity_confirm_node", _noop_entity_confirm)
+    monkeypatch.setattr(svc, "_rewrite_query_node", _noop_rewrite)
+    monkeypatch.setattr(svc, "_search_node", lambda state, config: {
+        "search_mode": "hybrid",
+        "search_results": [],
+    })
+    monkeypatch.setattr(svc, "_hyde_search_node", lambda state, config: {
+        "search_mode_hyde": "disabled",
+        "search_results_hyde": [],
+    })
+    monkeypatch.setattr(svc, "_table_expand_node", _noop_table_expand)
+
+    payload = svc.run_retrieval_test(
+        "差旅报销需要什么材料？",
+        top_k=5,
+        use_hybrid=True,
+        use_hyde=False,
+        use_rerank=False,
+    )
+
+    assert "routing_trace" in payload
+    assert payload["routing_trace"]["inline_shadow"]["ran"] is False
+
+
 def test_dense_only_control_uses_dense_search(monkeypatch):
     monkeypatch.setattr(svc, "get_default_query_config", lambda: QueryConfig(use_table_expand=False))
     monkeypatch.setattr(svc, "_entity_confirm_node", _noop_entity_confirm)

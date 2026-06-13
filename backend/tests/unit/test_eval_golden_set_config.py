@@ -18,6 +18,24 @@ from scripts.eval_golden import (
 from app.api.admin_eval import RunRequest, _eval_result_preview, _failed_case_count, _filter_cases_for_run, _summarize_golden_case
 
 
+def test_eval_cli_runtime_setting_override_updates_local_cache():
+    from app.core.runtime_settings import runtime_settings
+    from scripts.eval_golden import cli
+
+    prev = dict(runtime_settings._cache)
+    try:
+        runtime_settings._cache.clear()
+        cli._apply_runtime_overrides([
+            "intent.inline_enabled=true",
+            "intent.active_mode=true",
+        ])
+
+        assert runtime_settings.get_cached("intent.inline_enabled") == "true"
+        assert runtime_settings.get_cached("intent.active_mode") == "true"
+    finally:
+        runtime_settings._cache = prev
+
+
 def test_case_query_config_uses_preferred_flavor_and_strict():
     item = {"preferred_flavor": "recall", "strict_evidence": True}
 

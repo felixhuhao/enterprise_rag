@@ -91,6 +91,7 @@ def run_retrieval_test(
         "retrieval_flavor": state.get("query_plan", {}).get("retrieval_flavor", "balanced"),
         "strict_evidence": state.get("query_plan", {}).get("strict_evidence", False),
         "query_plan": state.get("query_plan", {}),
+        "routing_trace": state.get("routing_trace", {}),
         "fallback_info": state.get("fallback_info", {}),
         "result_count": len(results),
         "trace": trace,
