@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field, replace
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -23,6 +24,23 @@ class LlmMarkers:
     reasons: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class ClassifyResult:
+    markers: LlmMarkers | None
+    fallback_reason: str  # "none" | "timeout" | "error" | "parse_fail"
+    latency_ms: int
+
+
+_TIMEOUT_EXC_NAMES = {
+    "APITimeoutError",    # openai
+    "Timeout",            # openai legacy / requests
+    "TimeoutException",   # httpx
+    "ReadTimeout",        # httpx / requests
+    "WriteTimeout",       # httpx
+    "TimeoutError",       # builtins / asyncio / concurrent.futures
+}
+
+
 INTENT_CLASSIFIER_SYSTEM = """\
 You classify routing intent for Chinese/English enterprise-document questions.
 Decide only:
@@ -35,31 +53,73 @@ Return strict JSON only:
 """
 
 
+def _is_timeout(exc: BaseException) -> bool:
+    """Recognize provider/client timeout types, including wrapped causes."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, TimeoutError):
+            return True
+        if type(current).__name__ in _TIMEOUT_EXC_NAMES:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def _invoke_classifier(query: str, deterministic: InferredSignals, timeout: int) -> str:
+    """Build the client, invoke, return raw content. Does not catch."""
+    llm = ChatOpenAI(
+        model=_classifier_model(),
+        api_key=settings.DEEPSEEK_API_KEY,
+        base_url=settings.DEEPSEEK_BASE_URL,
+        timeout=timeout,
+        max_retries=1,
+        temperature=settings.INTENT_CLASSIFIER_TEMPERATURE,
+        max_tokens=settings.INTENT_CLASSIFIER_MAX_TOKENS,
+    )
+    response = llm.invoke(
+        [
+            SystemMessage(content=INTENT_CLASSIFIER_SYSTEM),
+            HumanMessage(content=_classifier_user_prompt(query, deterministic)),
+        ],
+        timeout=timeout,
+    )
+    raw = response.content if hasattr(response, "content") else str(response)
+    return str(raw or "")
+
+
 def classify_intent_llm(query: str, deterministic: InferredSignals) -> LlmMarkers | None:
-    """Return LLM routing markers, or None on any call/parse/contract failure."""
+    """Offline entry point: markers or None on any call/parse/contract failure."""
     try:
-        llm = ChatOpenAI(
-            model=_classifier_model(),
-            api_key=settings.DEEPSEEK_API_KEY,
-            base_url=settings.DEEPSEEK_BASE_URL,
-            timeout=settings.INTENT_CLASSIFIER_TIMEOUT,
-            max_retries=1,
-            temperature=settings.INTENT_CLASSIFIER_TEMPERATURE,
-            max_tokens=settings.INTENT_CLASSIFIER_MAX_TOKENS,
-        )
-        response = llm.invoke(
-            [
-                SystemMessage(content=INTENT_CLASSIFIER_SYSTEM),
-                HumanMessage(content=_classifier_user_prompt(query, deterministic)),
-            ],
-            timeout=settings.INTENT_CLASSIFIER_TIMEOUT,
-        )
-        raw = response.content if hasattr(response, "content") else str(response)
-        markers = parse_llm_markers(str(raw or ""))
-        return _calibrate_confidence(markers, deterministic)
+        raw = _invoke_classifier(query, deterministic, settings.INTENT_CLASSIFIER_TIMEOUT)
+        return _calibrate_confidence(parse_llm_markers(raw), deterministic)
     except Exception:
         logger.warning("Intent classifier LLM call failed", exc_info=True)
         return None
+
+
+def classify_intent_inline(query: str, deterministic: InferredSignals) -> ClassifyResult:
+    """Inline entry point: time the call and classify the failure reason."""
+    start = time.monotonic()
+    try:
+        raw = _invoke_classifier(query, deterministic, settings.INTENT_CLASSIFIER_INLINE_TIMEOUT)
+    except Exception as exc:
+        reason = "timeout" if _is_timeout(exc) else "error"
+        latency_ms = int((time.monotonic() - start) * 1000)
+        logger.warning("Inline intent classifier fallback=%s latency_ms=%d", reason, latency_ms)
+        return ClassifyResult(markers=None, fallback_reason=reason, latency_ms=latency_ms)
+
+    latency_ms = int((time.monotonic() - start) * 1000)
+    markers = parse_llm_markers(raw)
+    if markers is None:
+        logger.warning("Inline intent classifier fallback=parse_fail latency_ms=%d", latency_ms)
+        return ClassifyResult(markers=None, fallback_reason="parse_fail", latency_ms=latency_ms)
+    return ClassifyResult(
+        markers=_calibrate_confidence(markers, deterministic),
+        fallback_reason="none",
+        latency_ms=latency_ms,
+    )
 
 
 def parse_llm_markers(raw: str) -> LlmMarkers | None:
