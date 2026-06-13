@@ -27,13 +27,21 @@ The frontend does **not** need pervasive coercion, because the backend already m
 `discovery → balanced`. The only place a persisted `discovery` value reaches a selector is the
 settings form reading `query.retrieval_flavor`; that single read is normalized.
 
-### Contract
+### Contract — three lists, deliberately distinct
 
-- **Selectable flavor set loses `discovery`.** Remove `discovery` from the canonical selectable set
-  and every selector/type derived from it.
-- **Display label map keeps `discovery`.** Historical stats/eval rows still contain
-  `retrieval_flavor=discovery`; the label (`关联查找` + its description) must continue to render.
-  This is the deliberate split: *selectable set* ≠ *display map*.
+`FLAVOR_KEYS` today does **two** jobs: it is both the user-selectable set *and* the
+display/iteration order for per-flavor summaries. Those must split:
+
+- **Display/iteration order — keeps `discovery` (`FLAVOR_KEYS` unchanged).** Per-flavor summary
+  tables iterate `FLAVOR_KEYS` (`QueryStatsCards` "按策略" rows, `EvalRunPanel` `per_flavor` rows).
+  Historical aggregates can still contain a `discovery` bucket; dropping it here would *silently omit
+  historical discovery metrics*. So `FLAVOR_KEYS` retains `discovery` and stays the display order.
+- **Selectable set — loses `discovery` (new `SELECTABLE_FLAVOR_KEYS`).** Introduce
+  `SELECTABLE_FLAVOR_KEYS = ['balanced','exact','recall']` and derive
+  `FLAVOR_OPTIONS = SELECTABLE_FLAVOR_KEYS.map(...)`. Every user-facing picker consumes the selectable
+  list (directly or via `FLAVOR_OPTIONS`), so none offers `discovery`.
+- **Display label map — keeps `discovery`.** `flavorLabel` still resolves `discovery → 关联查找` so
+  historical rows and the retained summary bucket render.
 - **One normalization point.** A small `normalizeFlavor(value)` helper maps `discovery → balanced`
   (and any unknown → `balanced`), applied where the settings form loads the persisted
   `query.retrieval_flavor`. The chat debug config is a non-persisted `ref` defaulting to `balanced`,
@@ -41,30 +49,34 @@ settings form reading `query.retrieval_flavor`; that single read is normalized.
 
 ## Surfaces to change
 
-`FLAVOR_KEYS` in `labelMaps.ts` is the **single source of truth** for the selectable set:
-`FLAVOR_OPTIONS = FLAVOR_KEYS.map(...)`, and the chat / retrieval-test / stats selectors all consume
-`FLAVOR_OPTIONS` (or `FLAVOR_KEYS` directly). So most selector cleanup is **one edit** that cascades;
-only the two settings components carry hardcoded `discovery` literals that must be edited by hand.
+`labelMaps.ts` becomes the home of the two-list split: `FLAVOR_KEYS` (display order, keeps
+`discovery`) and the new `SELECTABLE_FLAVOR_KEYS` (no `discovery`), with
+`FLAVOR_OPTIONS = SELECTABLE_FLAVOR_KEYS.map(...)`. Selectors that consume `FLAVOR_OPTIONS`
+(chat / retrieval-test / stats-filter) update automatically; the consumers that reference
+`FLAVOR_KEYS` **directly** must each be classified as display (keep `FLAVOR_KEYS`) or selectable
+(switch to `SELECTABLE_FLAVOR_KEYS`).
 
 | File | Change |
 | --- | --- |
-| `frontend/src/utils/labelMaps.ts` | **Primary edit.** Remove `discovery` from `FLAVOR_KEYS` (cascades to `FLAVOR_OPTIONS` and all consumers below). **Keep** the `discovery` entry in the label/description maps used by `flavorLabel`. Add `normalizeFlavor(value): FlavorKey` (`discovery`/unknown → `balanced`). |
+| `frontend/src/utils/labelMaps.ts` | **Primary edit.** Keep `FLAVOR_KEYS` (with `discovery`) as the display/order list. Add `SELECTABLE_FLAVOR_KEYS = ['balanced','exact','recall']` and change `FLAVOR_OPTIONS` to derive from it. **Keep** the `discovery` entry in the label/description maps used by `flavorLabel`. Add `normalizeFlavor(value): FlavorKey` (`discovery`/unknown → `balanced`). |
 | `frontend/src/components/settings/StrategyTuningPanel.vue` | Hand edit: drop `discovery` from the `FlavorKey` type and the `['balanced','exact','recall','discovery']` literal arrays. |
 | `frontend/src/components/settings/SettingsView.vue` | Hand edit: drop the `discovery` `strategyProfiles` tuning tab + `FlavorKey` type; **reattach the `multiHopMaxDiscovered` budget control to `flavors: ['balanced']`** (see below); `normalizeFlavor(...)` on the `query.retrieval_flavor` read; flip `useMultiHop` init + `readBool(..., 'query.use_multi_hop', …)` fallback `false` → `true`. |
-| `QueryChatView.vue`, `RetrievalTestView.vue`, `QueryStatsCards.vue`, `EvalRunPanel.vue` | **No edit needed** — they derive options from `FLAVOR_KEYS`/`FLAVOR_OPTIONS` and update automatically once the primary edit lands. (Verify each renders correctly post-change.) |
+| `frontend/src/components/evaluate/EvalRunPanel.vue` | Hand edit: the run-pills (`:57`) and draft-editor (`:348`) `v-for="mode in FLAVOR_KEYS"` are **selectable** controls → switch to `SELECTABLE_FLAVOR_KEYS` (and import it). **Leave** the `flavorRows` `per_flavor` summary (`:555`) on `FLAVOR_KEYS` so historical discovery metrics still render. |
+| `frontend/src/components/evaluate/QueryStatsCards.vue` | **No edit needed** — `flavorRows` (`:157`) is a display summary; it keeps `FLAVOR_KEYS` and thus keeps showing any historical `discovery` bucket. (Verify it renders.) |
+| `QueryChatView.vue`, `RetrievalTestView.vue`, `QueryStatsRecords.vue` | **No edit needed** — they consume `FLAVOR_OPTIONS`, which now drops `discovery` automatically. (Verify each renders.) |
 
 Display-only rendering (`RetrievalInfo.vue`, `QueryStatsRecords.vue` rows, eval tables) needs **no**
 change — it renders via the retained `flavorLabel` map.
 
 ### Consequence to accept: the stats filter loses a `discovery` choice
 
-`QueryStatsRecords.vue` uses `FLAVOR_OPTIONS` for its **filter** dropdown, so dropping `discovery`
-from `FLAVOR_KEYS` also removes "discovery" as a *filter* option. Historical rows with
-`retrieval_flavor=discovery` still **render** (label retained) — you just can't filter-select by the
-retired flavor. This is an accepted minor trade (YAGNI: filtering history by a retired flavor is rare,
-and the rows remain visible). If historical-by-discovery filtering is actually wanted, the stats
-filter would need its own option list that augments `FLAVOR_OPTIONS` with `discovery` — explicitly out
-of scope here unless requested.
+`QueryStatsRecords.vue` uses `FLAVOR_OPTIONS` for its **filter** dropdown, so the dropdown no longer
+offers "discovery" as a *filter* selection. Historical rows with `retrieval_flavor=discovery` still
+**render** (label retained) and still appear in the per-flavor **summary** cards (those iterate
+`FLAVOR_KEYS`, which keeps `discovery`) — you just can't filter-select by the retired flavor. This is
+an accepted minor trade (YAGNI: filtering history by a retired flavor is rare). If
+historical-by-discovery filtering is actually wanted, the stats filter would need its own option list
+built from `FLAVOR_KEYS` rather than `FLAVOR_OPTIONS` — explicitly out of scope here unless requested.
 
 ## Relocate the multi-hop knob (do not orphan it)
 
@@ -103,13 +115,17 @@ Frontend unit tests (Vitest, matching existing `frontend/src` test patterns):
 
 1. `normalizeFlavor('discovery') === 'balanced'`; `normalizeFlavor('balanced') === 'balanced'`;
    unknown → `'balanced'`; the other valid flavors pass through.
-2. The selectable `FLAVOR_KEYS` no longer contains `discovery`.
+2. `SELECTABLE_FLAVOR_KEYS` does **not** contain `discovery`, and `FLAVOR_OPTIONS` (derived from it)
+   has no `discovery` option; `FLAVOR_KEYS` **still** contains `discovery` (display-order guarantee).
 3. The display label map still resolves `discovery → '关联查找'` (historical-render guarantee).
 4. `SettingsView` initializes `useMultiHop` to `true` and a settings response **without**
    `query.use_multi_hop` yields `useMultiHop === true`; a response with `"false"` yields `false`.
 5. `SettingsView` loading `query.retrieval_flavor = "discovery"` shows `balanced` in the selector.
 6. The `multiHopMaxDiscovered` budget control is reachable under the `balanced` tab (its
    `flavors` includes `'balanced'`) and `query.multi_hop_max_discovered` is still written on save.
+7. Per-flavor summary rows still surface a `discovery` bucket when present: given `per_flavor`
+   (or `byFlavor`) data containing a `discovery` entry, the rendered rows include it with its
+   `关联查找` label — guarding the display-iteration path against accidental omission.
 
 Manual: confirm the settings/eval/chat flavor dropdowns no longer list discovery, and that a
 historical stats record with `retrieval_flavor=discovery` still renders `关联查找`.
