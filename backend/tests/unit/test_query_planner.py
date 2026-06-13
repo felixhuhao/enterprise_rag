@@ -2,7 +2,10 @@
 
 from dataclasses import asdict
 
+from app.core.runtime_settings import runtime_settings
 from app.rag.query.config import QueryConfig
+from app.rag.query.control import llm_classifier
+from app.rag.query.control.llm_classifier import ClassifyResult, LlmMarkers
 from app.rag.query.planner import (
     RetrievalBudget,
     build_query_plan,
@@ -19,6 +22,7 @@ def test_balanced_single_keeps_current_defaults():
     plan = build_query_plan("报销标准是什么？", "single", QueryConfig())
 
     assert plan.retrieval_flavor == "balanced"
+    assert plan.retrieval_breadth == "balanced"
     assert plan.use_hyde is True
     assert plan.use_query_expansion is False
     assert plan.use_multi_hop is False
@@ -51,6 +55,7 @@ def test_balanced_synthesis_uses_larger_candidate_budget():
     plan = build_query_plan("安全事件响应和运维故障响应有什么关联和区别？", "single", cfg)
 
     assert plan.retrieval_flavor == "balanced"
+    assert plan.retrieval_breadth == "balanced"
     assert plan.budget.search_limit == 20
     assert plan.budget.rrf_top_k == 32
     assert plan.budget.rerank_candidate_k == 20
@@ -65,6 +70,7 @@ def test_exact_disables_hyde_multi_hop_and_fallback():
     plan = build_query_plan("住宿标准是多少？", "single", cfg)
 
     assert plan.retrieval_flavor == "exact"
+    assert plan.retrieval_breadth == "precise"
     assert plan.use_hyde is False
     assert plan.use_query_expansion is False
     assert plan.use_multi_hop is False
@@ -83,9 +89,10 @@ def test_recall_uses_high_coverage_budget():
     plan = build_query_plan("有哪些相关制度？", "none", cfg)
 
     assert plan.retrieval_flavor == "recall"
+    assert plan.retrieval_breadth == "broad"
     assert plan.use_hyde is False
     assert plan.use_query_expansion is True
-    assert plan.use_multi_hop is True
+    assert plan.use_multi_hop is False
     assert plan.budget.search_limit == 20
     assert plan.budget.hyde_limit == 0
     assert plan.budget.rrf_top_k == 40
@@ -95,22 +102,24 @@ def test_recall_uses_high_coverage_budget():
     assert plan.budget.per_entity_min_k == 8
 
 
-def test_discovery_forces_current_multi_hop_path():
+def test_discovery_input_retires_to_balanced_policy():
     cfg = QueryConfig(retrieval_flavor="discovery", use_multi_hop=False)
 
     plan = build_query_plan("哪些公司提到了安全计划？", "broad", cfg)
 
-    assert plan.retrieval_flavor == "discovery"
-    assert plan.use_hyde is False
+    assert plan.retrieval_flavor == "balanced"
+    assert plan.retrieval_breadth == "balanced"
+    assert plan.use_hyde is True
     assert plan.use_query_expansion is False
-    assert plan.use_multi_hop is True
-    assert plan.fallback_policy.entity_filter_to_global is False
+    assert plan.use_multi_hop is False
+    assert plan.fallback_policy.entity_filter_to_global is True
     assert plan.prompt_policy.template == "broad"
-    assert plan.budget.search_limit == 10
-    assert plan.budget.rrf_top_k == 20
-    assert plan.budget.rerank_candidate_k == 10
-    assert plan.budget.final_context_k == 10
-    assert plan.budget.max_context_chars == 8000
+    assert plan.budget.reason == "balanced_discovery"
+    assert plan.budget.search_limit == 20
+    assert plan.budget.rrf_top_k == 32
+    assert plan.budget.rerank_candidate_k == 20
+    assert plan.budget.final_context_k == 8
+    assert plan.budget.max_context_chars == 12000
     assert plan.budget.per_entity_min_k == 5
 
 
@@ -158,9 +167,142 @@ def test_query_plan_node_returns_plain_dict():
         {"configurable": {"query_config": QueryConfig(retrieval_flavor="discovery")}},
     )
 
-    assert out["query_plan"]["retrieval_flavor"] == "discovery"
+    assert out["query_plan"]["retrieval_flavor"] == "balanced"
+    assert out["query_plan"]["retrieval_breadth"] == "balanced"
     assert out["query_plan"]["use_multi_hop"] is True
-    assert out["query_plan"]["fallback_policy"]["entity_filter_to_global"] is False
+    assert out["query_plan"]["fallback_policy"]["entity_filter_to_global"] is True
+    assert out["query_plan"]["budget"]["reason"] == "balanced_discovery"
+    assert out["routing_trace"]["policy"]["retrieval_breadth"] == "balanced"
+    assert out["routing_trace"]["policy"]["legacy_retrieval_flavor"] == "discovery"
+    assert out["routing_trace"]["policy"]["discovery_retired"] is True
+    assert out["routing_trace"]["routing_decision"]["use_multi_hop"] is True
+    assert out["routing_trace"]["intent"]["source"] == "deterministic"
+    assert out["routing_trace"]["intent"]["fallback_used"] is False
+    assert out["routing_trace"]["intent"]["confidence"] == "high"
+    assert out["routing_trace"]["inline_shadow"]["ran"] is False
+    assert out["routing_trace"]["inline_shadow"]["fallback_reason"] == "none"
+    assert out["routing_trace"]["inline_shadow"]["skip_reason"] == "inline_disabled"
+
+
+def _set_flags(monkeypatch, *, inline, active):
+    monkeypatch.setitem(runtime_settings._cache, "intent.inline_enabled", "true" if inline else "false")
+    monkeypatch.setitem(runtime_settings._cache, "intent.active_mode", "true" if active else "false")
+
+
+def _divergent_high(reason="none", markers=True):
+    payload = LlmMarkers(needs_synthesis=True, needs_discovery=False, confidence="high", reasons=["x"])
+    return lambda q, d: ClassifyResult(
+        markers=payload if markers else None,
+        fallback_reason=reason,
+        latency_ms=5,
+    )
+
+
+_STATE = {"query": "报销标准是什么？", "entity_mode": "single"}
+_CONFIG = {"configurable": {"query_config": QueryConfig()}}
+
+
+def test_inline_on_active_off_preserves_plan(monkeypatch):
+    monkeypatch.setattr(llm_classifier, "classify_intent_inline", _divergent_high())
+    _set_flags(monkeypatch, inline=False, active=False)
+    baseline = query_plan_node(_STATE, _CONFIG)["query_plan"]
+
+    _set_flags(monkeypatch, inline=True, active=False)
+    out = query_plan_node(_STATE, _CONFIG)
+
+    assert out["query_plan"] == baseline
+    assert out["routing_trace"]["inline_shadow"]["ran"] is True
+    assert out["routing_trace"]["inline_shadow"]["activatable_diverged"] is True
+
+
+def test_inline_skips_classifier_for_high_confidence_deterministic(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        llm_classifier,
+        "classify_intent_inline",
+        lambda q, d: calls.append(1) or ClassifyResult(None, "none", 0),
+    )
+    _set_flags(monkeypatch, inline=True, active=True)
+
+    out = query_plan_node(
+        {"query": "哪些公司提到了安全计划？", "entity_mode": "broad"},
+        _CONFIG,
+    )
+
+    assert calls == []
+    shadow = out["routing_trace"]["inline_shadow"]
+    assert shadow["ran"] is False
+    assert shadow["fallback_reason"] == "none"
+    assert shadow["skip_reason"] == "high_confidence"
+
+
+def test_inline_runs_classifier_below_high_confidence(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        llm_classifier,
+        "classify_intent_inline",
+        lambda q, d: calls.append(1) or _divergent_high()(q, d),
+    )
+    _set_flags(monkeypatch, inline=True, active=True)
+
+    out = query_plan_node(_STATE, _CONFIG)
+
+    assert calls == [1]
+    assert out["routing_trace"]["inline_shadow"]["ran"] is True
+    assert out["routing_trace"]["intent"]["source"] == "llm_escalated"
+
+
+def test_activation_drives_when_merged_confidence_high(monkeypatch):
+    monkeypatch.setattr(llm_classifier, "classify_intent_inline", _divergent_high())
+    _set_flags(monkeypatch, inline=False, active=False)
+    baseline = query_plan_node(_STATE, _CONFIG)["query_plan"]
+
+    _set_flags(monkeypatch, inline=True, active=True)
+    out = query_plan_node(_STATE, _CONFIG)
+
+    assert (
+        out["query_plan"]["use_query_expansion"] != baseline["use_query_expansion"]
+        or out["query_plan"]["budget"] != baseline["budget"]
+    )
+    assert out["routing_trace"]["routing_decision"]["answer_shape"] == "bullets_or_table"
+    assert out["routing_trace"]["intent"]["source"] == "llm_escalated"
+
+
+def test_failure_fallback_below_high_stays_deterministic(monkeypatch):
+    monkeypatch.setattr(
+        llm_classifier,
+        "classify_intent_inline",
+        _divergent_high(reason="timeout", markers=False),
+    )
+    _set_flags(monkeypatch, inline=False, active=False)
+    baseline = query_plan_node(_STATE, _CONFIG)["query_plan"]
+
+    _set_flags(monkeypatch, inline=True, active=True)
+    out = query_plan_node(_STATE, _CONFIG)
+
+    assert out["query_plan"] == baseline
+    shadow = out["routing_trace"]["inline_shadow"]
+    assert shadow["ran"] is True
+    assert shadow["fallback_used"] is True
+    assert shadow["fallback_reason"] == "timeout"
+    assert shadow["activatable_diverged"] is False
+    assert out["routing_trace"]["intent"]["fallback_used"] is False
+
+
+def test_kill_switch_does_not_call_classifier(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        llm_classifier,
+        "classify_intent_inline",
+        lambda q, d: calls.append(1) or ClassifyResult(None, "none", 0),
+    )
+    _set_flags(monkeypatch, inline=False, active=False)
+
+    out = query_plan_node(_STATE, _CONFIG)
+
+    assert calls == []
+    assert out["routing_trace"]["inline_shadow"]["ran"] is False
+    assert out["routing_trace"]["inline_shadow"]["skip_reason"] == "inline_disabled"
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +321,7 @@ def test_get_query_plan_builds_balanced_when_missing():
     config = {"configurable": {"query_config": QueryConfig()}}
     plan = get_query_plan(state, config)
     assert plan["retrieval_flavor"] == "balanced"
+    assert plan["retrieval_breadth"] == "balanced"
     # should not mutate state
     assert "query_plan" not in state
 
@@ -251,12 +394,13 @@ def test_normalize_flavor_invalid_falls_back_to_balanced():
 # ---------------------------------------------------------------------------
 
 
-def test_discovery_with_strict_evidence_disables_fallback():
+def test_retired_discovery_with_strict_evidence_disables_fallback():
     cfg = QueryConfig(retrieval_flavor="discovery", strict_evidence=True)
 
     plan = build_query_plan("哪些公司提到了安全计划？", "broad", cfg)
 
-    assert plan.retrieval_flavor == "discovery"
+    assert plan.retrieval_flavor == "balanced"
+    assert plan.retrieval_breadth == "balanced"
     assert plan.strict_evidence is True
     assert plan.fallback_policy.entity_filter_to_global is False
     assert plan.use_multi_hop is True
@@ -269,3 +413,40 @@ def test_recall_query_expansion_can_be_disabled_by_config():
 
     assert plan.use_hyde is False
     assert plan.use_query_expansion is False
+
+
+def test_use_multi_hop_is_effective_for_keywordless_configs():
+    p = build_query_plan(
+        "有哪些相关制度？",
+        "none",
+        QueryConfig(retrieval_flavor="recall", use_multi_hop=True),
+    )
+    assert p.use_multi_hop is False
+
+    p2 = build_query_plan("最新的制度内容", "none", QueryConfig(retrieval_flavor="discovery"))
+    assert p2.use_multi_hop is False
+    assert p2.retrieval_flavor == "balanced"
+    assert p2.retrieval_breadth == "balanced"
+
+    p3 = build_query_plan("哪些公司提到了报销？", "broad", QueryConfig(retrieval_flavor="discovery"))
+    assert p3.use_multi_hop is True
+    assert p3.retrieval_flavor == "balanced"
+    assert p3.retrieval_breadth == "balanced"
+
+
+def test_hyde_two_value_compat_for_multi_entity():
+    from app.rag.query.control.budget import resolve_budget_profile
+    from app.rag.query.control.inferred import infer_signals
+    from app.rag.query.control.routing import derive_routing_decision
+
+    cfg = QueryConfig()
+    q = "A公司和B公司的报销"
+    plan = build_query_plan(q, "multi_explicit", cfg)
+    assert plan.use_hyde is True
+
+    inferred = infer_signals(q, "multi_explicit", [])
+    budget = resolve_budget_profile(
+        "balanced", inferred.entity_scope, inferred.needs_synthesis, cfg, inferred.needs_discovery
+    )
+    decision = derive_routing_decision(inferred, "balanced", cfg, budget_reason=budget.reason)
+    assert decision.use_hyde is False

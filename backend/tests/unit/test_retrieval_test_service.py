@@ -38,7 +38,7 @@ def test_embedding_model_label_prefers_display_name(monkeypatch):
     assert svc._embedding_model_label() == "bge-m3"
 
 
-def test_discovery_runs_multi_hop_and_returns_trace(monkeypatch):
+def test_retired_discovery_runs_multi_hop_and_returns_trace(monkeypatch):
     monkeypatch.setattr(svc, "get_default_query_config", lambda: QueryConfig(use_table_expand=False))
     monkeypatch.setattr(svc, "_entity_confirm_node", lambda state, config: {
         "confirmed_entity": "",
@@ -97,8 +97,11 @@ def test_discovery_runs_multi_hop_and_returns_trace(monkeypatch):
     assert payload["hop_trace"][1]["discovered_entities"] == ["实体A"]
     assert payload["per_entity_counts"] == {"实体A": 1}
     assert payload["trace"]["multi_hop_ms"] == 12
+    assert payload["retrieval_flavor"] == "balanced"
+    assert payload["query_plan"]["retrieval_breadth"] == "balanced"
+    assert payload["routing_trace"]["policy"]["legacy_retrieval_flavor"] == "discovery"
     assert payload["strategy"]["search_mode"] == "multi_hop"
-    assert payload["strategy"]["hyde"] is False
+    assert payload["strategy"]["hyde"] is True
     assert payload["results"][0]["retrieval_path"] == "Multi-hop"
 
 
@@ -132,6 +135,32 @@ def test_run_retrieval_test_returns_strategy_and_paths(monkeypatch):
     assert payload["results"][0]["page"] == 2
     assert payload["results"][0]["keywords"] == ["审批单"]
     assert payload["results"][0]["structured_tags"] == ["approval_rule"]
+
+
+def test_run_retrieval_test_surfaces_routing_trace(monkeypatch):
+    monkeypatch.setattr(svc, "get_default_query_config", lambda: QueryConfig(use_table_expand=False))
+    monkeypatch.setattr(svc, "_entity_confirm_node", _noop_entity_confirm)
+    monkeypatch.setattr(svc, "_rewrite_query_node", _noop_rewrite)
+    monkeypatch.setattr(svc, "_search_node", lambda state, config: {
+        "search_mode": "hybrid",
+        "search_results": [],
+    })
+    monkeypatch.setattr(svc, "_hyde_search_node", lambda state, config: {
+        "search_mode_hyde": "disabled",
+        "search_results_hyde": [],
+    })
+    monkeypatch.setattr(svc, "_table_expand_node", _noop_table_expand)
+
+    payload = svc.run_retrieval_test(
+        "差旅报销需要什么材料？",
+        top_k=5,
+        use_hybrid=True,
+        use_hyde=False,
+        use_rerank=False,
+    )
+
+    assert "routing_trace" in payload
+    assert payload["routing_trace"]["inline_shadow"]["ran"] is False
 
 
 def test_dense_only_control_uses_dense_search(monkeypatch):
@@ -398,3 +427,8 @@ def test_exact_does_not_record_blocked_when_filtered_results_are_adequate(monkey
 
     assert payload["strategy"]["search_mode"] == "dense_filtered"
     assert payload["fallback_info"]["blocked"] is False
+
+
+def test_retrieval_test_multi_hop_reads_single_flag():
+    assert svc._should_run_multi_hop({"entity_mode": "single"}, "哪些公司", {"use_multi_hop": True}) is True
+    assert svc._should_run_multi_hop({"entity_mode": "broad"}, "报销标准", {"use_multi_hop": False}) is False

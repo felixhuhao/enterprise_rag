@@ -14,11 +14,20 @@ export const FLAVOR_DESCRIPTIONS: Record<string, string> = {
 
 export const FLAVOR_KEYS = ['balanced', 'exact', 'recall', 'discovery'] as const
 
-export const FLAVOR_OPTIONS = FLAVOR_KEYS.map((id) => ({
+export const SELECTABLE_FLAVOR_KEYS = ['balanced', 'exact', 'recall'] as const
+export type SelectableFlavorKey = (typeof SELECTABLE_FLAVOR_KEYS)[number]
+
+export const FLAVOR_OPTIONS = SELECTABLE_FLAVOR_KEYS.map((id) => ({
   id,
   name: FLAVOR_LABELS[id],
   desc: FLAVOR_DESCRIPTIONS[id],
 }))
+
+export function normalizeFlavor(value: string | null | undefined): SelectableFlavorKey {
+  return (SELECTABLE_FLAVOR_KEYS as readonly string[]).includes(value ?? '')
+    ? (value as SelectableFlavorKey)
+    : 'balanced'
+}
 
 export function flavorLabel(flavor: string): string {
   return FLAVOR_LABELS[flavor || 'balanced'] ?? flavor

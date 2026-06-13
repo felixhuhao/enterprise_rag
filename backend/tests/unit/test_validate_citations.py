@@ -124,7 +124,7 @@ class TestValidateCitations:
         assert c["page"] == 12
         assert c["entity_name"] == "SMIC"
 
-    def test_discovery_falls_back_to_top_context_when_answer_has_no_citations(self):
+    def test_retired_discovery_flavor_does_not_fallback_to_top_context_by_itself(self):
         state = {
             "answer": "Discovery answer without inline citation markers.",
             "query_plan": {"retrieval_flavor": "discovery"},
@@ -134,7 +134,7 @@ class TestValidateCitations:
             },
         }
         result = validate_citations_node(state)
-        assert [c["id"] for c in result["citations"]] == ["C1", "C2", "C3", "C4", "C5"]
+        assert result["citations"] == []
 
     def test_discovery_keeps_explicit_citations_when_present(self):
         state = {

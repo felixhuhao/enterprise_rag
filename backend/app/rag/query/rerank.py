@@ -27,6 +27,7 @@ _rerank_llm = ChatOpenAI(
     timeout=30,
     max_retries=2,
     temperature=0.0,
+    max_tokens=settings.RERANK_MAX_TOKENS,
 )
 
 RERANK_SYSTEM = """\

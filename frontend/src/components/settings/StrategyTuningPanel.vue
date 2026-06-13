@@ -84,7 +84,7 @@
 </template>
 
 <script setup lang="ts">
-type FlavorKey = 'balanced' | 'exact' | 'recall' | 'discovery'
+type FlavorKey = 'balanced' | 'exact' | 'recall'
 
 interface StrategyProfile {
   key: FlavorKey
@@ -126,7 +126,7 @@ const emit = defineEmits<{
 }>()
 
 function onFlavorTabChange(key: string | number) {
-  if (['balanced', 'exact', 'recall', 'discovery'].includes(String(key))) {
+  if (['balanced', 'exact', 'recall'].includes(String(key))) {
     emit('update:activeFlavor', String(key) as FlavorKey)
   }
 }
@@ -170,7 +170,7 @@ function numberValue(key: string) {
 
 .fixed-note {
   color: var(--text-secondary);
-  background: #f8fafc;
+  background: var(--bg-subtle);
   border: 1px solid var(--border);
 }
 
@@ -241,7 +241,7 @@ function numberValue(key: string) {
   padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: #fbfdff;
+  background: var(--bg-subtle);
 }
 
 .metric-item span {
@@ -259,8 +259,8 @@ function numberValue(key: string) {
 }
 
 .parameter-grid {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px 12px;
 }
 
@@ -276,16 +276,17 @@ function numberValue(key: string) {
 
 .parameter-field {
   display: grid;
-  grid-template-columns: max-content 86px;
-  width: max-content;
-  min-width: 210px;
+  grid-template-columns: minmax(0, 1fr) 86px;
+  min-width: 0;
   padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: #fbfdff;
+  background: var(--bg-subtle);
 }
 
 .parameter-field span {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -395,7 +396,7 @@ function numberValue(key: string) {
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: #fbfdff;
+  background: var(--bg-subtle);
 }
 
 .settings-actions {
@@ -406,6 +407,7 @@ function numberValue(key: string) {
 
 @media (max-width: 1100px) {
   .metric-strip,
+  .parameter-grid,
   .weight-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -417,6 +419,7 @@ function numberValue(key: string) {
   }
 
   .metric-strip,
+  .parameter-grid,
   .weight-grid {
     grid-template-columns: 1fr;
   }

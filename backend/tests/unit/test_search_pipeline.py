@@ -100,3 +100,10 @@ def test_run_search_pipeline_post_rerank_fallback_retries_unfiltered():
     assert state["fallback_info"]["original_filter"] == '(entity_name == "A")'
     assert state["search_results"][0]["score"] == 0.9
     assert state["trace"]["post_rerank_fallback_ms"] >= 0
+
+
+def test_should_run_multi_hop_reads_single_flag():
+    from app.rag.query.search_pipeline import _should_run_multi_hop
+
+    assert _should_run_multi_hop({"entity_mode": "single"}, "哪些公司", {"use_multi_hop": True}) is True
+    assert _should_run_multi_hop({"entity_mode": "broad"}, "报销标准", {"use_multi_hop": False}) is False

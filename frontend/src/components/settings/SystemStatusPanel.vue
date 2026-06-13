@@ -83,7 +83,8 @@ defineProps<{
 .info-panel {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: #fbfdff;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
 }
 
 .status-card {
@@ -101,16 +102,19 @@ defineProps<{
 
 .status-card strong {
   color: var(--text-primary);
-  font-size: 16px;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
 }
 
 .status-card strong.ok {
-  color: #166534;
+  color: var(--success);
 }
 
 .status-card strong.bad {
-  color: #991b1b;
+  color: var(--danger);
 }
 
 .info-panel {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from enum import Enum
 
 
@@ -34,23 +35,58 @@ HUMAN_HINTS: dict[AppErrorCode, str] = {
 
 def classify_error(exc: Exception) -> AppErrorCode:
     """从异常类型推断错误码。"""
-    msg = str(exc).lower()
-    exc_type = type(exc).__name__.lower()
+    chain = tuple(_exception_chain(exc))
 
-    # MinerU
-    if "mineru" in msg or "mineru" in exc_type:
+    if any(_matches(err, ("mineru",)) for err in chain):
         return AppErrorCode.MINERU_API_ERROR
 
-    # Embedding
-    if any(k in msg for k in ("embedding", "embed", "embeddings")) or "embedding" in exc_type:
+    if any(_matches(err, ("embedding", "embeddings", "embed")) for err in chain):
         return AppErrorCode.EMBEDDING_ERROR
 
-    # Milvus
-    if "milvus" in msg or "pymilvus" in exc_type:
+    if any(_is_milvus_error(err) for err in chain):
         return AppErrorCode.MILVUS_ERROR
 
-    # LLM (DashScope / OpenAI compatible)
-    if any(k in msg for k in ("dashscope", "openai", "llm", "chat", "timeout")):
+    if any(_is_llm_error(err) for err in chain):
         return AppErrorCode.LLM_ERROR
 
     return AppErrorCode.UNKNOWN_ERROR
+
+
+def _exception_chain(exc: BaseException) -> Iterable[BaseException]:
+    """Yield an exception plus its explicit/implicit causes once."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        current = current.__cause__ or current.__context__
+
+
+def _error_text(err: BaseException) -> str:
+    cls = type(err)
+    return " ".join((
+        cls.__module__,
+        cls.__name__,
+        str(err),
+    )).lower()
+
+
+def _matches(err: BaseException, needles: tuple[str, ...]) -> bool:
+    text = _error_text(err)
+    return any(needle in text for needle in needles)
+
+
+def _is_milvus_error(err: BaseException) -> bool:
+    cls = type(err)
+    module = cls.__module__.lower()
+    if module.startswith(("pymilvus", "milvus")):
+        return True
+    return _matches(err, ("milvus", "pymilvus"))
+
+
+def _is_llm_error(err: BaseException) -> bool:
+    cls = type(err)
+    module = cls.__module__.lower()
+    if module.startswith(("openai", "langchain_openai", "dashscope")):
+        return True
+    return _matches(err, ("openai", "dashscope", "deepseek", "chatopenai", "llm"))

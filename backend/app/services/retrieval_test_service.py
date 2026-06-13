@@ -91,6 +91,7 @@ def run_retrieval_test(
         "retrieval_flavor": state.get("query_plan", {}).get("retrieval_flavor", "balanced"),
         "strict_evidence": state.get("query_plan", {}).get("strict_evidence", False),
         "query_plan": state.get("query_plan", {}),
+        "routing_trace": state.get("routing_trace", {}),
         "fallback_info": state.get("fallback_info", {}),
         "result_count": len(results),
         "trace": trace,
@@ -157,9 +158,7 @@ def _run_primary_search(state: QueryState, run_config: RunnableConfig, cfg: Quer
 
 
 def _should_run_multi_hop(state: QueryState, query: str, plan: dict) -> bool:
-    from app.rag.query.multi_hop import _decide_multi_hop
-
-    return bool(plan.get("use_multi_hop") and _decide_multi_hop(state.get("entity_mode", "none"), query))
+    return bool(plan.get("use_multi_hop"))
 
 
 def _run_multi_hop_search(

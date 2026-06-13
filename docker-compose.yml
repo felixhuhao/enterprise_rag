@@ -47,6 +47,7 @@ services:
         condition: service_healthy
     environment:
       VITE_API_TARGET: http://backend:8010
+      VITE_ENABLE_TAG_GOVERNANCE: ${VITE_ENABLE_TAG_GOVERNANCE:-false}
 
 volumes:
   milvus-data:

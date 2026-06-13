@@ -40,11 +40,9 @@ def validate_citations_node(state: QueryState) -> dict:
 
 
 def _should_fallback_to_context_citations(state: QueryState) -> bool:
-    """Discovery answers sometimes omit inline [C#]; still expose supporting sources."""
-    plan = state.get("query_plan") or {}
+    """Multi-hop answers sometimes omit inline [C#]; still expose supporting sources."""
     return (
-        plan.get("retrieval_flavor") == "discovery"
-        or state.get("hop_plan") == "discovery"
+        state.get("hop_plan") == "discovery"
         or state.get("entity_mode") == "multi_hop"
     )
 

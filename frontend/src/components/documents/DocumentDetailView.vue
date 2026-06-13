@@ -606,6 +606,7 @@ onMounted(loadDetail)
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   padding: 14px 16px;
   overflow: hidden;
 }
@@ -654,22 +655,24 @@ onMounted(loadDetail)
 }
 .metadata-item {
   border: 1px solid var(--border);
-  background: #f8fafc;
+  background: var(--bg-subtle);
   border-radius: var(--radius-md);
-  padding: 8px 10px;
+  padding: 9px 11px;
   min-width: 0;
 }
 .metadata-item span {
   display: block;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11.5px;
 }
 .metadata-item strong {
   display: block;
-  margin-top: 4px;
+  margin-top: 5px;
   color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -677,15 +680,17 @@ onMounted(loadDetail)
 
 .error-panel {
   margin-top: 14px;
-  padding: 10px 12px;
-  border: 1px solid rgba(245, 63, 63, 0.22);
-  background: #fff5f5;
+  padding: 10px 13px;
+  border: 1px solid #f3cdcd;
+  border-left: 3px solid var(--danger);
+  background: #fdf1f1;
   border-radius: var(--radius-md);
-  color: var(--error);
+  color: var(--danger);
   font-size: 12px;
   word-break: break-word;
 }
 .error-code {
+  font-family: var(--font-mono);
   font-weight: 700;
   margin-right: 8px;
 }
@@ -715,22 +720,24 @@ onMounted(loadDetail)
 .quality-item {
   min-width: 0;
   border: 1px solid var(--border);
-  background: #f8fafc;
+  background: var(--bg-subtle);
   border-radius: var(--radius-md);
-  padding: 8px 10px;
+  padding: 9px 11px;
 }
 .quality-item span {
   display: block;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11.5px;
 }
 .quality-item strong {
   display: block;
-  margin-top: 4px;
+  margin-top: 5px;
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -836,7 +843,7 @@ onMounted(loadDetail)
   margin-top: 10px;
   padding: 12px;
   border: 1px solid var(--border);
-  background: #f8fafc;
+  background: var(--bg-subtle);
   border-radius: var(--radius-md);
 }
 .expanded-content pre {
@@ -846,7 +853,7 @@ onMounted(loadDetail)
   color: var(--text-primary);
   font-size: 12px;
   line-height: 1.7;
-  font-family: var(--font-sans);
+  font-family: var(--font-body);
 }
 .copy-button {
   position: absolute;

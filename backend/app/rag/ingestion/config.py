@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 from langgraph.graph.state import RunnableConfig
 
+from app.config import settings
+
 
 @dataclass
 class IngestionConfig:
@@ -17,8 +19,8 @@ class IngestionConfig:
     table_group_max_rows: int = 10
 
     # Chunk search enrichment
-    chunk_enrichment_enabled: bool = True
-    chunk_enrichment_profile: str = "enterprise_policy"
+    chunk_enrichment_enabled: bool = settings.CHUNK_ENRICHMENT_ENABLED
+    chunk_enrichment_profile: str = settings.CHUNK_ENRICHMENT_PROFILE
 
 
 def get_ingestion_config(config: RunnableConfig) -> IngestionConfig:

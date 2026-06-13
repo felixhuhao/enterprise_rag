@@ -40,6 +40,7 @@ data/*
 !data/enterprise_docs/.entity
 !data/enterprise_docs_v1.jsonl
 !data/challenge_golden_set_v1.jsonl
+!data/routing_golden_set_v1.jsonl
 !data/eval_results/
 data/eval_results/*
 !data/eval_results/.gitkeep
@@ -60,27 +61,34 @@ backend/.ruff_cache/
 .vscode/
 **/.vscode/
 
-# Planning docs — only commit formal documentation
+# Planning docs — only commit curated documentation buckets
 docs/*
 !docs/
-!docs/architecture.md
-!docs/CONFIGURATION.md
-!docs/DEMO_GUIDE.md
-!docs/DEVELOPMENT.md
-!docs/evaluation.md
-!docs/DEVELOPMENT_CONTEXT.md
-!docs/phase11_eval_loop.md
-!docs/phase12_observability.md
-!docs/phase13_chunk_quality.md
-!docs/phase14_background_jobs.md
-!docs/project_market_evaluation.md
-!docs/query_flavor_roadmap.md
-!docs/refactoring_plan.md
-!docs/smoke_test.md
-!docs/storage_layer_maturity.md
+!docs/README.md
+!docs/audits/
+!docs/audits/*.md
+!docs/designs/
+!docs/designs/*.md
+!docs/guides/
+!docs/guides/*.md
+!docs/product/
+!docs/product/*.md
+!docs/roadmaps/
+!docs/roadmaps/*.md
 !docs/images/
 !docs/images/*.png
-docs/archive/
+
+# Local agent/planning scratch; keep generated specs/plans out of curated docs.
+docs/superpowers/
+
+!docs/archive/
+# Loose legacy archive dumps stay local-only. Track only the named archive buckets below.
+docs/archive/*
+!docs/archive/README.md
+!docs/archive/completed/
+!docs/archive/completed/*.md
+!docs/archive/historical/
+!docs/archive/historical/*.md
 
 # Evaluation artifacts
 pdf_extract_output.txt

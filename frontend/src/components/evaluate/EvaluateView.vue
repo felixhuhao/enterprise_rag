@@ -122,6 +122,7 @@ async function onFlavorChange(flavor: string) {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   padding: 16px 20px 20px;
   height: 100%;
   overflow-y: auto;

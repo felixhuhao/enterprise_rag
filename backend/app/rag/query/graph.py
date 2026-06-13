@@ -17,6 +17,7 @@ _OBSERVABILITY_STATE_KEYS = (
     "matched_entities",
     "per_entity_counts",
     "query_plan",
+    "routing_trace",
     "fallback_info",
     "search_results",
     "rerank_candidates",

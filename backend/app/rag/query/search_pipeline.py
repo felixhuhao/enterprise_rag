@@ -14,6 +14,7 @@ from app.rag.query.fallback import (
     REASON_LOW_SCORE_OR_INSUFFICIENT_HITS,
     fallback_blocked,
     fallback_used,
+    fallback_was_used,
     merge_fallback_info,
     state_fallback_info,
 )
@@ -85,9 +86,7 @@ def _run_multi_hop_search(
 
 
 def _should_run_multi_hop(state: QueryState, query: str, plan: dict) -> bool:
-    from app.rag.query.multi_hop import _decide_multi_hop
-
-    return bool(plan.get("use_multi_hop") and _decide_multi_hop(state.get("entity_mode", "none"), query))
+    return bool(plan.get("use_multi_hop"))
 
 
 @dataclass
@@ -195,12 +194,7 @@ def _run_direct_with_fallback(
         return
 
     entity_filter = state.get("entity_filter")
-    already_fell_back = (
-        state_fallback_info(state).get("used")
-        or "fallback" in state.get("search_mode", "")
-        or "fallback" in state.get("search_mode_hyde", "")
-        or any("fallback" in mode for mode in state.get("search_modes_expanded", []))
-    )
+    already_fell_back = fallback_was_used(state)
     results = state.get("search_results", [])
     if not entity_filter or already_fell_back or not results:
         return

@@ -72,6 +72,7 @@ async def describe_image(image_path: str) -> dict:
                     ],
                 }
             ],
+            max_tokens=settings.IMAGE_DESCRIPTION_MAX_TOKENS,
             timeout=timeout,
         )
         description = response.choices[0].message.content.strip()

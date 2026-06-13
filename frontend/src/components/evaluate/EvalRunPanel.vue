@@ -54,7 +54,7 @@
           <span>策略</span>
           <span class="run-flavor-pills" role="radiogroup" aria-label="运行策略">
             <button
-              v-for="mode in FLAVOR_KEYS"
+              v-for="mode in SELECTABLE_FLAVOR_KEYS"
               :key="mode"
               type="button"
               class="run-flavor-pill"
@@ -345,7 +345,7 @@
               </span>
               <div class="segmented-control flavor-segments" role="radiogroup" aria-label="策略">
                 <button
-                  v-for="mode in FLAVOR_KEYS"
+                  v-for="mode in SELECTABLE_FLAVOR_KEYS"
                   :key="mode"
                   type="button"
                   :class="{ active: draftForm.preferred_flavor === mode }"
@@ -440,7 +440,7 @@ import {
   formatEvalScore as formatScore,
   judgeCacheLabel,
 } from '../../utils/evalLabels'
-import { FLAVOR_KEYS, flavorLabel } from '../../utils/labelMaps'
+import { FLAVOR_KEYS, SELECTABLE_FLAVOR_KEYS, flavorLabel, normalizeFlavor } from '../../utils/labelMaps'
 import EvalCaseDetailDrawer from './EvalCaseDetailDrawer.vue'
 import EvalCaseTable from './EvalCaseTable.vue'
 
@@ -837,7 +837,7 @@ function openDraftEditor(draft: GoldenDraft) {
   editingCaseId.value = ''
   draftForm.value = {
     question: draft.question || '',
-    preferred_flavor: draft.preferred_flavor || 'balanced',
+    preferred_flavor: normalizeFlavor(draft.preferred_flavor),
     strict_evidence: Boolean(draft.strict_evidence),
     eval_type: draft.eval_type || 'llm_judge',
     expected_answer: draft.expected_answer || '',
@@ -857,7 +857,7 @@ function openGoldenCaseEditor(item: GoldenSetCase) {
   editingCaseId.value = item.id
   draftForm.value = {
     question: item.question || '',
-    preferred_flavor: item.preferred_flavor || 'balanced',
+    preferred_flavor: normalizeFlavor(item.preferred_flavor),
     strict_evidence: Boolean(item.strict_evidence),
     eval_type: item.eval_type || 'llm_judge',
     expected_answer: item.expected_answer || '',
@@ -1110,13 +1110,13 @@ onUnmounted(clearPoll)
 }
 
 .option-card:hover:not(:disabled) {
-  border-color: #93c5fd;
+  border-color: var(--accent-dim);
   background: #f8fbff;
 }
 
 .option-card.active {
   border-color: var(--accent);
-  background: #eff6ff;
+  background: var(--accent-subtle);
   color: var(--accent);
 }
 
@@ -1177,7 +1177,7 @@ onUnmounted(clearPoll)
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 3px 8px;
-  background: #f8fafc;
+  background: var(--bg-subtle);
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 11px;
@@ -1187,14 +1187,14 @@ onUnmounted(clearPoll)
 }
 
 .run-flavor-pill:hover {
-  border-color: #93c5fd;
-  background: #eff6ff;
+  border-color: var(--accent-dim);
+  background: var(--accent-subtle);
   color: var(--accent);
 }
 
 .run-flavor-pill.active {
   border-color: var(--accent);
-  background: #dbeafe;
+  background: var(--bg-active);
   color: var(--accent);
 }
 
@@ -1221,7 +1221,7 @@ onUnmounted(clearPoll)
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 0 8px;
-  background: #fbfdff;
+  background: var(--bg-subtle);
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 700;
@@ -1242,7 +1242,7 @@ onUnmounted(clearPoll)
 }
 
 .status-idle { color: var(--text-muted); background: var(--bg-hover); }
-.status-running { color: #1e40af; background: #dbeafe; }
+.status-running { color: var(--accent-active); background: var(--bg-active); }
 .status-succeeded { color: #166534; background: #dcfce7; }
 .status-failed { color: #991b1b; background: #fee2e2; }
 
@@ -1292,7 +1292,7 @@ onUnmounted(clearPoll)
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 2px 7px;
-  background: #fbfdff;
+  background: var(--bg-subtle);
   color: var(--text-secondary);
   font-size: 11px;
   font-weight: 600;
@@ -1322,7 +1322,7 @@ onUnmounted(clearPoll)
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 8px 10px;
-  background: #fbfdff;
+  background: var(--bg-subtle);
 }
 
 .breakdown-card span {
@@ -1332,7 +1332,10 @@ onUnmounted(clearPoll)
 }
 
 .breakdown-card strong {
-  font-size: 18px;
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
 }
@@ -1378,8 +1381,8 @@ onUnmounted(clearPoll)
   gap: 10px;
   align-items: center;
   padding: 8px 10px;
-  background: #fbfdff;
-  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
 }
 
 .draft-row:last-child {
@@ -1474,12 +1477,12 @@ onUnmounted(clearPoll)
 }
 
 .resize-handle:hover {
-  background: rgba(37, 99, 235, 0.14);
+  background: rgba(42, 67, 208, 0.14);
 }
 
 .golden-table th,
 .golden-table td {
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border);
   padding: 10px 10px;
   vertical-align: top;
 }
@@ -1582,7 +1585,7 @@ onUnmounted(clearPoll)
 }
 
 .col-result .result-cache-tag {
-  color: #2563eb;
+  color: var(--accent);
   font-weight: 600;
 }
 
@@ -1613,8 +1616,8 @@ onUnmounted(clearPoll)
 }
 
 .result-running {
-  background: #dbeafe;
-  color: #1e40af;
+  background: var(--bg-active);
+  color: var(--accent-active);
 }
 
 .result-passed {
@@ -1675,7 +1678,7 @@ onUnmounted(clearPoll)
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 8px 10px;
-  background: #fbfdff;
+  background: var(--bg-subtle);
 }
 
 .config-line {

@@ -28,7 +28,7 @@ def test_chunk_node_always_persists_chunks_artifact(tmp_path):
     assert chunks_json[0]["content"] == result["chunks"][0]["content"]
 
 
-def test_enrich_search_metadata_persists_chunks_and_artifact(tmp_path):
+def test_enrich_search_metadata_defaults_to_plain_chunks(tmp_path):
     chunk = {
         "chunk_key": "ck_1",
         "content": "单次费用超过10,000元需VP级别审批。",
@@ -46,30 +46,23 @@ def test_enrich_search_metadata_persists_chunks_and_artifact(tmp_path):
 
     enriched = result["chunks"][0]
     assert enriched["content"] == chunk["content"]
-    assert "search_text" in enriched
-    assert "amount_threshold" in enriched["structured_tags"]
-    assert "approval_rule" in enriched["structured_tags"]
+    assert "search_text" not in enriched
+    assert "structured_tags" not in enriched
+    assert "keywords" not in enriched
 
     chunks_json = _read_json(tmp_path / "chunks.json")
-    artifact_json = _read_json(tmp_path / "chunk_enrichment.json")
     quality_json = _read_json(tmp_path / "chunk_quality.json")
     history_json = _read_json(tmp_path / "processing_history.json")
 
-    assert chunks_json[0]["search_text"] == enriched["search_text"]
-    assert artifact_json == [
-        {
-            "chunk_key": "ck_1",
-            "enrichment_profile": "enterprise_policy",
-            "keywords": enriched["keywords"],
-            "structured_tags": enriched["structured_tags"],
-            "search_text": enriched["search_text"],
-        }
-    ]
+    assert chunks_json == [chunk]
     assert quality_json["document_id"] == "doc-1"
     assert quality_json["chunk_count"] == 1
+    assert quality_json["enrichment_profile"] == "none"
     assert result["quality_report"] == quality_json
     assert history_json[-1]["chunk_count"] == 1
+    assert history_json[-1]["enrichment_profile"] == "none"
     assert history_json[-1]["quality_status"] == quality_json["status"]
+    assert not (tmp_path / "chunk_enrichment.json").exists()
 
 
 def test_enrich_search_metadata_can_be_disabled(tmp_path):
@@ -124,29 +117,6 @@ def test_enrich_search_metadata_resets_malformed_processing_history(tmp_path):
     history_json = _read_json(tmp_path / "processing_history.json")
     assert isinstance(history_json, list)
     assert history_json[-1]["chunk_count"] == 1
-
-
-def test_enrich_search_metadata_supports_general_profile(tmp_path):
-    chunk = {
-        "chunk_key": "ck_1",
-        "content": "金额超过10,000元需VP级别审批。",
-        "section_title": "付款管理",
-    }
-    state = {
-        "document_id": "doc-1",
-        "parsed_dir": str(tmp_path),
-        "chunks": [chunk],
-    }
-
-    result = enrich_search_metadata(
-        state,
-        {"configurable": {"ingestion_config": IngestionConfig(chunk_enrichment_profile="general")}},
-    )
-
-    enriched = result["chunks"][0]
-    assert enriched["enrichment_profile"] == "general"
-    assert enriched["structured_tags"] == []
-    assert "金额审批阈值" not in enriched["search_text"]
 
 
 def test_run_ingestion_graph_returns_quality_summary(tmp_path, monkeypatch):

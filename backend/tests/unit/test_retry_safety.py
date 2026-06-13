@@ -493,7 +493,7 @@ class TestDocumentChunks:
                 "image_paths": ["images/b.png"],
             }
         ], ensure_ascii=False), encoding="utf-8")
-        monkeypatch.setattr(svc.settings, "GENERAL_PARSED_DIR", str(tmp_path))
+        monkeypatch.setattr(svc.document_chunk_query.settings, "GENERAL_PARSED_DIR", str(tmp_path))
 
         with patch("app.services.document_service._sync_query_milvus_chunks", return_value=[]):
             payload = asyncio.run(svc.get_document_chunks("doc-4"))
@@ -540,7 +540,7 @@ class TestDocumentChunks:
         parsed_dir = tmp_path / "doc-4"
         parsed_dir.mkdir()
         (parsed_dir / "chunks.json").write_text(json.dumps([row], ensure_ascii=False), encoding="utf-8")
-        monkeypatch.setattr(svc.settings, "GENERAL_PARSED_DIR", str(tmp_path))
+        monkeypatch.setattr(svc.document_chunk_query.settings, "GENERAL_PARSED_DIR", str(tmp_path))
 
         with patch("app.services.document_service._sync_query_milvus_chunk_by_key", return_value=None):
             chunk = asyncio.run(svc.get_document_chunk_by_key("doc-4", key))

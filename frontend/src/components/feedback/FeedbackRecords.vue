@@ -192,7 +192,7 @@ async function promoteToDraft(record: FeedbackRecord) {
 .draft-panel {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: #fbfdff;
+  background: var(--bg-subtle);
   padding: 10px 12px;
   margin-bottom: 12px;
 }

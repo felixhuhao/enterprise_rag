@@ -32,12 +32,13 @@ _hyde_llm = ChatOpenAI(
     base_url=settings.DEEPSEEK_BASE_URL,
     timeout=30,
     max_retries=2,
-    temperature=0.3,
+    temperature=settings.HYDE_TEMPERATURE,
+    max_tokens=settings.HYDE_MAX_TOKENS,
 )
 
 HYDE_PROMPT = (
-    "请根据以下企业文档问题，生成一段可能出现在相关文档中的假设性回答。"
-    "回答应覆盖关键术语、实体、时间、数值或结论，但不要输出解释过程：\n\n{query}"
+    "请根据以下企业文档问题，生成一段可能出现在相关文档中的假设性文本，80-160字。"
+    "覆盖关键术语、实体、时间、数值或结论。不要输出标题、解释过程或前后缀：\n\n{query}"
 )
 
 
@@ -68,7 +69,7 @@ def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
     # 1. 生成假设文档
     try:
         response = _hyde_llm.invoke([HumanMessage(content=HYDE_PROMPT.format(query=query))])
-        hypothetical_doc = response.content
+        hypothetical_doc = str(response.content or "").strip()
     except Exception:
         logger.warning("HyDE LLM call failed, returning empty", exc_info=True)
         return {"search_results_hyde": [], "fallback_info": empty_fallback_info()}

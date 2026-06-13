@@ -27,12 +27,15 @@
             v-for="item in summaryItems"
             :key="item.key"
             class="summary-item"
-            :class="{ active: statusFilter === item.key }"
+            :class="[`tone-${item.key}`, { active: statusFilter === item.key, 'is-zero': !item.value }]"
             type="button"
             @click="statusFilter = item.key"
           >
+            <span class="summary-head">
+              <span class="summary-dot"></span>
+              <span class="summary-label">{{ item.label }}</span>
+            </span>
             <span class="summary-value">{{ item.value }}</span>
-            <span class="summary-label">{{ item.label }}</span>
           </button>
         </div>
       </div>
@@ -114,7 +117,7 @@
 
           <a-table-column title="上传时间" data-index="created_at" :width="documentColumns.columnWidth('created_at')">
             <template #cell="{ record }">
-              {{ formatTime(record.created_at) }}
+              <span class="cell-time">{{ formatTime(record.created_at) }}</span>
             </template>
           </a-table-column>
 
@@ -151,7 +154,7 @@
                     重试
                   </a-button>
                   <a-popconfirm content="确认删除该文档及其向量数据？" @ok="handleDelete(record.document_id)">
-                    <a-button size="small" status="danger">删除</a-button>
+                    <a-button type="text" size="small" status="danger">删除</a-button>
                   </a-popconfirm>
                 </template>
               </a-space>
@@ -218,7 +221,7 @@ const documentColumns = useAutoFitColumns('enterprise-rag:documents:auto-v1', {
   entity_name: { width: 90, minWidth: 76, maxWidth: 140 },
   chunk_count: { width: 65, minWidth: 58, maxWidth: 80 },
   image_count: { width: 60, minWidth: 52, maxWidth: 72 },
-  created_at: { width: 180, minWidth: 142, maxWidth: 190 },
+  created_at: { width: 184, minWidth: 168, maxWidth: 196 },
   actions: { width: 140, minWidth: 96, maxWidth: 160 },
 }, { minWidth: 52 })
 
@@ -482,32 +485,72 @@ onUnmounted(() => {
   gap: 10px;
 }
 .summary-item {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 9px;
   text-align: left;
   border: 1px solid var(--border);
   background: var(--bg-surface);
   border-radius: var(--radius-md);
-  padding: 8px 10px;
+  padding: 10px 12px;
   cursor: pointer;
-  transition: border-color 0.15s var(--ease-out), background 0.15s var(--ease-out);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s var(--ease-out), background 0.15s var(--ease-out),
+    box-shadow 0.15s var(--ease-out), transform 0.15s var(--ease-out);
 }
-.summary-item:hover,
-.summary-item.active {
+.summary-item:hover {
   border-color: var(--border-accent);
-  background: var(--accent-subtle);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
 }
+.summary-item.active {
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+  box-shadow: inset 2px 0 0 var(--accent), var(--shadow-sm);
+}
+
+.summary-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.summary-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+.tone-all .summary-dot { background: var(--accent); }
+.tone-completed .summary-dot { background: var(--success); }
+.tone-processing .summary-dot { background: var(--info); }
+.tone-failed .summary-dot { background: var(--danger); }
+.tone-cleanup .summary-dot { background: var(--warning); }
+.summary-item.is-zero .summary-dot { background: var(--border-hover); }
+
+.summary-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 .summary-value {
   display: block;
-  font-size: 18px;
+  font-family: var(--font-display);
+  font-size: 22px;
   line-height: 1;
   font-weight: 700;
+  letter-spacing: -0.01em;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
 }
-.summary-label {
-  display: block;
-  margin-top: 5px;
-  font-size: 12px;
+.summary-item.is-zero .summary-value {
   color: var(--text-muted);
+  opacity: 0.5;
+}
+.summary-item.active .summary-value {
+  color: var(--accent);
+  opacity: 1;
 }
 
 .upload-preview {
@@ -556,6 +599,10 @@ onUnmounted(() => {
   font-size: 12px;
   color: var(--text-secondary);
 }
+.cell-time {
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
 
 .doc-table-wrap {
   min-width: 0;
@@ -588,7 +635,7 @@ onUnmounted(() => {
 }
 
 .manual-resize-handle:hover {
-  background: rgba(37, 99, 235, 0.08);
+  background: var(--accent-glow);
 }
 
 .doc-name {

@@ -49,6 +49,52 @@ Default local token: enterprise-rag-dev-token
 
 Milvus data persists in Docker named volumes (`milvus-data`, `milvus-etcd`), not in the project directory. Re-run `seed_demo.py` anytime; it skips already-completed documents.
 
+## Docker Build Cache
+
+The backend image contains large ML dependencies. Its Dockerfile uses a BuildKit
+pip cache mount so that if the dependency layer is invalidated, downloaded
+wheels can be reused instead of pulling several GB again.
+
+The first backend dependency build after a cache reset can still be slow. Future
+builds should reuse the cache unless Docker builder cache is pruned or the
+requirements change substantially.
+
+For normal code changes, prefer the development override. It bind-mounts source
+files into the existing containers and enables backend auto-reload:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+```
+
+After that, backend edits under `backend/app` and `backend/scripts` reload
+without rebuilding. Frontend edits under `frontend/src` are served by Vite from
+the mounted working tree.
+
+Do not use `--build` for ordinary source edits. Rebuild only when dependencies
+or image definitions change:
+
+| Change | Command |
+|---|---|
+| Backend Python source | No rebuild; dev override reloads backend |
+| Frontend source | No rebuild; dev override lets Vite serve mounted source |
+| `backend/requirements.txt` or `backend/Dockerfile` | `docker compose build backend` |
+| `frontend/package.json`, `frontend/package-lock.json`, or `frontend/Dockerfile` | `docker compose build frontend` |
+| Compose config or env vars | `docker compose up -d` |
+
+For frontend-only image rebuilds, avoid rebuilding backend:
+
+```bash
+docker compose build frontend
+docker compose up -d --no-deps frontend
+```
+
+For backend source-only changes when Milvus is already running:
+
+```bash
+docker compose build backend
+docker compose up -d --no-deps backend
+```
+
 ## Local Development
 
 Docker is the default runtime path. Local backend development is useful for linting, unit tests, and fast API iteration.

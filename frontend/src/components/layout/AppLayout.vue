@@ -208,16 +208,19 @@ function saveCustomToken() {
 }
 
 .logo-mark {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent), var(--accent-active));
   color: #fff;
+  font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 700;
+  letter-spacing: 0.02em;
+  box-shadow: 0 2px 8px var(--accent-glow);
 }
 
 .logo-copy {
@@ -229,6 +232,7 @@ function saveCustomToken() {
   font-family: var(--font-display);
   font-size: 15px;
   font-weight: 700;
+  letter-spacing: -0.01em;
   color: var(--text-primary);
 }
 .logo-subtitle {
@@ -278,8 +282,9 @@ function saveCustomToken() {
 
 .header-title {
   font-family: var(--font-display);
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
+  letter-spacing: -0.01em;
   color: var(--text-primary);
 }
 
@@ -292,25 +297,28 @@ function saveCustomToken() {
 .header-status {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 10px;
+  gap: 7px;
+  padding: 5px 12px;
   border: 1px solid var(--border);
   border-radius: 999px;
   color: var(--text-secondary);
   font-size: 12px;
-  background: var(--bg-hover);
+  font-weight: 500;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
 }
 .status-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: var(--success);
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
 }
 
 /* ---- Content ---- */
 .content {
   background: var(--bg-base) !important;
-  padding: 12px;
+  padding: 14px;
   overflow: hidden;
   display: flex;
   flex-direction: column;

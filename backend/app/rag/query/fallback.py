@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from app.rag.query.state import QueryState
 
 FALLBACK_TYPE_ENTITY_TO_GLOBAL = "entity_filter_to_global"
@@ -59,3 +61,24 @@ def state_fallback_info(state: QueryState) -> dict:
     if isinstance(info, dict):
         return info
     return empty_fallback_info()
+
+
+def fallback_was_used(state: Mapping[str, object]) -> bool:
+    """Return true when any current retrieval path used fallback."""
+    info = state.get("fallback_info")
+    if isinstance(info, dict) and info.get("used"):
+        return True
+
+    if _mode_has_fallback(state.get("search_mode")):
+        return True
+    if _mode_has_fallback(state.get("search_mode_hyde")):
+        return True
+
+    expanded_modes = state.get("search_modes_expanded")
+    if isinstance(expanded_modes, list):
+        return any(_mode_has_fallback(mode) for mode in expanded_modes)
+    return False
+
+
+def _mode_has_fallback(mode: object) -> bool:
+    return isinstance(mode, str) and "fallback" in mode

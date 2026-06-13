@@ -688,7 +688,7 @@ Before adding more retrieval algorithms, the project should strengthen the produ
 
 ### Phase 11: Golden Set Evaluation Loop And Fast Eval Modes
 
-Detailed scope: [`docs/phase11_eval_loop.md`](docs/phase11_eval_loop.md)
+Detailed scope: [`docs/archive/completed/phase11_eval_loop.md`](docs/archive/completed/phase11_eval_loop.md)
 
 Status: complete. Current product semantics are three run modes
 (`retrieval_only`, `answer_lite`, `full`) plus a smoke-case subset filter.
@@ -929,7 +929,7 @@ Acceptance criteria:
 
 ### Phase 13: Document Parsing And Chunk Quality Governance
 
-Execution doc: [`docs/phase13_chunk_quality.md`](docs/phase13_chunk_quality.md).
+Execution doc: [`docs/archive/completed/phase13_chunk_quality.md`](docs/archive/completed/phase13_chunk_quality.md).
 
 Goal: make ingestion quality visible and correctable before retrieval tuning starts blaming search for bad chunks.
 
@@ -1325,7 +1325,7 @@ These are legitimate product directions, but they increase scope faster than the
 Completed major roadmap items and query-flavor phases should now be treated as product foundation, not as open-ended scope.
 
 For previous retrieval-quality work, use the executable roadmap in
-[`docs/query_flavor_roadmap.md`](docs/query_flavor_roadmap.md) as historical
+[`docs/archive/historical/query_flavor_roadmap.md`](docs/archive/historical/query_flavor_roadmap.md) as historical
 context. Phases 0-10 are complete.
 
 Completed execution:

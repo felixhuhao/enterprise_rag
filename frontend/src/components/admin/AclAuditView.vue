@@ -106,6 +106,7 @@ function permLabel(p: string) { return p === 'owner' ? '管理' : '只读' }
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   padding: 16px;
   height: 100%;
   overflow-y: auto;
@@ -137,22 +138,22 @@ function permLabel(p: string) { return p === 'owner' ? '管理' : '只读' }
   overflow-x: hidden;
 }
 
-.cleanup-warn { color: #c2410c; font-size: 12px; font-weight: 600; }
+.cleanup-warn { color: var(--warning); font-size: 12px; font-weight: 600; }
 .cleanup-ok { color: var(--text-muted); }
 
 .perm-list {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   flex-wrap: wrap;
 }
 .perm-empty { color: var(--text-muted); font-size: 12px; }
 .perm-tag {
   display: inline-block;
   font-size: 11px;
-  padding: 1px 6px;
+  padding: 1px 8px;
   border-radius: 999px;
 }
-.perm-read { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+.perm-read { background: var(--accent-subtle); color: var(--text-accent); border: 1px solid var(--border-accent); }
 .perm-owner { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
 </style>

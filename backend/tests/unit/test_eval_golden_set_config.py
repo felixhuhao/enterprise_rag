@@ -12,9 +12,28 @@ from scripts.eval_golden import (
     run_retrieval_only_case,
     score_answer_lite,
     score_citation,
+    score_no_answer,
     score_rule,
 )
 from app.api.admin_eval import RunRequest, _eval_result_preview, _failed_case_count, _filter_cases_for_run, _summarize_golden_case
+
+
+def test_eval_cli_runtime_setting_override_updates_local_cache():
+    from app.core.runtime_settings import runtime_settings
+    from scripts.eval_golden import cli
+
+    prev = dict(runtime_settings._cache)
+    try:
+        runtime_settings._cache.clear()
+        cli._apply_runtime_overrides([
+            "intent.inline_enabled=true",
+            "intent.active_mode=true",
+        ])
+
+        assert runtime_settings.get_cached("intent.inline_enabled") == "true"
+        assert runtime_settings.get_cached("intent.active_mode") == "true"
+    finally:
+        runtime_settings._cache = prev
 
 
 def test_case_query_config_uses_preferred_flavor_and_strict():
@@ -133,6 +152,18 @@ def test_summary_exposes_compact_run_metrics_and_paths():
     assert summary["latency_p95_ms"] == 300
     assert summary["output_path"] == "/tmp/results.jsonl"
     assert summary["summary_path"] == "/tmp/summary.json"
+
+
+def test_summary_score_buckets_match_row_verdict_thresholds():
+    summary = build_summary([
+        {"id": "fail", "final_score": 0.55, "eval_type": "rule", "preferred_flavor": "balanced"},
+        {"id": "warn", "final_score": 0.6, "eval_type": "rule", "preferred_flavor": "balanced"},
+        {"id": "pass", "final_score": 0.8, "eval_type": "rule", "preferred_flavor": "balanced"},
+    ])
+
+    assert summary["passed"] == 1
+    assert summary["warning"] == 1
+    assert summary["failed"] == 1
 
 
 def test_baseline_delta_compares_current_summary_to_accepted_baseline(tmp_path):
@@ -377,6 +408,17 @@ def test_retrieval_only_scores_no_answer_cases_with_expected_docs(monkeypatch):
     assert row["final_score"] == 1.0
     assert row["failure_category"] == "none"
     assert row["failure_categories"] == []
+
+
+def test_no_answer_accepts_common_not_found_refusal_phrase():
+    result = score_no_answer(
+        "根据检索到的上下文，未找到关于星辰科技年度体检安排的相关信息。",
+        {"no_answer_type": "missing_actual_value"},
+    )
+
+    assert result["verdict"] == "pass"
+    assert result["score"] == 1.0
+    assert result["has_refusal_signal"] is True
 
 
 def test_retrieval_only_no_answer_without_expected_evidence_is_not_applicable(monkeypatch):

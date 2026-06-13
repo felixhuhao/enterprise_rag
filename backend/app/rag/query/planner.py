@@ -18,9 +18,6 @@ VALID_FLAVORS = {"balanced", "exact", "recall", "discovery"}
 MAX_SEARCH_LIMIT = 40
 MAX_RERANK_CANDIDATES = 30
 MAX_CONTEXT_CHARS = 16000
-SYNTHESIS_QUERY_MARKERS = (
-    "比较", "关联", "区别", "异同", "一致", "不同", "分别", "各自", "对比",
-)
 
 
 @dataclass(frozen=True)
@@ -49,7 +46,8 @@ class PromptPolicy:
 
 @dataclass(frozen=True)
 class QueryPlan:
-    retrieval_flavor: RetrievalFlavor
+    retrieval_flavor: str
+    retrieval_breadth: str
     strict_evidence: bool
     use_hyde: bool
     use_query_expansion: bool
@@ -60,123 +58,120 @@ class QueryPlan:
 
 
 def query_plan_node(state: QueryState, config: RunnableConfig) -> dict:
-    """Resolve high-level query controls into one plan for downstream nodes."""
+    """Resolve high-level query controls into one plan plus routing trace."""
+    from app.rag.query.control.routing import build_routing_trace, inactive_inline_shadow
+
     cfg = get_query_config(config)
-    plan = build_query_plan(
-        query=require_query(state),
-        entity_mode=state.get("entity_mode", "none"),
-        cfg=cfg,
+    query = require_query(state)
+    entity_mode = state.get("entity_mode", "none")
+    matched = list(state.get("matched_entities") or [])
+    flavor, breadth, policy_trace, det_intent, det_decision, det_budget = _resolve_routing(
+        query, entity_mode, matched, cfg
     )
-    return {"query_plan": asdict(plan)}
+    det_bundle = (det_intent, det_decision, det_budget)
+
+    if not _intent_flag("intent.inline_enabled"):
+        gated_bundle, inline_shadow = det_bundle, inactive_inline_shadow("inline_disabled")
+    elif det_intent.confidence == "high":
+        gated_bundle, inline_shadow = det_bundle, inactive_inline_shadow("high_confidence")
+    else:
+        gated_bundle, inline_shadow = _inline_intent(query, det_bundle, breadth, cfg)
+
+    emitted_bundle = gated_bundle if _intent_flag("intent.active_mode") else det_bundle
+    emitted_intent, emitted_decision, emitted_budget = emitted_bundle
+
+    plan = _plan_from_routing(flavor, breadth, emitted_decision, emitted_budget, cfg)
+    return {
+        "query_plan": asdict(plan),
+        "routing_trace": build_routing_trace(
+            emitted_intent, breadth, cfg, emitted_decision, inline_shadow, policy_trace
+        ),
+    }
 
 
 def build_query_plan(query: str, entity_mode: str, cfg: QueryConfig) -> QueryPlan:
-    flavor = _normalize_flavor(cfg.retrieval_flavor)
-    strict = bool(cfg.strict_evidence)
+    flavor, breadth, _policy_trace, _inferred, decision, budget = _resolve_routing(
+        query, entity_mode, [], cfg
+    )
+    return _plan_from_routing(flavor, breadth, decision, budget, cfg)
 
-    if flavor == "exact":
-        use_hyde = False
-        use_query_expansion = False
-        use_multi_hop = False
-        fallback_allowed = False
-        budget = RetrievalBudget(
-            search_limit=8,
-            hyde_limit=0,
-            rrf_top_k=8,
-            rerank_candidate_k=8,
-            final_context_k=3,
-            max_context_chars=5000,
-            per_entity_min_k=3,
-            reason="exact_precision",
-        )
-    elif flavor == "discovery":
-        use_hyde = False
-        use_query_expansion = False
-        use_multi_hop = True
-        fallback_allowed = False
-        budget = RetrievalBudget(
-            search_limit=cfg.search_limit,
-            hyde_limit=0,
-            rrf_top_k=cfg.rrf_max_results,
-            rerank_candidate_k=cfg.rerank_max_top_k,
-            final_context_k=cfg.rerank_max_top_k,
-            max_context_chars=8000,
-            per_entity_min_k=5,
-            reason="discovery_current_path",
-        )
-    elif flavor == "recall":
-        use_hyde = False
-        use_query_expansion = cfg.use_query_expansion
-        use_multi_hop = cfg.use_multi_hop
-        fallback_allowed = not strict
-        budget = RetrievalBudget(
-            search_limit=20,
-            hyde_limit=0,
-            rrf_top_k=40,
-            rerank_candidate_k=30,
-            final_context_k=8,
-            max_context_chars=14000,
-            per_entity_min_k=8,
-            reason="recall_high_coverage",
-        )
-    else:
-        use_hyde = cfg.use_hyde
-        use_query_expansion = False
-        use_multi_hop = cfg.use_multi_hop
-        fallback_allowed = not strict
-        if entity_mode == "broad":
-            budget = RetrievalBudget(
-                search_limit=min(cfg.search_limit * 2, 24),
-                hyde_limit=cfg.hyde_limit,
-                rrf_top_k=min(cfg.rrf_max_results * 2, 32),
-                rerank_candidate_k=min(cfg.rerank_max_top_k * 2, 24),
-                final_context_k=min(cfg.rerank_max_top_k * 2, 8),
-                max_context_chars=12000,
-                per_entity_min_k=5,
-                reason="balanced_broad",
-            )
-        elif _needs_synthesis_budget(query):
-            budget = RetrievalBudget(
-                search_limit=min(max(cfg.search_limit * 2, 20), 24),
-                hyde_limit=cfg.hyde_limit,
-                rrf_top_k=min(max(cfg.rrf_max_results * 2, 32), 32),
-                rerank_candidate_k=min(max(cfg.rerank_max_top_k * 2, 20), 24),
-                final_context_k=cfg.rerank_max_top_k,
-                max_context_chars=10000,
-                per_entity_min_k=5,
-                reason="balanced_synthesis",
-            )
-        else:
-            budget = RetrievalBudget(
-                search_limit=cfg.search_limit,
-                hyde_limit=cfg.hyde_limit,
-                rrf_top_k=cfg.rrf_max_results,
-                rerank_candidate_k=cfg.rerank_max_top_k,
-                final_context_k=cfg.rerank_max_top_k,
-                max_context_chars=8000,
-                per_entity_min_k=5,
-                reason="balanced_current_defaults",
-            )
 
-    if entity_mode == "multi_explicit":
-        budget = dataclasses.replace(budget, per_entity_min_k=8)
-    budget = _clamp_budget(budget)
+def _resolve_routing(query: str, entity_mode: str, matched_entities: list[str], cfg: QueryConfig):
+    """Compute deterministic routing pieces, shared by node and direct builders."""
+    from app.rag.query.control.breadth import resolve_breadth
+    from app.rag.query.control.inferred import infer_signals
 
+    raw_flavor = _normalize_flavor(cfg.retrieval_flavor)
+    breadth = resolve_breadth(raw_flavor)
+    flavor = "balanced" if raw_flavor == "discovery" else raw_flavor
+    policy_trace = (
+        {
+            "legacy_retrieval_flavor": raw_flavor,
+            "discovery_retired": True,
+        }
+        if raw_flavor == "discovery"
+        else {}
+    )
+    inferred = infer_signals(query, entity_mode, matched_entities)
+    det_intent, decision, budget = _route_bundle_for(inferred, breadth, cfg)
+    return flavor, breadth, policy_trace, det_intent, decision, budget
+
+
+def _route_bundle_for(intent, breadth: str, cfg: QueryConfig):
+    """Resolve one planner routing bundle: (intent, decision, budget)."""
+    from app.rag.query.control.budget import resolve_budget_profile
+    from app.rag.query.control.routing import derive_routing_decision
+
+    budget = resolve_budget_profile(
+        breadth, intent.entity_scope, intent.needs_synthesis, cfg, intent.needs_discovery
+    )
+    decision = derive_routing_decision(intent, breadth, cfg, budget_reason=budget.reason)
+    return intent, decision, budget
+
+
+def _intent_flag(key: str) -> bool:
+    """Read a runtime kill-switch flag (sync, cached)."""
+    from app.core.runtime_settings import runtime_settings
+
+    return runtime_settings.get_cached(key).strip().lower() == "true"
+
+
+def _inline_intent(query: str, det_bundle: tuple, breadth: str, cfg: QueryConfig):
+    """Dark-wiring seam: classify inline, merge, gate, and trace the proposal."""
+    from app.rag.query.control.inferred import merge_intent
+    from app.rag.query.control.llm_classifier import classify_intent_inline
+    from app.rag.query.control.routing import build_inline_shadow, trust_gate_bundle
+
+    det_intent = det_bundle[0]
+    result = classify_intent_inline(query, det_intent)
+    merged = merge_intent(det_intent, result.markers)
+    merged_bundle = _route_bundle_for(merged, breadth, cfg)
+    gated_bundle = trust_gate_bundle(merged_bundle, det_bundle)
+    inline_shadow = build_inline_shadow(result, merged_bundle, det_bundle)
+    return gated_bundle, inline_shadow
+
+
+def _plan_from_routing(flavor: str, breadth: str, decision, budget: RetrievalBudget, cfg: QueryConfig) -> QueryPlan:
+    from app.rag.query.control.breadth import BREADTH_PROFILES
+
+    fallback_allowed = _breadth_allows_fallback(breadth, cfg)
     fallback_policy = FallbackPolicy(
         entity_filter_to_global=fallback_allowed,
         reason="enabled_by_flavor" if fallback_allowed else "disabled_by_flavor_or_strict_evidence",
     )
     prompt_policy = PromptPolicy(
-        strict_evidence=strict,
-        template=_prompt_template(flavor, entity_mode),
+        strict_evidence=bool(cfg.strict_evidence),
+        template=decision.prompt_variant,
     )
+    legacy_use_hyde = BREADTH_PROFILES[breadth].sets_hyde and cfg.use_hyde
 
     return QueryPlan(
         retrieval_flavor=flavor,
-        strict_evidence=strict,
-        use_hyde=use_hyde,
-        use_query_expansion=use_query_expansion,
-        use_multi_hop=use_multi_hop,
+        retrieval_breadth=breadth,
+        strict_evidence=bool(cfg.strict_evidence),
+        use_hyde=legacy_use_hyde,
+        use_query_expansion=decision.use_query_expansion,
+        use_multi_hop=decision.use_multi_hop,
         fallback_policy=fallback_policy,
         budget=budget,
         prompt_policy=prompt_policy,
@@ -224,13 +219,7 @@ def _normalize_flavor(value: str) -> RetrievalFlavor:
     return "balanced"
 
 
-def _prompt_template(flavor: RetrievalFlavor, entity_mode: str) -> str:
-    if entity_mode == "multi_explicit":
-        return "multi_entity"
-    if flavor == "discovery" or entity_mode == "broad":
-        return "broad"
-    return "default"
+def _breadth_allows_fallback(breadth: str, cfg: QueryConfig) -> bool:
+    from app.rag.query.control.breadth import BREADTH_PROFILES
 
-
-def _needs_synthesis_budget(query: str) -> bool:
-    return any(marker in query for marker in SYNTHESIS_QUERY_MARKERS)
+    return BREADTH_PROFILES[breadth].allows_fallback and not cfg.strict_evidence

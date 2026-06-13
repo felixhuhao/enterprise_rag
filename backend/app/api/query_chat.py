@@ -127,7 +127,7 @@ async def query_chat(req: QueryChatRequest, current_user: CurrentUser = Depends(
     """非流式查询，返回 answer + citations。"""
     from app.rag.query.graph import run_query_graph
     from app.errors import classify_error
-    from app.rag.query.fallback import state_fallback_info
+    from app.rag.query.fallback import fallback_was_used, state_fallback_info
     from app.services.query_stats_service import query_stats_service
 
     t0 = time.monotonic()
@@ -188,6 +188,8 @@ async def query_chat(req: QueryChatRequest, current_user: CurrentUser = Depends(
             fallback_info = result.get("fallback_info")
             if not isinstance(fallback_info, dict):
                 fallback_info = state_fallback_info(query_state_from_mapping(query=req.query))
+            fallback_state = {**obs_state, "fallback_info": fallback_info}
+            fallback_used_flag = fallback_was_used(fallback_state)
             _rd = obs_state.get("rerank_debug", [])
             rerank_avg = (
                 sum(r["final_score"] for r in _rd) / len(_rd)
@@ -225,7 +227,7 @@ async def query_chat(req: QueryChatRequest, current_user: CurrentUser = Depends(
                 retrieval_flavor=result.get("retrieval_flavor", query_config.retrieval_flavor),
                 strict_evidence=bool(result.get("strict_evidence", query_config.strict_evidence)),
                 citations=result.get("citations", []),
-                fallback_used=bool(fallback_info.get("used")),
+                fallback_used=fallback_used_flag,
                 observability=observability,
             )
         except Exception:
@@ -261,7 +263,7 @@ async def _stream_generator(
 ):
     """两阶段 SSE 生成器。所有路径（成功/失败/中断）均落库 query_run_stats。"""
     from app.rag.query.build_prompt import build_prompt_node
-    from app.rag.query.fallback import state_fallback_info
+    from app.rag.query.fallback import fallback_was_used, state_fallback_info
     from app.rag.query.generate import _chat_llm
     from app.rag.query.search_pipeline import run_search_pipeline
     from app.rag.query.validate_citations import validate_citations_node
@@ -475,12 +477,7 @@ async def _stream_generator(
                 retrieved_chunks = _build_retrieved_chunks(state.get("search_results", []))
                 query_plan = state.get("query_plan", {}) or {}
                 fallback_info = state_fallback_info(state)
-                fallback_used_flag = (
-                    bool(fallback_info.get("used"))
-                    or "fallback" in state.get("search_mode", "")
-                    or "fallback" in state.get("search_mode_hyde", "")
-                    or any("fallback" in mode for mode in state.get("search_modes_expanded", []))
-                )
+                fallback_used_flag = fallback_was_used(state)
                 observability = build_query_observability_payload(
                     endpoint="query_chat_stream",
                     status=status,

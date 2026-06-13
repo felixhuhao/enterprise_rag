@@ -807,7 +807,7 @@ function statusClass(status: string): string {
 }
 
 .manual-resize-handle:hover {
-  background: rgba(37, 99, 235, 0.08);
+  background: rgba(42, 67, 208, 0.08);
 }
 
 .time-cell {
@@ -837,9 +837,9 @@ function statusClass(status: string): string {
 }
 
 .flavor-tag {
-  color: #1d4ed8;
-  border: 1px solid #bfdbfe;
-  background: #eff6ff;
+  color: var(--accent-hover);
+  border: 1px solid var(--border-accent);
+  background: var(--accent-subtle);
 }
 
 .flavor-exact {
@@ -949,6 +949,7 @@ function statusClass(status: string): string {
 
 .timing-value {
   text-align: right;
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
@@ -963,7 +964,8 @@ function statusClass(status: string): string {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--accent-dim);
+  background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+  transition: width 0.4s var(--ease-out);
 }
 
 .timing-row.slowest .timing-label,
@@ -980,8 +982,8 @@ function statusClass(status: string): string {
   justify-self: start;
   padding: 1px 5px;
   border-radius: 4px;
-  color: #1d4ed8;
-  background: #eff6ff;
+  color: var(--accent-hover);
+  background: var(--accent-subtle);
   font-size: 11px;
   white-space: nowrap;
 }

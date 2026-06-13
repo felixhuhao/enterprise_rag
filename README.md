@@ -12,7 +12,7 @@ This repository represents a polished local-first Enterprise RAG baseline. It is
 - **Retrieval test bench**: run retrieval without answer generation, inspect Top K chunks, scores, retrieval paths, entity distribution, expansion queries, rerank candidates, and strategy summary.
 - **Evaluation loop**: retrieval-only, answer-lite, and full modes over a curated enterprise golden set, with rule scoring, LLM judge, no-answer cases, smoke subset, baseline deltas, and failure categories.
 - **Operational visibility**: query records, per-stage latency, token usage, fallback details, error classification, durable background jobs, storage health checks, and chunk quality reports.
-- **Admin controls**: runtime settings, entity aliases, structured tag visibility, retrieval tuning, golden-set editing, feedback-to-case drafting, and job tracking.
+- **Admin controls**: runtime settings, entity aliases, optional structured tag visibility, retrieval tuning, golden-set editing, feedback-to-case drafting, and job tracking.
 
 ## Architecture
 
@@ -40,7 +40,7 @@ Ingestion Workflow              Query Pipeline                  Admin / Ops
                     Local embeddings + external LLM APIs
 ```
 
-More detail: [docs/architecture.md](docs/architecture.md).
+More detail: [docs/guides/architecture.md](docs/guides/architecture.md).
 
 ## What The System Can Do
 
@@ -115,7 +115,7 @@ It covers balanced Q&A, exact numeric lookup, recall/vague questions, discovery 
 
 Latest tested demo status during project closeout: the full enterprise set completed with one known warning case. Treat this as a regression loop, not a public benchmark.
 
-More detail: [docs/evaluation.md](docs/evaluation.md).
+More detail: [docs/guides/evaluation.md](docs/guides/evaluation.md).
 
 ## Demo Evidence
 
@@ -173,7 +173,7 @@ Useful demo queries:
 | Multi-hop discovery | `API v1什么时候下线？迁移指南由谁负责？这个人还负责什么工作？` | 关联查找 |
 | Strict evidence / missing fact | `星辰科技的API日调用量上限是多少？` with “仅基于资料回答” enabled | 标准问答 |
 
-Full screenshot gallery and recording checklist: [docs/DEMO_GUIDE.md](docs/DEMO_GUIDE.md).
+Full screenshot gallery and recording checklist: [docs/guides/DEMO_GUIDE.md](docs/guides/DEMO_GUIDE.md).
 
 ## Tech Stack
 
@@ -209,7 +209,7 @@ Frontend: http://localhost:5173
 Backend:  http://localhost:8010/health
 ```
 
-Detailed setup, local venv notes, reset commands, eval commands, and troubleshooting live in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). Full environment variable reference lives in [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+Detailed setup, local venv notes, reset commands, eval commands, and troubleshooting live in [docs/guides/DEVELOPMENT.md](docs/guides/DEVELOPMENT.md). Full environment variable reference lives in [docs/guides/CONFIGURATION.md](docs/guides/CONFIGURATION.md).
 
 ## Beyond Current Version
 
@@ -226,11 +226,12 @@ Longer roadmap context: [FUTURE_PLAN.md](FUTURE_PLAN.md).
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) — system diagrams, ingestion, retrieval, data flow.
-- [Development Guide](docs/DEVELOPMENT.md) — Docker, local development, commands, verification.
-- [Configuration](docs/CONFIGURATION.md) — complete environment variable reference.
-- [Demo Guide](docs/DEMO_GUIDE.md) — demo path, screenshots, recording checklist.
-- [Evaluation](docs/evaluation.md) — golden set design, modes, scoring, UI workflow.
-- [Smoke Test](docs/smoke_test.md) — manual regression checklist.
-- [Project Market Evaluation](docs/project_market_evaluation.md) — product/market assessment.
-- [Storage Layer Maturity](docs/storage_layer_maturity.md) — storage hardening and deferred roadmap.
+- [Documentation Map](docs/README.md) — categorized guide to current docs and archives.
+- [Architecture](docs/guides/architecture.md) — system diagrams, ingestion, retrieval, data flow.
+- [Development Guide](docs/guides/DEVELOPMENT.md) — Docker, local development, commands, verification.
+- [Configuration](docs/guides/CONFIGURATION.md) — complete environment variable reference.
+- [Demo Guide](docs/guides/DEMO_GUIDE.md) — demo path, screenshots, recording checklist.
+- [Evaluation](docs/guides/evaluation.md) — golden set design, modes, scoring, UI workflow.
+- [Smoke Test](docs/guides/smoke_test.md) — manual regression checklist.
+- [Project Market Evaluation](docs/product/project_market_evaluation.md) — product/market assessment.
+- [Storage Layer Maturity](docs/roadmaps/storage_layer_maturity.md) — storage hardening and deferred roadmap.

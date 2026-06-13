@@ -58,7 +58,7 @@
           />
         </a-tab-pane>
 
-        <a-tab-pane key="tags" title="标签治理">
+        <a-tab-pane v-if="isTagGovernanceEnabled" key="tags" title="标签治理">
           <TagGovernancePanel
             v-model:preview-document-id="previewDocumentId"
             v-model:preview-section-title="previewSectionTitle"
@@ -114,8 +114,9 @@ import RecentJobsPanel from './RecentJobsPanel.vue'
 import SystemStatusPanel from './SystemStatusPanel.vue'
 import TagGovernancePanel from './TagGovernancePanel.vue'
 import TokenSettingsPanel from './TokenSettingsPanel.vue'
+import { normalizeFlavor } from '../../utils/labelMaps'
 
-type FlavorKey = 'balanced' | 'exact' | 'recall' | 'discovery'
+type FlavorKey = 'balanced' | 'exact' | 'recall'
 type FormNumberKey =
   | 'searchLimit'
   | 'hydeLimit'
@@ -139,6 +140,7 @@ interface CapabilityStatus {
 }
 
 const authStore = useAuthStore()
+const isTagGovernanceEnabled = import.meta.env.VITE_ENABLE_TAG_GOVERNANCE === 'true'
 const loading = ref(false)
 const saving = ref(false)
 const tokenSaving = ref(false)
@@ -188,7 +190,7 @@ const form = reactive<Record<string, any>>({
   useContextExpand: true,
   useRerank: true,
   useGroundedness: false,
-  useMultiHop: false,
+  useMultiHop: true,
 })
 
 const tagForm = reactive({
@@ -217,21 +219,15 @@ const strategyProfiles: Array<{ key: FlavorKey; label: string; description: stri
     description: '固定大预算，使用扩展查询并行召回，适合模糊、同义表达问题。',
     reason: 'recall_high_coverage',
   },
-  {
-    key: 'discovery',
-    label: '关联查找',
-    description: '多跳发现路径，先找相关实体，再围绕发现实体继续检索。',
-    reason: 'discovery_current_path',
-  },
 ]
 
 const budgetControls: BudgetControl[] = [
-  { key: 'searchLimit', label: '主检索候选', min: 1, max: 50, flavors: ['balanced', 'discovery'] },
+  { key: 'searchLimit', label: '主检索候选', min: 1, max: 50, flavors: ['balanced'] },
   { key: 'hydeLimit', label: '语义扩展候选', min: 1, max: 50, flavors: ['balanced'] },
-  { key: 'rrfMaxResults', label: '融合结果上限', min: 1, max: 50, flavors: ['balanced', 'discovery'] },
-  { key: 'rerankMaxTopK', label: '重排/最终上下文上限', min: 1, max: 30, flavors: ['balanced', 'discovery'] },
+  { key: 'rrfMaxResults', label: '融合结果上限', min: 1, max: 50, flavors: ['balanced'] },
+  { key: 'rerankMaxTopK', label: '重排/最终上下文上限', min: 1, max: 30, flavors: ['balanced'] },
   { key: 'queryExpansionCount', label: '扩展查询数量', min: 2, max: 4, flavors: ['recall'] },
-  { key: 'multiHopMaxDiscovered', label: '多跳发现实体上限', min: 1, max: 10, flavors: ['discovery'] },
+  { key: 'multiHopMaxDiscovered', label: '多跳发现实体上限', min: 1, max: 10, flavors: ['balanced'] },
 ]
 
 const settingsCount = computed(() => Object.keys(rawSettings.value).length)
@@ -286,9 +282,13 @@ async function loadSettings() {
     applySettings(settingsData)
     if (authStore.isAdmin) {
       await Promise.all([
-        loadTagRecords(),
-        loadTagMetrics(),
-        loadPreviewDocuments(),
+        ...(isTagGovernanceEnabled
+          ? [
+              loadTagRecords(),
+              loadTagMetrics(),
+              loadPreviewDocuments(),
+            ]
+          : []),
         loadRecentJobs(),
       ])
     }
@@ -302,7 +302,7 @@ async function loadSettings() {
 }
 
 async function loadTagRecords() {
-  if (!authStore.isAdmin) return
+  if (!authStore.isAdmin || !isTagGovernanceEnabled) return
   tagLoading.value = true
   try {
     const data = await listStructuredTags()
@@ -315,7 +315,7 @@ async function loadTagRecords() {
 }
 
 async function loadTagMetrics() {
-  if (!authStore.isAdmin) return
+  if (!authStore.isAdmin || !isTagGovernanceEnabled) return
   tagMetricsLoading.value = true
   try {
     tagMetrics.value = await getStructuredTagMetrics()
@@ -327,7 +327,7 @@ async function loadTagMetrics() {
 }
 
 async function loadPreviewDocuments() {
-  if (!authStore.isAdmin) return
+  if (!authStore.isAdmin || !isTagGovernanceEnabled) return
   previewDocsLoading.value = true
   try {
     allDocuments.value = await listDocuments()
@@ -357,7 +357,7 @@ async function loadRecentJobs() {
 
 function applySettings(data: Record<string, string>) {
   form.token = ''
-  form.retrievalFlavor = readString(data, 'query.retrieval_flavor', 'balanced')
+  form.retrievalFlavor = normalizeFlavor(readString(data, 'query.retrieval_flavor', 'balanced'))
   form.searchLimit = readNumber(data, 'query.search_limit', 10)
   form.hydeLimit = readNumber(data, 'query.hyde_limit', 10)
   form.rrfMaxResults = readNumber(data, 'query.rrf_max_results', 20)
@@ -378,7 +378,7 @@ function applySettings(data: Record<string, string>) {
   form.useContextExpand = readBool(data, 'query.use_context_expand', true)
   form.useRerank = readBool(data, 'query.use_rerank', true)
   form.useGroundedness = readBool(data, 'query.use_groundedness', false)
-  form.useMultiHop = readBool(data, 'query.use_multi_hop', false)
+  form.useMultiHop = readBool(data, 'query.use_multi_hop', true)
 }
 
 async function saveRetrievalSettings() {
@@ -429,6 +429,7 @@ async function saveToken() {
 }
 
 function openTagEditor(record: StructuredTagRecord) {
+  if (!isTagGovernanceEnabled) return
   selectedTag.value = record
   tagForm.label = record.label
   tagForm.description = record.description
@@ -438,6 +439,7 @@ function openTagEditor(record: StructuredTagRecord) {
 }
 
 async function saveTagEditor() {
+  if (!isTagGovernanceEnabled) return
   if (!selectedTag.value) return
   const label = tagForm.label.trim()
   if (!label) {
@@ -466,6 +468,7 @@ async function saveTagEditor() {
 }
 
 async function resetTag(record: StructuredTagRecord) {
+  if (!isTagGovernanceEnabled) return
   try {
     const result = await resetStructuredTag(record.tag_key)
     Message.success('已恢复内置默认值')
@@ -479,6 +482,7 @@ async function resetTag(record: StructuredTagRecord) {
 }
 
 async function runTagPreview() {
+  if (!isTagGovernanceEnabled) return
   const documentId = previewDocumentId.value
   const text = previewText.value.trim()
   if (!documentId && !text) {
@@ -501,6 +505,7 @@ async function runTagPreview() {
 }
 
 function clearTagPreview() {
+  if (!isTagGovernanceEnabled) return
   previewDocumentId.value = ''
   previewSectionTitle.value = ''
   previewText.value = ''
@@ -529,17 +534,6 @@ function buildBudget(flavor: FlavorKey): Array<{ label: string; value: string; n
       chars: 14000,
       perEntity: 8,
     }, `扩展查询 ${form.queryExpansionCount} 条`)
-  }
-  if (flavor === 'discovery') {
-    return budgetRows({
-      search: form.searchLimit,
-      hyde: 0,
-      rrf: form.rrfMaxResults,
-      candidates: form.rerankMaxTopK,
-      final: form.rerankMaxTopK,
-      chars: 8000,
-      perEntity: 5,
-    }, `发现实体上限 ${form.multiHopMaxDiscovered}`)
   }
   return budgetRows({
     search: form.searchLimit,
@@ -588,16 +582,10 @@ function buildCapabilities(flavor: FlavorKey): CapabilityStatus[] {
       ...finishing,
     ]
   }
-  if (flavor === 'discovery') {
-    return [
-      ...common,
-      { key: 'multiHop', label: '多跳发现', enabled: true },
-      ...finishing,
-    ]
-  }
   return [
     ...common,
     { key: 'hyde', label: '语义扩展', enabled: Boolean(form.useHyde) },
+    { key: 'multiHop', label: '多跳发现', enabled: Boolean(form.useMultiHop) },
     ...finishing,
   ]
 }
@@ -631,6 +619,7 @@ onMounted(loadSettings)
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   padding: 14px 18px 18px;
 }
 

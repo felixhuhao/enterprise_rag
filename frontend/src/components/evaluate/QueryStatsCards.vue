@@ -7,9 +7,14 @@
       </div>
     </div>
     <div class="stats-cards">
-      <div class="stat-card" v-for="item in cards" :key="item.label">
-        <div class="stat-value">{{ formatValue(item) }}</div>
+      <div
+        class="stat-card"
+        :class="{ primary: index === 0 }"
+        v-for="(item, index) in cards"
+        :key="item.label"
+      >
         <div class="stat-label">{{ item.label }}</div>
+        <div class="stat-value">{{ formatValue(item) }}</div>
       </div>
     </div>
   </section>
@@ -85,8 +90,8 @@
         </div>
         <div class="metric-row" v-for="row in flavorRows" :key="row.key">
           <strong>{{ row.label }}</strong>
-          <span>{{ formatPercent(row.stats.fallback_ratio) }}</span>
-          <span>{{ row.stats.failed_count }}</span>
+          <span :class="{ 'metric-zero': !row.stats.fallback_ratio }">{{ formatPercent(row.stats.fallback_ratio) }}</span>
+          <span :class="{ 'metric-zero': !row.stats.failed_count }">{{ row.stats.failed_count }}</span>
         </div>
       </div>
       <div v-if="strictRows.length" class="metric-table compact-table">
@@ -97,8 +102,8 @@
         </div>
         <div class="metric-row" v-for="row in strictRows" :key="row.key">
           <strong>{{ row.label }}</strong>
-          <span>{{ formatPercent(row.stats.fallback_ratio) }}</span>
-          <span>{{ row.stats.failed_count }}</span>
+          <span :class="{ 'metric-zero': !row.stats.fallback_ratio }">{{ formatPercent(row.stats.fallback_ratio) }}</span>
+          <span :class="{ 'metric-zero': !row.stats.failed_count }">{{ row.stats.failed_count }}</span>
         </div>
       </div>
     </div>
@@ -221,7 +226,7 @@ function formatMs(ms: number): string {
 .stats-cards {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 
 .stat-card {
@@ -229,25 +234,48 @@ function formatMs(ms: number): string {
   overflow: hidden;
   background: var(--bg-surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 12px 14px;
+  border-radius: var(--radius-lg);
+  padding: 14px 16px 15px;
+  box-shadow: var(--shadow-sm);
+}
+/* top hairline — neutral by default, cobalt on the hero card */
+.stat-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  height: 2px;
+  background: var(--border-hover);
+}
+.stat-card.primary {
+  background: linear-gradient(170deg, var(--accent-subtle), var(--bg-surface) 62%);
+  border-color: var(--border-accent);
+}
+.stat-card.primary::before {
+  background: linear-gradient(90deg, var(--accent), var(--accent-dim));
+}
+
+.stat-label {
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
 }
 
 .stat-value {
   font-family: var(--font-display);
-  font-size: 21px;
+  font-size: 25px;
   font-weight: 700;
+  letter-spacing: -0.02em;
   color: var(--text-primary);
-  line-height: 1.2;
+  line-height: 1.15;
+  margin-top: 7px;
   font-variant-numeric: tabular-nums;
 }
-
-.stat-label {
-  font-family: var(--font-display);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  margin-top: 6px;
+.stat-card.primary .stat-value {
+  color: var(--accent);
 }
 
 .metric-layout {
@@ -263,6 +291,7 @@ function formatMs(ms: number): string {
   border-radius: var(--radius-md);
   overflow: hidden;
   background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
 }
 
 .metric-row {
@@ -271,10 +300,15 @@ function formatMs(ms: number): string {
   align-items: center;
   gap: 10px;
   min-height: 40px;
-  padding: 8px 12px;
+  padding: 8px 14px;
   border-top: 1px solid var(--border);
   color: var(--text-secondary);
   font-size: 12px;
+  transition: background 0.12s var(--ease-out);
+}
+
+.metric-row:not(.metric-header):hover {
+  background: var(--bg-hover);
 }
 
 .metric-row:first-child {
@@ -291,12 +325,22 @@ function formatMs(ms: number): string {
   font-variant-numeric: tabular-nums;
 }
 
+/* zero/empty values recede so real numbers carry the eye */
+.metric-zero {
+  color: var(--text-muted);
+  opacity: 0.55;
+}
+
 .metric-header {
   min-height: 36px;
-  background: #f8fafc;
-  color: var(--text-muted);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
   font-family: var(--font-display);
   font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.metric-header:hover {
+  background: var(--bg-subtle);
 }
 
 .strict-cards {
@@ -306,11 +350,12 @@ function formatMs(ms: number): string {
 
 .strict-card {
   display: grid;
-  gap: 10px;
-  padding: 11px 12px;
+  gap: 11px;
+  padding: 12px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: #fbfdff;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
 }
 
 .strict-card > div:first-child {
@@ -318,16 +363,21 @@ function formatMs(ms: number): string {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--border);
 }
 
 .strict-card strong {
   color: var(--text-primary);
+  font-family: var(--font-display);
   font-size: 13px;
+  font-weight: 700;
 }
 
 .strict-card span {
   color: var(--text-muted);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .strict-card dl {
@@ -347,18 +397,20 @@ function formatMs(ms: number): string {
 }
 
 .strict-card dd {
-  margin: 3px 0 0;
-  color: var(--text-secondary);
-  font-size: 12px;
+  margin: 4px 0 0;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 15px;
   font-weight: 700;
+  letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
 }
 
 .raw-metrics {
-  padding: 10px 12px;
+  padding: 11px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: #fbfdff;
+  background: var(--bg-subtle);
 }
 
 .raw-metrics summary {

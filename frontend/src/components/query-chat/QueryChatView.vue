@@ -4,21 +4,28 @@
   组合消息列表 + 纯文本输入框
 -->
 <template>
-  <div class="chat-container">
+  <div class="chat-container query-console">
     <div class="chat-toolbar">
       <div class="toolbar-content">
+        <div class="toolbar-caption">
+          <span class="caption-eyebrow">检索模式</span>
+          <span class="caption-hint">选择一种检索策略后提问</span>
+        </div>
         <div class="mode-strip">
           <div class="mode-cards">
             <button
-              v-for="mode in flavorModes"
+              v-for="(mode, idx) in flavorModes"
               :key="mode.id"
               class="mode-card"
               :class="{ active: store.debugConfig.retrieval_flavor === mode.id }"
               type="button"
               @click="store.debugConfig.retrieval_flavor = mode.id"
             >
-              <span class="mode-name">{{ mode.name }}</span>
-              <span class="mode-desc">{{ mode.desc }}</span>
+              <span class="mode-index">{{ String(idx + 1).padStart(2, '0') }}</span>
+              <span class="mode-copy">
+                <span class="mode-name">{{ mode.name }}</span>
+                <span class="mode-desc">{{ mode.desc }}</span>
+              </span>
             </button>
           </div>
           <div class="mode-tools">
@@ -88,16 +95,59 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* ============================================================
+   "Instrument" — scoped Query console design language.
+   Tokens are re-pointed here so child components (message list,
+   telemetry, citations) inherit the new palette via the cascade.
+   Nothing outside the Query view is affected.
+   ============================================================ */
+.query-console {
+  /* Signature palette: warm paper · graphite ink · deep cobalt · cyan live */
+  --qc-paper: #f4f2ed;
+  --qc-surface: #fdfcf9;
+  --qc-ink: #1c1a16;
+  --qc-ink-2: #4c4940;
+  --qc-ink-3: #8d887b;
+  --qc-line: #e7e2d8;
+  --qc-line-2: #d6d0c2;
+  --qc-cobalt: #2a43d0;
+  --qc-cobalt-hover: #1f33b0;
+  --qc-cobalt-soft: #eceffc;
+  --qc-cobalt-edge: #cdd4f7;
+  --qc-cobalt-glow: rgba(42, 67, 208, 0.16);
+  --qc-live: #0891b2;
+  --qc-grid: rgba(28, 26, 22, 0.045);
+
+  /* Re-point shared tokens used by descendant components */
+  --accent: var(--qc-cobalt);
+  --accent-hover: var(--qc-cobalt-hover);
+  --accent-active: #16258a;
+  --accent-subtle: var(--qc-cobalt-soft);
+  --accent-glow: var(--qc-cobalt-glow);
+  --accent-dim: #aab6f5;
+  --border-accent: var(--qc-cobalt-edge);
+  --text-accent: var(--qc-cobalt-hover);
+  --bg-surface: var(--qc-surface);
+  --bg-hover: #f0ede5;
+  --border: var(--qc-line);
+  --border-hover: var(--qc-line-2);
+  --text-primary: var(--qc-ink);
+  --text-secondary: var(--qc-ink-2);
+  --text-muted: var(--qc-ink-3);
+}
+
 .error-bar {
-  margin: 0 18px 10px;
-  padding: 8px 12px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  margin: 0 20px 12px;
+  padding: 9px 14px;
+  background: #fdf1f1;
+  border: 1px solid #f3cdcd;
+  border-left: 3px solid var(--danger);
   border-radius: var(--radius-md);
-  font-family: var(--font-display);
+  font-family: var(--font-body);
   font-size: 12px;
 }
 .error-code {
+  font-family: var(--font-mono);
   font-weight: 600;
   color: var(--danger, #f06060);
   margin-right: 8px;
@@ -127,17 +177,47 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
+  background: var(--qc-paper);
+  border: 1px solid var(--qc-line-2);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  animation: fadeIn 0.22s var(--ease-out);
+  box-shadow: var(--shadow-md);
+  animation: fadeIn 0.28s var(--ease-out);
 }
 
 .chat-toolbar {
-  padding: 12px 18px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-surface);
+  padding: 14px 20px 16px;
+  border-bottom: 1px solid var(--qc-line);
+  background: var(--qc-surface);
+}
+
+.toolbar-caption {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 11px;
+}
+.caption-eyebrow {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--qc-cobalt);
+}
+.caption-eyebrow::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 7px;
+  border-radius: 1px;
+  background: var(--qc-cobalt);
+  transform: rotate(45deg);
+  vertical-align: middle;
+}
+.caption-hint {
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 .evidence-toggle {
@@ -146,26 +226,30 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 8px;
   min-height: 35px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
+  padding: 0 12px;
+  border: 1px solid var(--qc-line-2);
   border-radius: var(--radius-md);
   color: var(--text-secondary);
   font-size: 12px;
   white-space: nowrap;
-  background: var(--bg-hover);
+  background: var(--qc-paper);
+  transition: border-color 0.15s ease;
+}
+.evidence-toggle:hover {
+  border-color: var(--qc-cobalt-edge);
 }
 
 .mode-strip {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 190px;
-  gap: 8px;
+  gap: 10px;
   align-items: start;
 }
 
 .mode-cards {
   display: grid;
-  grid-template-columns: repeat(4, minmax(170px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(3, minmax(170px, 1fr));
+  gap: 10px;
 }
 
 .mode-tools {
@@ -174,29 +258,73 @@ onBeforeUnmount(() => {
 }
 
 .mode-card {
-  min-height: 58px;
-  padding: 9px 11px;
-  border: 1px solid var(--border);
+  position: relative;
+  display: flex;
+  gap: 10px;
+  min-height: 62px;
+  padding: 10px 12px 10px 11px;
+  border: 1px solid var(--qc-line-2);
   border-radius: var(--radius-md);
-  background: var(--bg-surface);
+  background: var(--qc-surface);
   color: var(--text-primary);
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  overflow: hidden;
+  transition: border-color 0.18s var(--ease-out), background 0.18s var(--ease-out),
+    box-shadow 0.18s var(--ease-out), transform 0.18s var(--ease-out);
+}
+/* left signal rail */
+.mode-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--qc-cobalt);
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform 0.2s var(--ease-out);
 }
 
 .mode-card:hover {
-  border-color: var(--border-hover);
-  background: #f8fafc;
+  border-color: var(--qc-cobalt-edge);
+  background: #fbfaf6;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
 }
 
 .mode-card.active {
-  border-color: var(--accent);
-  background: var(--accent-subtle);
+  border-color: var(--qc-cobalt);
+  background: var(--qc-cobalt-soft);
+  box-shadow: 0 0 0 1px var(--qc-cobalt) inset, var(--shadow-sm);
+}
+.mode-card.active::before {
+  transform: scaleY(1);
+}
+
+.mode-index {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--qc-ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.mode-card.active .mode-index {
+  color: var(--qc-cobalt);
+}
+
+.mode-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .mode-name {
   display: block;
+  font-family: var(--font-display);
   font-size: 13px;
   font-weight: 700;
   line-height: 18px;
@@ -204,7 +332,7 @@ onBeforeUnmount(() => {
 }
 
 .mode-card.active .mode-name {
-  color: var(--accent);
+  color: var(--qc-cobalt-hover);
 }
 
 .mode-desc {
@@ -219,32 +347,37 @@ onBeforeUnmount(() => {
 }
 
 .debug-toggle {
-  border: 1px solid var(--border);
-  background: var(--bg-surface);
+  border: 1px solid var(--qc-line-2);
+  background: var(--qc-paper);
   color: var(--text-muted);
-  border-radius: 999px;
-  padding: 4px 10px;
+  border-radius: var(--radius-md);
+  padding: 4px 12px;
+  font-family: var(--font-body);
   font-size: 12px;
   cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
 .debug-toggle:hover,
 .debug-toggle.active {
-  color: var(--accent);
-  border-color: var(--border-accent);
+  color: var(--qc-cobalt);
+  border-color: var(--qc-cobalt-edge);
+  background: var(--qc-cobalt-soft);
 }
 
 .debug-panel {
-  margin: 10px 18px 0;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
+  margin: 12px 20px 0;
+  padding: 11px 16px;
+  border: 1px solid var(--qc-line);
+  border-left: 3px solid var(--qc-cobalt-edge);
   border-radius: var(--radius-md);
-  background: var(--bg-hover);
+  background: var(--qc-surface);
 }
 
 .debug-title {
+  font-family: var(--font-body);
   font-size: 12px;
   font-weight: 600;
+  letter-spacing: 0.04em;
   color: var(--text-secondary);
   margin-bottom: 8px;
 }

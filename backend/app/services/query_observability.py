@@ -116,6 +116,10 @@ def _resolved_settings(
     budget = _dict(plan.get("budget"))
     cfg = _config_dict(query_config)
     flavor = str(plan.get("retrieval_flavor") or cfg.get("retrieval_flavor") or "balanced")
+    raw_breadth = plan.get("retrieval_breadth")
+    breadth = str(raw_breadth).strip() if raw_breadth is not None else ""
+    if not breadth:
+        breadth = _resolve_breadth(flavor)
     strict = _bool(plan.get("strict_evidence", cfg.get("strict_evidence", False)))
 
     selected_entities = _list(state.get("matched_entities"))
@@ -128,6 +132,8 @@ def _resolved_settings(
 
     return _compact({
         "retrieval_flavor": flavor,
+        "retrieval_breadth": breadth,
+        "routing_trace": _dict(state.get("routing_trace")),
         "strict_evidence": strict,
         "entity_mode": state.get("entity_mode") or "none",
         "selected_entities": selected_entities,
@@ -217,6 +223,12 @@ def _config_dict(query_config: Any | Mapping[str, Any] | None) -> dict[str, Any]
     if hasattr(query_config, "__dict__"):
         return dict(query_config.__dict__)
     return {}
+
+
+def _resolve_breadth(flavor: str) -> str:
+    from app.rag.query.control.breadth import resolve_breadth
+
+    return resolve_breadth(flavor)
 
 
 def _dict(value: Any) -> dict[str, Any]:

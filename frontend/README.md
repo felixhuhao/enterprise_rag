@@ -16,6 +16,13 @@ target in `frontend/.env` when needed:
 VITE_API_TARGET=http://localhost:8010
 ```
 
+Optional experimental features:
+
+```env
+# Hidden by default while rule-based chunk enrichment is disabled pending redesign.
+VITE_ENABLE_TAG_GOVERNANCE=false
+```
+
 Build:
 
 ```bash
@@ -43,7 +50,7 @@ src/
 │   ├── layout/          # app shell and navigation
 │   ├── query-chat/      # chat, citations, retrieval trace
 │   ├── retrieval-test/  # retrieval-only debugging UI
-│   └── settings/        # runtime settings, tags, recent jobs
+│   └── settings/        # runtime settings, optional tag governance, recent jobs
 ├── composables/         # reusable Vue composition helpers
 ├── router/              # route definitions and guards
 ├── stores/              # Pinia state

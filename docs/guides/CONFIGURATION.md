@@ -30,6 +30,12 @@ PDF parsing additionally requires:
 | `RATE_LIMIT_PER_MINUTE` | `60` | Per-token API rate limit. |
 | `CORS_ORIGINS` | `["http://localhost:5173","http://localhost:4173"]` | Allowed frontend origins. |
 
+### Frontend Feature Flags
+
+| Variable | Default | Description |
+|---|---|---|
+| `VITE_ENABLE_TAG_GOVERNANCE` | `false` | Show the experimental structured tag governance settings tab. Hidden by default while rule-based chunk enrichment is disabled pending redesign. |
+
 ### Local Storage
 
 | Variable | Default | Description |
@@ -47,6 +53,15 @@ PDF parsing additionally requires:
 | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com/v1` | OpenAI-compatible chat endpoint base URL. |
 | `CHAT_MODEL` | `deepseek-v4-flash` | Chat model name. |
 | `CHAT_TIMEOUT` | `180` | Chat completion timeout in seconds. |
+| `CHAT_TEMPERATURE` | `0.0` | Temperature for final answer generation. |
+| `CHAT_MAX_TOKENS` | `1600` | Maximum tokens for final answer generation. |
+| `HYDE_TEMPERATURE` | `0.3` | Temperature for HyDE hypothetical text generation. |
+| `HYDE_MAX_TOKENS` | `256` | Maximum tokens for HyDE hypothetical text generation. |
+| `QUERY_EXPANSION_TEMPERATURE` | `0.3` | Temperature for query expansion generation. |
+| `QUERY_EXPANSION_MAX_TOKENS` | `256` | Maximum tokens for query expansion output. |
+| `RERANK_MAX_TOKENS` | `128` | Maximum tokens for rerank score JSON output. |
+| `GROUNDEDNESS_TEMPERATURE` | `0.0` | Temperature for groundedness judge calls. |
+| `GROUNDEDNESS_MAX_TOKENS` | `1800` | Maximum tokens for groundedness judge JSON output. |
 | `LOCAL_MODEL_URL` | empty | Optional local/vLLM-compatible model endpoint. |
 | `LOCAL_MODEL_NAME` | empty | Optional local model name. |
 
@@ -90,6 +105,15 @@ PDF parsing additionally requires:
 | `MD_ZIP_MAX_SIZE_MB` | `50` | Maximum Markdown ZIP upload size. |
 | `UPLOAD_MAX_SIZE_MB` | `100` | Maximum single upload size. |
 
+### Chunk Search Enrichment
+
+| Variable | Default | Description |
+|---|---|---|
+| `CHUNK_ENRICHMENT_ENABLED` | `false` | Enable rule-based chunk search metadata enrichment during ingestion. Disabled by default until redesigned. |
+| `CHUNK_ENRICHMENT_PROFILE` | `none` | Enrichment profile to use when enabled. Use `enterprise_policy` to restore the legacy policy-rule enrichment. |
+
+> Breaking change: deployments that previously relied on rule-based `keywords`, `structured_tags`, or enriched sparse/BM25 `search_text` should explicitly set `CHUNK_ENRICHMENT_ENABLED=true` and `CHUNK_ENRICHMENT_PROFILE=enterprise_policy` until their documents are reprocessed and retrieval quality is re-evaluated.
+
 ### Image Description
 
 | Variable | Default | Description |
@@ -100,6 +124,7 @@ PDF parsing additionally requires:
 | `IMAGE_DESCRIPTION_MODEL` | `glm-4.6v-flash` | Image description model name. |
 | `IMAGE_DESCRIPTION_CONCURRENCY` | `3` | Concurrent image description requests. |
 | `IMAGE_DESCRIPTION_TIMEOUT` | `30` | Per-request timeout in seconds. |
+| `IMAGE_DESCRIPTION_MAX_TOKENS` | `800` | Maximum tokens for each image description response. |
 | `IMAGE_DESCRIPTION_MAX_SIZE_MB` | `10` | Skip image description for images larger than this size. |
 
 ## Example Docker `.env`
@@ -113,6 +138,7 @@ DEEPSEEK_API_KEY=sk-your-deepseek-api-key
 ZHIPU_API_KEY=your-zhipu-api-key
 MINERU_API_TOKEN=
 MILVUS_URI=http://localhost:19530
+VITE_ENABLE_TAG_GOVERNANCE=false
 ```
 
 ## Example Local Backend `.env`

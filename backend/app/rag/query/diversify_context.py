@@ -1,7 +1,7 @@
 """Final context diversification after rerank.
 
-Recall/discovery queries need coverage across documents more than repeated
-near-duplicate chunks from the same section.
+Recall and discovery-shaped queries need coverage across documents more than
+repeated near-duplicate chunks from the same section.
 """
 
 from __future__ import annotations
@@ -13,8 +13,8 @@ from app.rag.query.planner import get_query_plan, plan_budget
 from app.rag.query.state import QueryState
 
 
-_DIVERSIFY_FLAVORS = {"recall", "discovery"}
-_DIVERSIFY_BUDGET_REASONS = {"balanced_synthesis"}
+_DIVERSIFY_FLAVORS = {"recall"}
+_DIVERSIFY_BUDGET_REASONS = {"balanced_synthesis", "balanced_discovery"}
 _MIN_DIVERSE_SCORE = 0.5
 
 

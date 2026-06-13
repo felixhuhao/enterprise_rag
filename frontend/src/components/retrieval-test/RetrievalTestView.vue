@@ -10,6 +10,22 @@
             allow-clear
           />
         </div>
+      </div>
+
+      <div class="mode-run-row">
+        <div class="mode-strip">
+          <button
+            v-for="mode in flavorModes"
+            :key="mode.id"
+            class="mode-card"
+            :class="{ active: retrievalFlavor === mode.id }"
+            type="button"
+            @click="retrievalFlavor = mode.id"
+          >
+            <span class="mode-name">{{ mode.name }}</span>
+            <span class="mode-desc">{{ mode.desc }}</span>
+          </button>
+        </div>
         <div class="run-controls">
           <label class="control-item">
             <span>Top K</span>
@@ -20,20 +36,6 @@
             开始测试
           </a-button>
         </div>
-      </div>
-
-      <div class="mode-strip">
-        <button
-          v-for="mode in flavorModes"
-          :key="mode.id"
-          class="mode-card"
-          :class="{ active: retrievalFlavor === mode.id }"
-          type="button"
-          @click="retrievalFlavor = mode.id"
-        >
-          <span class="mode-name">{{ mode.name }}</span>
-          <span class="mode-desc">{{ mode.desc }}</span>
-        </button>
       </div>
     </section>
 
@@ -615,22 +617,23 @@ function filterToScope(filter: string) {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
   padding: 14px 16px;
 }
 
 .query-toolbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 150px;
-  gap: 12px;
+  display: flex;
   align-items: stretch;
 }
 
 .query-field {
   display: flex;
+  flex: 1;
   min-width: 0;
 }
 
 .query-field :deep(.arco-textarea-wrapper) {
+  width: 100%;
   height: 100%;
 }
 
@@ -655,11 +658,18 @@ function filterToScope(filter: string) {
   width: 92px;
 }
 
+.mode-run-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  gap: 12px;
+  align-items: stretch;
+  margin-top: 14px;
+}
+
 .mode-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(130px, 1fr));
+  grid-template-columns: repeat(3, minmax(130px, 1fr));
   gap: 8px;
-  margin-top: 14px;
 }
 
 .mode-card {
@@ -676,7 +686,7 @@ function filterToScope(filter: string) {
 
 .mode-card:hover {
   border-color: var(--border-hover);
-  background: #f8fafc;
+  background: var(--bg-subtle);
 }
 
 .mode-card.active {
@@ -755,9 +765,10 @@ function filterToScope(filter: string) {
 .section-eyebrow {
   display: block;
   margin-bottom: 4px;
-  color: var(--text-muted);
+  color: var(--text-accent);
   font-size: 11px;
   font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .strategy-grid {
@@ -769,7 +780,7 @@ function filterToScope(filter: string) {
 
 .metric {
   border: 1px solid var(--border);
-  background: #f8fafc;
+  background: var(--bg-subtle);
   border-radius: var(--radius-md);
   padding: 10px 12px;
   min-width: 0;
@@ -785,8 +796,11 @@ function filterToScope(filter: string) {
   display: block;
   margin-top: 6px;
   color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -813,7 +827,7 @@ function filterToScope(filter: string) {
   margin-top: 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: #f8fafc;
+  background: var(--bg-subtle);
   padding: 12px;
 }
 
@@ -860,7 +874,9 @@ function filterToScope(filter: string) {
 .trace-item strong {
   margin-left: auto;
   color: var(--text-primary);
+  font-family: var(--font-mono);
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .chain-grid {
@@ -913,8 +929,8 @@ function filterToScope(filter: string) {
 }
 
 .expansion-panel {
-  border: 1px solid #bfdbfe;
-  background: #eff6ff;
+  border: 1px solid var(--border-accent);
+  background: var(--accent-subtle);
 }
 
 .expansion-head {
@@ -922,12 +938,12 @@ function filterToScope(filter: string) {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  color: #1d4ed8;
+  color: var(--accent-hover);
   font-size: 12px;
 }
 
 .expansion-head strong {
-  color: #1e3a8a;
+  color: var(--accent-active);
   font-size: 12px;
   font-weight: 600;
 }
@@ -944,14 +960,14 @@ function filterToScope(filter: string) {
   align-items: start;
   gap: 10px;
   padding: 8px 10px;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--bg-active);
   border-radius: var(--radius-sm);
   background: var(--bg-surface);
   font-size: 12px;
 }
 
 .expansion-label {
-  color: #1d4ed8;
+  color: var(--accent-hover);
   font-weight: 700;
   white-space: nowrap;
 }
@@ -970,7 +986,7 @@ function filterToScope(filter: string) {
   margin-top: 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: #fbfdff;
+  background: var(--bg-subtle);
   padding: 12px;
 }
 
@@ -1057,7 +1073,7 @@ function filterToScope(filter: string) {
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: #f8fafc;
+  background: var(--bg-subtle);
 }
 
 .alias-head {
@@ -1202,9 +1218,9 @@ function filterToScope(filter: string) {
   max-width: 100%;
   padding: 2px 5px;
   border-radius: 4px;
-  border: 1px solid #bfdbfe;
-  background: #eff6ff;
-  color: #1d4ed8;
+  border: 1px solid var(--border-accent);
+  background: var(--accent-subtle);
+  color: var(--accent-hover);
   font-size: 11px;
   line-height: 1.35;
   white-space: nowrap;
@@ -1298,7 +1314,7 @@ function filterToScope(filter: string) {
 }
 
 @media (max-width: 760px) {
-  .query-toolbar {
+  .mode-run-row {
     grid-template-columns: 1fr;
   }
 

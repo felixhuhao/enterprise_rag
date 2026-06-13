@@ -176,7 +176,7 @@ function formatTime(value: string): string {
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: #fbfdff;
+  background: var(--bg-subtle);
 }
 
 .panel-head {

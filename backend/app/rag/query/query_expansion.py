@@ -28,6 +28,7 @@ EXPANSION_PROMPT = """\
 """
 
 _numbering_re = re.compile(r"^\s*(?:[-*]\s*)?(?:\d+|[一二三四五六七八九十]+)[\.、\)\uff09]\s*")
+_separator_re = re.compile(r"(?:\r?\n)+|[;；]+|(?<!\d)[,，]|[,，](?!\d)|(?<!\d)、")
 
 _expansion_llm = ChatOpenAI(
     model=settings.CHAT_MODEL,
@@ -35,7 +36,8 @@ _expansion_llm = ChatOpenAI(
     base_url=settings.DEEPSEEK_BASE_URL,
     timeout=30,
     max_retries=2,
-    temperature=0.3,
+    temperature=settings.QUERY_EXPANSION_TEMPERATURE,
+    max_tokens=settings.QUERY_EXPANSION_MAX_TOKENS,
 )
 
 
@@ -62,11 +64,11 @@ def query_expansion_node(state: QueryState, config: RunnableConfig) -> dict:
 
 
 def _parse_expanded_queries(content: str, original_query: str, count: int) -> list[str]:
-    """Clean model output into unique query lines."""
+    """Clean model output into unique queries."""
     original_norm = _normalize_query(original_query)
     seen = {original_norm} if original_norm else set()
     out: list[str] = []
-    for raw in content.splitlines():
+    for raw in _separator_re.split(content):
         line = _numbering_re.sub("", raw).strip()
         if not line:
             continue
