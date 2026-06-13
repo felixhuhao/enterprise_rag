@@ -2,7 +2,10 @@
 
 from dataclasses import asdict
 
+from app.core.runtime_settings import runtime_settings
 from app.rag.query.config import QueryConfig
+from app.rag.query.control import llm_classifier
+from app.rag.query.control.llm_classifier import ClassifyResult, LlmMarkers
 from app.rag.query.planner import (
     RetrievalBudget,
     build_query_plan,
@@ -172,9 +175,91 @@ def test_query_plan_node_returns_plain_dict():
     assert out["routing_trace"]["intent"]["source"] == "deterministic"
     assert out["routing_trace"]["intent"]["fallback_used"] is False
     assert out["routing_trace"]["intent"]["confidence"] == "high"
-    assert out["routing_trace"]["shadow_routing"]["trust_gated"] is False
-    assert out["routing_trace"]["shadow_routing"]["diverged"] is False
-    assert out["routing_trace"]["shadow_routing"]["would_be_decision"]["use_multi_hop"] is True
+    assert out["routing_trace"]["inline_shadow"]["ran"] is False
+    assert out["routing_trace"]["inline_shadow"]["fallback_reason"] == "none"
+
+
+def _set_flags(monkeypatch, *, inline, active):
+    monkeypatch.setitem(runtime_settings._cache, "intent.inline_enabled", "true" if inline else "false")
+    monkeypatch.setitem(runtime_settings._cache, "intent.active_mode", "true" if active else "false")
+
+
+def _divergent_high(reason="none", markers=True):
+    payload = LlmMarkers(needs_synthesis=True, needs_discovery=False, confidence="high", reasons=["x"])
+    return lambda q, d: ClassifyResult(
+        markers=payload if markers else None,
+        fallback_reason=reason,
+        latency_ms=5,
+    )
+
+
+_STATE = {"query": "报销标准是什么？", "entity_mode": "single"}
+_CONFIG = {"configurable": {"query_config": QueryConfig()}}
+
+
+def test_inline_on_active_off_preserves_plan(monkeypatch):
+    monkeypatch.setattr(llm_classifier, "classify_intent_inline", _divergent_high())
+    _set_flags(monkeypatch, inline=False, active=False)
+    baseline = query_plan_node(_STATE, _CONFIG)["query_plan"]
+
+    _set_flags(monkeypatch, inline=True, active=False)
+    out = query_plan_node(_STATE, _CONFIG)
+
+    assert out["query_plan"] == baseline
+    assert out["routing_trace"]["inline_shadow"]["ran"] is True
+    assert out["routing_trace"]["inline_shadow"]["activatable_diverged"] is True
+
+
+def test_active_mode_drives_gated_route_and_budget(monkeypatch):
+    monkeypatch.setattr(llm_classifier, "classify_intent_inline", _divergent_high())
+    _set_flags(monkeypatch, inline=False, active=False)
+    baseline = query_plan_node(_STATE, _CONFIG)["query_plan"]
+
+    _set_flags(monkeypatch, inline=True, active=True)
+    out = query_plan_node(_STATE, _CONFIG)
+
+    assert (
+        out["query_plan"]["use_query_expansion"] != baseline["use_query_expansion"]
+        or out["query_plan"]["budget"] != baseline["budget"]
+    )
+    assert out["routing_trace"]["routing_decision"]["answer_shape"] == "bullets_or_table"
+    assert out["routing_trace"]["intent"]["source"] == "llm_escalated"
+
+
+def test_failure_fallback_high_det_confidence_never_activates(monkeypatch):
+    state = {"query": "哪些公司提到了安全计划？", "entity_mode": "broad"}
+    monkeypatch.setattr(
+        llm_classifier,
+        "classify_intent_inline",
+        _divergent_high(reason="timeout", markers=False),
+    )
+    _set_flags(monkeypatch, inline=False, active=False)
+    baseline = query_plan_node(state, _CONFIG)["query_plan"]
+
+    _set_flags(monkeypatch, inline=True, active=True)
+    out = query_plan_node(state, _CONFIG)
+
+    assert out["query_plan"] == baseline
+    shadow = out["routing_trace"]["inline_shadow"]
+    assert shadow["fallback_used"] is True
+    assert shadow["fallback_reason"] == "timeout"
+    assert shadow["activatable_diverged"] is False
+    assert out["routing_trace"]["intent"]["fallback_used"] is False
+
+
+def test_kill_switch_does_not_call_classifier(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        llm_classifier,
+        "classify_intent_inline",
+        lambda q, d: calls.append(1) or ClassifyResult(None, "none", 0),
+    )
+    _set_flags(monkeypatch, inline=False, active=False)
+
+    out = query_plan_node(_STATE, _CONFIG)
+
+    assert calls == []
+    assert out["routing_trace"]["inline_shadow"]["ran"] is False
 
 
 # ---------------------------------------------------------------------------

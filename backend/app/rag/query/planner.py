@@ -59,18 +59,31 @@ class QueryPlan:
 
 def query_plan_node(state: QueryState, config: RunnableConfig) -> dict:
     """Resolve high-level query controls into one plan plus routing trace."""
-    from app.rag.query.control.routing import build_routing_trace, trust_gate
+    from app.rag.query.control.routing import build_routing_trace, inactive_inline_shadow
 
     cfg = get_query_config(config)
     query = require_query(state)
     entity_mode = state.get("entity_mode", "none")
     matched = list(state.get("matched_entities") or [])
-    flavor, breadth, inferred, decision, budget = _resolve_routing(query, entity_mode, matched, cfg)
-    plan = _plan_from_routing(flavor, breadth, decision, budget, cfg)
-    would_be = trust_gate(inferred, decision, decision)
+    flavor, breadth, det_intent, det_decision, det_budget = _resolve_routing(
+        query, entity_mode, matched, cfg
+    )
+    det_bundle = (det_intent, det_decision, det_budget)
+
+    if _intent_flag("intent.inline_enabled"):
+        gated_bundle, inline_shadow = _inline_intent(query, det_bundle, breadth, cfg)
+    else:
+        gated_bundle, inline_shadow = det_bundle, inactive_inline_shadow()
+
+    emitted_bundle = gated_bundle if _intent_flag("intent.active_mode") else det_bundle
+    emitted_intent, emitted_decision, emitted_budget = emitted_bundle
+
+    plan = _plan_from_routing(flavor, breadth, emitted_decision, emitted_budget, cfg)
     return {
         "query_plan": asdict(plan),
-        "routing_trace": build_routing_trace(inferred, breadth, cfg, decision, would_be),
+        "routing_trace": build_routing_trace(
+            emitted_intent, breadth, cfg, emitted_decision, inline_shadow
+        ),
     }
 
 
@@ -80,18 +93,47 @@ def build_query_plan(query: str, entity_mode: str, cfg: QueryConfig) -> QueryPla
 
 
 def _resolve_routing(query: str, entity_mode: str, matched_entities: list[str], cfg: QueryConfig):
-    """Compute routing once, shared by direct plan building and graph node execution."""
+    """Compute deterministic routing pieces, shared by node and direct builders."""
     from app.rag.query.control.breadth import resolve_breadth
-    from app.rag.query.control.budget import resolve_budget_profile
     from app.rag.query.control.inferred import infer_signals
-    from app.rag.query.control.routing import derive_routing_decision
 
     flavor = _normalize_flavor(cfg.retrieval_flavor)
     breadth = resolve_breadth(flavor)
     inferred = infer_signals(query, entity_mode, matched_entities)
-    budget = resolve_budget_profile(breadth, inferred.entity_scope, inferred.needs_synthesis, cfg)
-    decision = derive_routing_decision(inferred, breadth, cfg, budget_reason=budget.reason)
-    return flavor, breadth, inferred, decision, budget
+    det_intent, decision, budget = _route_bundle_for(inferred, breadth, cfg)
+    return flavor, breadth, det_intent, decision, budget
+
+
+def _route_bundle_for(intent, breadth: str, cfg: QueryConfig):
+    """Resolve one planner routing bundle: (intent, decision, budget)."""
+    from app.rag.query.control.budget import resolve_budget_profile
+    from app.rag.query.control.routing import derive_routing_decision
+
+    budget = resolve_budget_profile(breadth, intent.entity_scope, intent.needs_synthesis, cfg)
+    decision = derive_routing_decision(intent, breadth, cfg, budget_reason=budget.reason)
+    return intent, decision, budget
+
+
+def _intent_flag(key: str) -> bool:
+    """Read a runtime kill-switch flag (sync, cached)."""
+    from app.core.runtime_settings import runtime_settings
+
+    return runtime_settings.get_cached(key).strip().lower() == "true"
+
+
+def _inline_intent(query: str, det_bundle: tuple, breadth: str, cfg: QueryConfig):
+    """Dark-wiring seam: classify inline, merge, gate, and trace the proposal."""
+    from app.rag.query.control.inferred import merge_intent
+    from app.rag.query.control.llm_classifier import classify_intent_inline
+    from app.rag.query.control.routing import build_inline_shadow, trust_gate_bundle
+
+    det_intent = det_bundle[0]
+    result = classify_intent_inline(query, det_intent)
+    merged = merge_intent(det_intent, result.markers)
+    merged_bundle = _route_bundle_for(merged, breadth, cfg)
+    gated_bundle = trust_gate_bundle(merged_bundle, det_bundle)
+    inline_shadow = build_inline_shadow(result, merged_bundle, det_bundle)
+    return gated_bundle, inline_shadow
 
 
 def _plan_from_routing(flavor: str, breadth: str, decision, budget: RetrievalBudget, cfg: QueryConfig) -> QueryPlan:

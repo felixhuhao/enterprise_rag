@@ -505,7 +505,7 @@ class TestObservabilityPayload:
         })
         assert legacy_payload["resolved_settings"]["retrieval_breadth"] == "broad"
 
-    def test_2a_intent_provenance_and_shadow_survive_into_resolved_settings(self):
+    def test_2a_intent_provenance_and_inline_shadow_survive_into_resolved_settings(self):
         state = {
             "query_plan": {
                 "retrieval_flavor": "balanced",
@@ -519,10 +519,9 @@ class TestObservabilityPayload:
                     "source": "deterministic",
                     "fallback_used": False,
                 },
-                "shadow_routing": {
-                    "would_be_decision": {"use_multi_hop": False},
-                    "trust_gated": True,
-                    "diverged": False,
+                "inline_shadow": {
+                    "ran": False,
+                    "fallback_reason": "none",
                 },
             },
         }
@@ -531,7 +530,8 @@ class TestObservabilityPayload:
 
         assert trace["intent"]["source"] == "deterministic"
         assert trace["intent"]["fallback_used"] is False
-        assert trace["shadow_routing"]["diverged"] is False
+        assert trace["inline_shadow"]["ran"] is False
+        assert trace["inline_shadow"]["fallback_reason"] == "none"
 
     def test_2a_query_plan_node_trace_flows_into_resolved_settings(self):
         state = query_plan_node(
@@ -544,8 +544,8 @@ class TestObservabilityPayload:
         assert trace["intent"]["confidence"] == "medium"
         assert trace["intent"]["source"] == "deterministic"
         assert trace["intent"]["fallback_used"] is False
-        assert trace["shadow_routing"]["trust_gated"] is True
-        assert trace["shadow_routing"]["diverged"] is False
+        assert trace["inline_shadow"]["ran"] is False
+        assert trace["inline_shadow"]["fallback_reason"] == "none"
 
     def test_build_payload_normalizes_trace_settings_shape_and_tokens(self):
         payload = build_query_observability_payload(

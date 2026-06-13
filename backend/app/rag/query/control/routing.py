@@ -1,15 +1,14 @@
-"""Derived routing decision and 2A shadow-routing helpers."""
+"""Derived routing decision and inline-shadow helpers."""
 
 from __future__ import annotations
 
-import dataclasses
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 from app.rag.query.config import QueryConfig
 from app.rag.query.control.breadth import BREADTH_PROFILES, RetrievalBreadth
-from app.rag.query.control.inferred import Confidence, InferredSignals
+from app.rag.query.control.inferred import InferredSignals
 
 
 @dataclass(frozen=True)
@@ -92,12 +91,49 @@ def trust_gate(
     inferred_decision: RoutingDecision,
     design1_decision: RoutingDecision,
 ) -> RoutingDecision:
-    """Trust the inferred route only at high confidence.
+    """Trust the inferred route only when the shared activation predicate passes."""
+    return inferred_decision if activatable(intent) else design1_decision
 
-    Shadow-only in 2A: callers pass the same deterministic decision as both
-    arguments. 2B is where those decisions can diverge.
-    """
-    return inferred_decision if intent.confidence == "high" else design1_decision
+
+def activatable(intent: InferredSignals) -> bool:
+    """A route may drive only at high confidence and never on a fallback."""
+    return intent.confidence == "high" and not intent.fallback_used
+
+
+def trust_gate_bundle(merged_bundle: tuple, det_bundle: tuple) -> tuple:
+    """Select a whole (intent, decision, budget) bundle."""
+    merged_intent = merged_bundle[0]
+    return merged_bundle if activatable(merged_intent) else det_bundle
+
+
+def build_inline_shadow(result, merged_bundle: tuple, det_bundle: tuple) -> dict:
+    """Record the raw pre-gate LLM proposal vs the deterministic route."""
+    merged_intent, merged_decision, _merged_budget = merged_bundle
+    _det_intent, det_decision, _det_budget = det_bundle
+    proposal_execution = decision_execution_dict(merged_decision)
+    proposal_diverged = proposal_execution != decision_execution_dict(det_decision)
+    return {
+        "ran": True,
+        "fallback_used": result.markers is None,
+        "fallback_reason": result.fallback_reason,
+        "latency_ms": result.latency_ms,
+        "confidence": merged_intent.confidence,
+        "merged_markers": {
+            "needs_synthesis": merged_intent.needs_synthesis,
+            "needs_discovery": merged_intent.needs_discovery,
+            "needs_multi_hop": merged_intent.needs_multi_hop,
+        },
+        "merged_reasons": list(merged_intent.reasons),
+        "merged_source": merged_intent.source,
+        "proposal_execution": proposal_execution,
+        "proposal_diverged": proposal_diverged,
+        "activatable_diverged": proposal_diverged and activatable(merged_intent),
+    }
+
+
+def inactive_inline_shadow() -> dict:
+    """Trace block when the inline classifier did not run."""
+    return {"ran": False, "fallback_reason": "none"}
 
 
 def build_routing_trace(
@@ -105,9 +141,9 @@ def build_routing_trace(
     breadth: RetrievalBreadth,
     cfg: QueryConfig,
     decision: RoutingDecision,
-    would_be_decision: RoutingDecision,
+    inline_shadow: dict,
 ) -> dict:
-    """Trace the three tiers, active decision, and shadow routing record."""
+    """Trace the three tiers, emitted decision, and inline-shadow record."""
     return {
         "intent": {
             "entity_scope": inferred.entity_scope,
@@ -140,23 +176,7 @@ def build_routing_trace(
             "steps": decision.steps,
             "reasons": decision.reasons,
         },
-        "shadow_routing": _shadow_routing(decision, would_be_decision, inferred.confidence),
-    }
-
-
-def _shadow_routing(
-    active: RoutingDecision,
-    would_be: RoutingDecision,
-    confidence: Confidence,
-) -> dict:
-    """Record the trust-gated would-be decision using normalized comparison."""
-    would_be_dict = dataclasses.asdict(would_be)
-    active_execution = decision_execution_dict(active)
-    would_be_execution = decision_execution_dict(would_be)
-    return {
-        "would_be_decision": would_be_dict,
-        "trust_gated": confidence != "high",
-        "diverged": would_be_execution != active_execution,
+        "inline_shadow": inline_shadow,
     }
 
 
