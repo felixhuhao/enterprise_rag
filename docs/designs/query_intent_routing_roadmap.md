@@ -1,7 +1,7 @@
 # Query-Intent Routing — Staged Roadmap (Design 2)
 
 **Date:** 2026-06-12
-**Status:** Active roadmap (supersedes the parked stub).
+**Status:** Active roadmap (2C complete; 2D design in progress).
 **Source plan:** `prompt_reliability_implementation_plan.md` → "Requires Query-Intent Design" lane.
 **Depends on:** `retrieval_control_model_design.md` (Design 1) — **shipped** (control model in
 `backend/app/rag/query/control/`, golden-set zero-delta verified 2026-06-12).
@@ -143,8 +143,7 @@ proves boring.
 
 1. 2A — **shipped** (deterministic intent + shadow routing; zero-delta verified).
 2. 2B — **shipped** (offline-replay LLM classifier; closeout smoke clean).
-3. 2C-1 — Golden Correctness: spec → plan → implement (**next**).
-4. 2C-2 — Inline Shadow (dark wiring).
-5. 2C-3 — Trust-Gated Activation (the flip).
-6. 2D — Discovery retirement (follow-on).
-4. Discovery retirement (within 2C or immediately after).
+3. 2C-1 — **shipped** (routing golden set + scorer).
+4. 2C-2 — **shipped** (inline shadow/dark wiring).
+5. 2C-3 — **shipped** (trust-gated activation; defaults active).
+6. 2D — **active design**: activation-scaffolding cleanup first, discovery retirement follow-on.

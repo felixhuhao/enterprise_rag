@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+from collections import Counter
 from typing import Any
 
 from app.config import settings
@@ -12,16 +13,22 @@ from app.config import settings
 
 def aggregate_inline_shadow(shadows: list[dict[str, Any]]) -> dict[str, Any]:
     """Aggregate inline_shadow dicts into the 2C-3 gate metrics."""
+    observed = len(shadows)
     ran = [shadow for shadow in shadows if shadow.get("ran")]
+    skipped = [shadow for shadow in shadows if shadow and not shadow.get("ran")]
     total = len(ran)
 
     def rate(n: int) -> float:
         return round(n / total, 4) if total else 0.0
 
+    def observed_rate(n: int) -> float:
+        return round(n / observed, 4) if observed else 0.0
+
     reasons = [str(shadow.get("fallback_reason", "none")) for shadow in ran]
     timeouts = sum(1 for reason in reasons if reason == "timeout")
     errors = sum(1 for reason in reasons if reason == "error")
     parse_fails = sum(1 for reason in reasons if reason == "parse_fail")
+    skip_reasons = Counter(str(shadow.get("skip_reason", "unknown")) for shadow in skipped)
 
     latencies = sorted(int(shadow.get("latency_ms", 0)) for shadow in ran)
     p95 = latencies[int(round(0.95 * (len(latencies) - 1)))] if latencies else 0
@@ -30,7 +37,13 @@ def aggregate_inline_shadow(shadows: list[dict[str, Any]]) -> dict[str, Any]:
     proposal = sum(1 for shadow in ran if shadow.get("proposal_diverged"))
 
     summary: dict[str, Any] = {
+        "observed_rows": observed,
         "volume": total,
+        "classifier_runs": total,
+        "skipped_rows": len(skipped),
+        "skip_reasons": dict(sorted(skip_reasons.items())),
+        "classifier_run_rate": observed_rate(total),
+        "skip_rate": observed_rate(len(skipped)),
         "classifier_error_rate": rate(timeouts + errors),
         "parse_fail_rate": rate(parse_fails),
         "fallback_rate": rate(timeouts + errors + parse_fails),
