@@ -223,7 +223,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ## Task 2: `SettingsView.vue` — drop discovery, relocate multi-hop knob, coerce, flip default
 
 **Files:**
-- Modify: `frontend/src/components/settings/SettingsView.vue` (lines 109-117 imports, 118, 192, 221-226, 229-236, 365, 386)
+- Modify: `frontend/src/components/settings/SettingsView.vue` (lines 109-117 imports, 118, 192, 221-226, 229-236, 365, 386, 520-613)
 
 This component has no unit test (component-level; covered by `vue-tsc` + manual checklist). The `SelectableFlavorKey` split makes any leftover `discovery` literal a compile error.
 
@@ -297,12 +297,35 @@ Line 386, in `applySettings`:
   form.useMultiHop = readBool(data, 'query.use_multi_hop', true)
 ```
 
-- [ ] **Step 8: Type-check**
+- [ ] **Step 8: Remove discovery-only budget/capability branches**
+
+Because the local `FlavorKey` no longer includes `discovery`, the old `if (flavor === 'discovery')`
+branches in `buildBudget` and `buildCapabilities` are stale and must be removed.
+
+In `buildBudget` (lines 543-553), delete the discovery branch entirely. The balanced/default branch
+now covers the only editable balanced path and includes the relocated `multiHopMaxDiscovered` control
+via the active controls list.
+
+In `buildCapabilities` (lines 601-607), delete the discovery branch and include multi-hop in the
+balanced/default capability list:
+
+```ts
+  return [
+    ...common,
+    { key: 'hyde', label: '语义扩展', enabled: Boolean(form.useHyde) },
+    { key: 'multiHop', label: '多跳发现', enabled: Boolean(form.useMultiHop) },
+    ...finishing,
+  ]
+```
+
+Expected after this step: no `flavor === 'discovery'` checks remain in `SettingsView.vue`.
+
+- [ ] **Step 9: Type-check**
 
 Run: `cd frontend && npx vue-tsc -b`
 Expected: PASS — no errors. (A leftover `discovery` literal anywhere typed `FlavorKey` would fail here.)
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add frontend/src/components/settings/SettingsView.vue
@@ -450,13 +473,14 @@ Run: `cd frontend && npm run dev`, then in the browser confirm:
 - Opening an existing eval case whose `preferred_flavor` was `discovery` shows **标准问答 (balanced)** selected (a real button is active, none blank).
 - A historical query-stats record / eval `per_flavor` row with `retrieval_flavor=discovery` still renders the `关联查找` label.
 
-- [ ] **Step 5: Final commit (if any lockfile/build artifacts changed)**
+- [ ] **Step 5: Final commit (only if verification produced a known file change)**
 
 ```bash
-git add -A
+git add <specific changed file(s)>
 git commit -m "chore(2D-fe): verification pass for discovery frontend retirement
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
 
-(If nothing changed in this step, skip the commit.)
+(If nothing changed in this step, skip the commit. Do not use `git add -A` for the verification pass;
+it can accidentally sweep unrelated local work into the commit.)
