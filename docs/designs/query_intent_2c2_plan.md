@@ -18,7 +18,7 @@
 | `backend/app/rag/query/control/llm_classifier.py` | LLM intent classifier | **Modify** — factor `_invoke_classifier` raw seam; add `ClassifyResult`, `_is_timeout`, `classify_intent_inline`; refactor `classify_intent_llm` to delegate |
 | `backend/app/rag/query/control/routing.py` | derived routing + shadow | **Modify** — add `activatable`, `trust_gate_bundle`, `build_inline_shadow`, `inactive_inline_shadow`; rework `build_routing_trace` to take an `inline_shadow` dict (replaces `shadow_routing`) |
 | `backend/app/core/runtime_settings.py` | runtime flags | **Modify** — register `intent.inline_enabled` / `intent.active_mode` defaults |
-| `backend/app/rag/query/planner.py` | request-path planner | **Modify** — `route_for_intent` pair helper, `_intent_flag`, `_inline_intent` seam, rewire `query_plan_node` to bundles + flags |
+| `backend/app/rag/query/planner.py` | request-path planner | **Modify** — `_route_bundle_for` helper, `_intent_flag`, `_inline_intent` seam, rewire `query_plan_node` to bundles + flags |
 | `backend/scripts/report_inline_shadow.py` | offline shadow gate report | **Create** — `aggregate_inline_shadow` + DB-reading `main` |
 | `backend/tests/unit/test_llm_classifier.py` | classifier tests | **Modify** — inline envelope + reason taxonomy |
 | `backend/tests/unit/test_control_routing.py` | routing tests | **Modify** — gate bundle + shadow + trace |
@@ -118,6 +118,16 @@ def test_is_timeout_recognizes_provider_types():
     assert llm_classifier._is_timeout(ValueError()) is False
 
 
+def test_is_timeout_recognizes_wrapped_provider_timeout():
+    class APITimeoutError(Exception):
+        pass
+
+    wrapped = RuntimeError("request failed")
+    wrapped.__cause__ = APITimeoutError("slow")
+
+    assert llm_classifier._is_timeout(wrapped) is True
+
+
 def test_classify_intent_llm_delegates_and_swallows(monkeypatch):
     monkeypatch.setattr(
         llm_classifier,
@@ -171,10 +181,17 @@ _TIMEOUT_EXC_NAMES = {
 
 
 def _is_timeout(exc: BaseException) -> bool:
-    """Recognize provider/client timeout types by class name (no hard imports)."""
-    if isinstance(exc, TimeoutError):
-        return True
-    return type(exc).__name__ in _TIMEOUT_EXC_NAMES
+    """Recognize provider/client timeout types, including wrapped causes."""
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, TimeoutError):
+            return True
+        if type(current).__name__ in _TIMEOUT_EXC_NAMES:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 ```
 
 Replace `classify_intent_llm` with the shared raw seam + both entry points:
@@ -239,7 +256,7 @@ Note: `_calibrate_confidence`, `parse_llm_markers`, `_classifier_model`, `_class
 - [ ] **Step 5: Run the tests to verify they pass**
 
 Run: `python -m pytest tests/unit/test_llm_classifier.py -q`
-Expected: PASS (all existing + 6 new).
+Expected: PASS (all existing + 7 new).
 
 - [ ] **Step 6: Commit**
 
@@ -285,6 +302,12 @@ def test_activatable_requires_high_and_not_fallback():
     assert activatable(_intent("high")) is True
     assert activatable(_intent("medium")) is False
     assert activatable(_intent("high", fallback_used=True)) is False
+
+
+def test_trust_gate_uses_shared_activatable_predicate_for_fallback():
+    inferred = _routing_decision(use_query_expansion=True)
+    design1 = _routing_decision(use_query_expansion=False)
+    assert trust_gate(_intent("high", fallback_used=True), inferred, design1) is design1
 
 
 def test_trust_gate_bundle_selects_merged_when_activatable():
@@ -382,7 +405,7 @@ def test_build_routing_trace_embeds_inline_shadow():
     assert trace["inline_shadow"] is shadow
 ```
 
-Keep the existing `trust_gate` tests (the decision-level primitive is unchanged). Use the file's existing `CFG` constant; if it does not exist, add `CFG = QueryConfig()` near the top.
+Update the existing `trust_gate` tests to reflect the shared activation predicate: high/non-fallback uses the inferred decision, below-high uses Design 1, and high-with-`fallback_used=True` uses Design 1. This keeps the 2C-1 scorer, which still calls `trust_gate`, consistent with live `trust_gate_bundle`. Use the file's existing `CFG` constant; if it does not exist, add `CFG = QueryConfig()` near the top.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -391,12 +414,21 @@ Expected: FAIL — `ImportError: cannot import name 'activatable'` and key-set m
 
 - [ ] **Step 3: Implement gate, shadow, and trace rework**
 
-In `backend/app/rag/query/control/routing.py`, add after `trust_gate` (line 100):
+In `backend/app/rag/query/control/routing.py`, replace the existing `trust_gate` with `activatable` + an updated `trust_gate`, then add the bundle gate and inline-shadow helpers:
 
 ```python
 def activatable(intent: InferredSignals) -> bool:
     """A route may drive only at high confidence and never on a fallback."""
     return intent.confidence == "high" and not intent.fallback_used
+
+
+def trust_gate(
+    intent: InferredSignals,
+    inferred_decision: RoutingDecision,
+    design1_decision: RoutingDecision,
+) -> RoutingDecision:
+    """Trust the inferred route only when the shared activation predicate passes."""
+    return inferred_decision if activatable(intent) else design1_decision
 
 
 def trust_gate_bundle(merged_bundle: tuple, det_bundle: tuple) -> tuple:
@@ -497,14 +529,7 @@ Delete the now-unused `_shadow_routing` function entirely. Leave `decision_execu
 Run: `python -m pytest tests/unit/test_control_routing.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
-
-```bash
-git add backend/app/rag/query/control/routing.py backend/tests/unit/test_control_routing.py
-git commit -m "feat(2C-2): bundle trust gate + inline-shadow trace block
-
-Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
-```
+Do **not** commit yet. This task intentionally changes the `build_routing_trace` signature; the planner and observability tests are rewired in Task 3. Tasks 2 and 3 land together so there is no intermediate commit where `query_plan_node` passes the old `would_be_decision` argument into the new `inline_shadow` slot.
 
 ---
 
@@ -514,6 +539,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - Modify: `backend/app/core/runtime_settings.py:24`
 - Modify: `backend/app/rag/query/planner.py:60-94`
 - Test: `backend/tests/unit/test_query_planner.py`
+- Test: `backend/tests/unit/test_query_stats.py`
 
 - [ ] **Step 1: Register the runtime-flag defaults**
 
@@ -617,10 +643,28 @@ def test_kill_switch_does_not_call_classifier(monkeypatch):
     assert out["routing_trace"]["inline_shadow"]["ran"] is False
 ```
 
+In `backend/tests/unit/test_query_stats.py`, replace the remaining `shadow_routing` fixture/assertions with the new inactive inline-shadow shape:
+
+```python
+"inline_shadow": {
+    "ran": False,
+    "fallback_reason": "none",
+},
+```
+
+and assert:
+
+```python
+assert trace["inline_shadow"]["ran"] is False
+assert trace["inline_shadow"]["fallback_reason"] == "none"
+```
+
+This applies to both the hand-built routing-trace passthrough test and the end-to-end `query_plan_node -> resolved_settings` test.
+
 - [ ] **Step 3: Run the tests to verify they fail**
 
 Run: `python -m pytest tests/unit/test_query_planner.py -q`
-Expected: FAIL — `inline_shadow` KeyError and the flag tests error (planner still emits `shadow_routing` / has no `_inline_intent`).
+Expected: FAIL — the planner still has the old `build_routing_trace(..., would_be_decision)` call site and has no `_inline_intent` / flag wiring yet.
 
 - [ ] **Step 4: Rewire the planner**
 
@@ -657,7 +701,7 @@ def query_plan_node(state: QueryState, config: RunnableConfig) -> dict:
     }
 ```
 
-New `_resolve_routing` (returns the same 5-tuple shape, now via the pair helper so `build_query_plan` is unaffected):
+New `_resolve_routing` (returns the same 5-tuple shape, now via the bundle helper so `build_query_plan` is unaffected):
 
 ```python
 def _resolve_routing(query: str, entity_mode: str, matched_entities: list[str], cfg: QueryConfig):
@@ -668,21 +712,21 @@ def _resolve_routing(query: str, entity_mode: str, matched_entities: list[str], 
     flavor = _normalize_flavor(cfg.retrieval_flavor)
     breadth = resolve_breadth(flavor)
     inferred = infer_signals(query, entity_mode, matched_entities)
-    decision, budget = route_for_intent(inferred, breadth, cfg)
-    return flavor, breadth, inferred, decision, budget
+    det_intent, decision, budget = _route_bundle_for(inferred, breadth, cfg)
+    return flavor, breadth, det_intent, decision, budget
 ```
 
 Add the three new helpers (place them just below `_resolve_routing`):
 
 ```python
-def route_for_intent(intent, breadth: str, cfg: QueryConfig):
-    """Resolve the (decision, budget) pair for one intent — the planner-local bundle step."""
+def _route_bundle_for(intent, breadth: str, cfg: QueryConfig):
+    """Resolve one planner routing bundle: (intent, decision, budget)."""
     from app.rag.query.control.budget import resolve_budget_profile
     from app.rag.query.control.routing import derive_routing_decision
 
     budget = resolve_budget_profile(breadth, intent.entity_scope, intent.needs_synthesis, cfg)
     decision = derive_routing_decision(intent, breadth, cfg, budget_reason=budget.reason)
-    return decision, budget
+    return intent, decision, budget
 
 
 def _intent_flag(key: str) -> bool:
@@ -704,8 +748,7 @@ def _inline_intent(query: str, det_bundle: tuple, breadth: str, cfg: QueryConfig
     det_intent = det_bundle[0]
     result = classify_intent_inline(query, det_intent)
     merged = merge_intent(det_intent, result.markers)
-    merged_decision, merged_budget = route_for_intent(merged, breadth, cfg)
-    merged_bundle = (merged, merged_decision, merged_budget)
+    merged_bundle = _route_bundle_for(merged, breadth, cfg)
     gated_bundle = trust_gate_bundle(merged_bundle, det_bundle)
     inline_shadow = build_inline_shadow(result, merged_bundle, det_bundle)
     return gated_bundle, inline_shadow
@@ -713,7 +756,7 @@ def _inline_intent(query: str, det_bundle: tuple, breadth: str, cfg: QueryConfig
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `python -m pytest tests/unit/test_query_planner.py -q`
+Run: `python -m pytest tests/unit/test_query_planner.py tests/unit/test_query_stats.py -q`
 Expected: PASS.
 
 - [ ] **Step 6: Run the full unit suite for regressions**
@@ -721,11 +764,16 @@ Expected: PASS.
 Run: `python -m pytest tests/unit -q`
 Expected: PASS. (Characterization tests in `test_planner_characterization.py` confirm the default-flags plan is unchanged.)
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Commit Tasks 2 and 3 together**
 
 ```bash
-git add backend/app/core/runtime_settings.py backend/app/rag/query/planner.py backend/tests/unit/test_query_planner.py
-git commit -m "feat(2C-2): wire inline classifier behind runtime kill switches (ships dark)
+git add backend/app/core/runtime_settings.py \
+  backend/app/rag/query/control/routing.py \
+  backend/app/rag/query/planner.py \
+  backend/tests/unit/test_control_routing.py \
+  backend/tests/unit/test_query_planner.py \
+  backend/tests/unit/test_query_stats.py
+git commit -m "feat(2C-2): bundle inline-shadow routing behind kill switches
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 ```
@@ -953,13 +1001,13 @@ Append the summary JSON + audit notes to the 2C-2 closeout (a short note in the 
 **Spec coverage:**
 - Inline timeout setting, `ClassifyResult` envelope, `_invoke_classifier` shared seam, `_is_timeout` taxonomy, `classify_intent_llm` delegation → **Task 1**.
 - `activatable`, `trust_gate_bundle`, `build_inline_shadow` (proposal_execution/proposal_diverged/activatable_diverged), `inactive_inline_shadow`, trace rework → **Task 2**.
-- Runtime flags in `_DEFAULTS`, `_intent_flag`, `route_for_intent` pair, `_inline_intent` seam, bundle wiring, byte-for-byte preservation / active wiring / fallback-never-activates / kill switch → **Task 3** (covers spec Testing 1–5).
+- Runtime flags in `_DEFAULTS`, `_intent_flag`, `_route_bundle_for`, `_inline_intent` seam, bundle wiring, byte-for-byte preservation / active wiring / fallback-never-activates / kill switch → **Task 3** (covers spec Testing 1–5).
 - Offline report + slices/gates (spec Testing 6) → **Task 4**.
 - Manual run + audit → **Task 5**.
 - WARN counters (spec Failure §4): emitted as structured `logger.warning(... fallback=%s latency_ms=%d ...)` in `classify_intent_inline` (Task 1, Step 4).
 - Excisable seam (`_inline_intent`) is the single deletion point for 2D → Task 3.
 
-**Type consistency:** bundles are `(intent, decision, budget)` tuples throughout; `route_for_intent` returns `(decision, budget)` in both `routing.py` callers and `planner.py`; `ClassifyResult` fields (`markers`, `fallback_reason`, `latency_ms`) are produced in Task 1 and read identically in `build_inline_shadow` (Task 2) and the report (Task 4); flag keys `intent.inline_enabled` / `intent.active_mode` match across `_DEFAULTS`, `_intent_flag`, and tests.
+**Type consistency:** bundles are `(intent, decision, budget)` tuples throughout; the planner-local `_route_bundle_for` returns that full bundle, while the existing offline `control/route_scoring.py::route_for_intent` remains scorer-only and returns `RoutingDecision`; `ClassifyResult` fields (`markers`, `fallback_reason`, `latency_ms`) are produced in Task 1 and read identically in `build_inline_shadow` (Task 2) and the report (Task 4); flag keys `intent.inline_enabled` / `intent.active_mode` match across `_DEFAULTS`, `_intent_flag`, and tests.
 
 **Placeholder scan:** none — every code step shows complete code and exact commands.
 
