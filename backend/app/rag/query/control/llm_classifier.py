@@ -47,6 +47,14 @@ Decide only:
 - needs_synthesis: comparison, relationship, causal, cross-document, cross-entity, or temporal synthesis.
 - needs_discovery: finding which entities/people/documents relate to a topic, responsibility, owner, or condition.
 
+Guidance:
+- If the question asks which person, team, organization, level, category, or document becomes
+  responsible, involved, applicable, or escalated-to, mark needs_discovery.
+- If the question asks between/among named entities who owns or handles something, mark both
+  needs_synthesis and needs_discovery.
+- Use high confidence when a routing marker is clear enough to change retrieval; reserve medium for
+  genuinely uncertain or underspecified routing intent.
+
 Do not classify entity_scope. Do not extract requested output format.
 Return strict JSON only:
 {"needs_synthesis":false,"needs_discovery":false,"confidence":"high","reasons":[]}

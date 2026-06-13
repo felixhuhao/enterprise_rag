@@ -82,3 +82,38 @@ def test_comparator_flags_hit_regression():
     assert summary["hit_changed_ids"] == ["a"]
     assert summary["hit_regression_ids"] == ["a"]
     assert summary["gates"]["no_hit_regression"] is False
+
+
+def test_comparator_allowlists_expected_non_activatable_route_change():
+    from scripts.compare_activation_eval import compare_activation_runs
+
+    off = {
+        "discovery_multi_001": _row(
+            "discovery_multi_001",
+            keys=["k1"],
+            hit5=True,
+            hit10=True,
+            expansion=False,
+            activatable=False,
+        )
+    }
+    on = {
+        "discovery_multi_001": _row(
+            "discovery_multi_001",
+            keys=["k2"],
+            hit5=True,
+            hit10=True,
+            expansion=True,
+            activatable=False,
+        )
+    }
+
+    summary = compare_activation_runs(
+        off,
+        on,
+        allowed_route_change_ids={"discovery_multi_001"},
+    )
+
+    assert summary["allowed_route_change_ids"] == ["discovery_multi_001"]
+    assert summary["leak_ids"] == []
+    assert summary["gates"]["no_leak"] is True

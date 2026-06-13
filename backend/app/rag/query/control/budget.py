@@ -13,6 +13,7 @@ def resolve_budget_profile(
     entity_scope: str,
     needs_synthesis: bool,
     cfg: QueryConfig,
+    needs_discovery: bool = False,
 ) -> RetrievalBudget:
     """Return the exact current budget profile for breadth, scope, and synthesis."""
     if breadth == "precise":
@@ -37,16 +38,27 @@ def resolve_budget_profile(
             per_entity_min_k=8,
             reason="recall_high_coverage",
         )
-    elif breadth == "discovery":
+    elif needs_synthesis and entity_scope == "multi":
         budget = RetrievalBudget(
-            search_limit=cfg.search_limit,
-            hyde_limit=0,
-            rrf_top_k=cfg.rrf_max_results,
-            rerank_candidate_k=cfg.rerank_max_top_k,
+            search_limit=min(max(cfg.search_limit * 2, 20), 24),
+            hyde_limit=cfg.hyde_limit,
+            rrf_top_k=min(max(cfg.rrf_max_results * 2, 32), 32),
+            rerank_candidate_k=min(max(cfg.rerank_max_top_k * 2, 20), 24),
             final_context_k=cfg.rerank_max_top_k,
-            max_context_chars=8000,
+            max_context_chars=10000,
             per_entity_min_k=5,
-            reason="discovery_current_path",
+            reason="balanced_synthesis",
+        )
+    elif needs_discovery:
+        budget = RetrievalBudget(
+            search_limit=min(cfg.search_limit * 2, 24),
+            hyde_limit=cfg.hyde_limit,
+            rrf_top_k=min(cfg.rrf_max_results * 2, 32),
+            rerank_candidate_k=min(cfg.rerank_max_top_k * 2, 24),
+            final_context_k=min(cfg.rerank_max_top_k * 2, 8),
+            max_context_chars=12000,
+            per_entity_min_k=5,
+            reason="balanced_discovery",
         )
     elif entity_scope == "broad":
         budget = RetrievalBudget(
@@ -85,4 +97,3 @@ def resolve_budget_profile(
     if entity_scope == "multi":
         budget = dataclasses.replace(budget, per_entity_min_k=8)
     return _clamp_budget(budget)
-

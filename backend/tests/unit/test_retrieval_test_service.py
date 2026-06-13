@@ -38,7 +38,7 @@ def test_embedding_model_label_prefers_display_name(monkeypatch):
     assert svc._embedding_model_label() == "bge-m3"
 
 
-def test_discovery_runs_multi_hop_and_returns_trace(monkeypatch):
+def test_retired_discovery_runs_multi_hop_and_returns_trace(monkeypatch):
     monkeypatch.setattr(svc, "get_default_query_config", lambda: QueryConfig(use_table_expand=False))
     monkeypatch.setattr(svc, "_entity_confirm_node", lambda state, config: {
         "confirmed_entity": "",
@@ -97,8 +97,11 @@ def test_discovery_runs_multi_hop_and_returns_trace(monkeypatch):
     assert payload["hop_trace"][1]["discovered_entities"] == ["实体A"]
     assert payload["per_entity_counts"] == {"实体A": 1}
     assert payload["trace"]["multi_hop_ms"] == 12
+    assert payload["retrieval_flavor"] == "balanced"
+    assert payload["query_plan"]["retrieval_breadth"] == "balanced"
+    assert payload["routing_trace"]["policy"]["legacy_retrieval_flavor"] == "discovery"
     assert payload["strategy"]["search_mode"] == "multi_hop"
-    assert payload["strategy"]["hyde"] is False
+    assert payload["strategy"]["hyde"] is True
     assert payload["results"][0]["retrieval_path"] == "Multi-hop"
 
 

@@ -30,7 +30,9 @@ def build_expected_intent(expected: Mapping[str, Any]) -> InferredSignals:
 
 def route_for_intent(intent: InferredSignals, breadth: str, cfg: QueryConfig) -> RoutingDecision:
     """Resolve budget per intent, then derive the route."""
-    budget = resolve_budget_profile(breadth, intent.entity_scope, intent.needs_synthesis, cfg)
+    budget = resolve_budget_profile(
+        breadth, intent.entity_scope, intent.needs_synthesis, cfg, intent.needs_discovery
+    )
     return derive_routing_decision(intent, breadth, cfg, budget_reason=budget.reason)
 
 

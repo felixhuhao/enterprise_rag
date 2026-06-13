@@ -55,7 +55,9 @@ def _intent(confidence="high", fallback_used=False, needs_synthesis=False):
 
 def _decide(query, entity_mode, breadth, cfg=CFG):
     sig = infer_signals(query, entity_mode, [])
-    budget = resolve_budget_profile(breadth, sig.entity_scope, sig.needs_synthesis, cfg)
+    budget = resolve_budget_profile(
+        breadth, sig.entity_scope, sig.needs_synthesis, cfg, sig.needs_discovery
+    )
     return derive_routing_decision(sig, breadth, cfg, budget_reason=budget.reason)
 
 
@@ -77,9 +79,16 @@ def test_infra_veto_disables_multi_hop_for_non_discovery():
     assert d.use_multi_hop is False
 
 
-def test_discovery_bypasses_enable_multi_hop():
+def test_discovery_intent_respects_enable_multi_hop():
     cfg = QueryConfig(use_multi_hop=False)
-    d = _decide("哪些公司提到了报销？", "broad", "discovery", cfg)
+    d = _decide("哪些公司提到了报销？", "broad", "balanced", cfg)
+    assert d.use_multi_hop is False
+    assert "enable_multi_hop infra veto on multi-hop" in " ".join(d.vetoes)
+
+
+def test_discovery_intent_runs_multi_hop_when_enabled():
+    cfg = QueryConfig(use_multi_hop=True)
+    d = _decide("哪些公司提到了报销？", "broad", "balanced", cfg)
     assert d.use_multi_hop is True
 
 
@@ -95,8 +104,9 @@ def test_strict_evidence_suppresses_fallback():
 
 
 def test_prompt_variant_precedence():
-    assert _decide("A和B的区别", "multi_explicit", "discovery").prompt_variant == "multi_entity"
-    assert _decide("哪些公司", "broad", "discovery").prompt_variant == "broad"
+    assert _decide("A和B分别负责什么", "multi_explicit", "balanced").prompt_variant == "multi_entity"
+    assert _decide("谁负责供应商审批？", "single", "precise").prompt_variant == "default"
+    assert _decide("谁负责供应商审批？", "none", "balanced").prompt_variant == "broad"
     assert _decide("哪些公司", "broad", "balanced").prompt_variant == "broad"
     assert _decide("报销标准", "single", "balanced").prompt_variant == "default"
 
@@ -113,7 +123,7 @@ def test_hyde_effective_false_for_multi_scope():
 
 def test_build_routing_trace_keys_include_inline_shadow():
     sig = infer_signals("哪些公司提到了报销？", "broad", [])
-    budget = resolve_budget_profile("precise", sig.entity_scope, sig.needs_synthesis, CFG)
+    budget = resolve_budget_profile("precise", sig.entity_scope, sig.needs_synthesis, CFG, sig.needs_discovery)
     d = derive_routing_decision(sig, "precise", CFG, budget_reason=budget.reason)
     trace = build_routing_trace(sig, "precise", CFG, d, inactive_inline_shadow())
     assert set(trace) == {"intent", "policy", "infra", "routing_decision", "inline_shadow"}

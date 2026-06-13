@@ -102,23 +102,24 @@ def test_recall_uses_high_coverage_budget():
     assert plan.budget.per_entity_min_k == 8
 
 
-def test_discovery_forces_current_multi_hop_path():
+def test_discovery_input_retires_to_balanced_policy():
     cfg = QueryConfig(retrieval_flavor="discovery", use_multi_hop=False)
 
     plan = build_query_plan("哪些公司提到了安全计划？", "broad", cfg)
 
-    assert plan.retrieval_flavor == "discovery"
-    assert plan.retrieval_breadth == "discovery"
-    assert plan.use_hyde is False
+    assert plan.retrieval_flavor == "balanced"
+    assert plan.retrieval_breadth == "balanced"
+    assert plan.use_hyde is True
     assert plan.use_query_expansion is False
-    assert plan.use_multi_hop is True
-    assert plan.fallback_policy.entity_filter_to_global is False
+    assert plan.use_multi_hop is False
+    assert plan.fallback_policy.entity_filter_to_global is True
     assert plan.prompt_policy.template == "broad"
-    assert plan.budget.search_limit == 10
-    assert plan.budget.rrf_top_k == 20
-    assert plan.budget.rerank_candidate_k == 10
-    assert plan.budget.final_context_k == 10
-    assert plan.budget.max_context_chars == 8000
+    assert plan.budget.reason == "balanced_discovery"
+    assert plan.budget.search_limit == 20
+    assert plan.budget.rrf_top_k == 32
+    assert plan.budget.rerank_candidate_k == 20
+    assert plan.budget.final_context_k == 8
+    assert plan.budget.max_context_chars == 12000
     assert plan.budget.per_entity_min_k == 5
 
 
@@ -166,11 +167,14 @@ def test_query_plan_node_returns_plain_dict():
         {"configurable": {"query_config": QueryConfig(retrieval_flavor="discovery")}},
     )
 
-    assert out["query_plan"]["retrieval_flavor"] == "discovery"
-    assert out["query_plan"]["retrieval_breadth"] == "discovery"
+    assert out["query_plan"]["retrieval_flavor"] == "balanced"
+    assert out["query_plan"]["retrieval_breadth"] == "balanced"
     assert out["query_plan"]["use_multi_hop"] is True
-    assert out["query_plan"]["fallback_policy"]["entity_filter_to_global"] is False
-    assert out["routing_trace"]["policy"]["retrieval_breadth"] == "discovery"
+    assert out["query_plan"]["fallback_policy"]["entity_filter_to_global"] is True
+    assert out["query_plan"]["budget"]["reason"] == "balanced_discovery"
+    assert out["routing_trace"]["policy"]["retrieval_breadth"] == "balanced"
+    assert out["routing_trace"]["policy"]["legacy_retrieval_flavor"] == "discovery"
+    assert out["routing_trace"]["policy"]["discovery_retired"] is True
     assert out["routing_trace"]["routing_decision"]["use_multi_hop"] is True
     assert out["routing_trace"]["intent"]["source"] == "deterministic"
     assert out["routing_trace"]["intent"]["fallback_used"] is False
@@ -390,13 +394,13 @@ def test_normalize_flavor_invalid_falls_back_to_balanced():
 # ---------------------------------------------------------------------------
 
 
-def test_discovery_with_strict_evidence_disables_fallback():
+def test_retired_discovery_with_strict_evidence_disables_fallback():
     cfg = QueryConfig(retrieval_flavor="discovery", strict_evidence=True)
 
     plan = build_query_plan("哪些公司提到了安全计划？", "broad", cfg)
 
-    assert plan.retrieval_flavor == "discovery"
-    assert plan.retrieval_breadth == "discovery"
+    assert plan.retrieval_flavor == "balanced"
+    assert plan.retrieval_breadth == "balanced"
     assert plan.strict_evidence is True
     assert plan.fallback_policy.entity_filter_to_global is False
     assert plan.use_multi_hop is True
@@ -421,9 +425,13 @@ def test_use_multi_hop_is_effective_for_keywordless_configs():
 
     p2 = build_query_plan("最新的制度内容", "none", QueryConfig(retrieval_flavor="discovery"))
     assert p2.use_multi_hop is False
+    assert p2.retrieval_flavor == "balanced"
+    assert p2.retrieval_breadth == "balanced"
 
     p3 = build_query_plan("哪些公司提到了报销？", "broad", QueryConfig(retrieval_flavor="discovery"))
     assert p3.use_multi_hop is True
+    assert p3.retrieval_flavor == "balanced"
+    assert p3.retrieval_breadth == "balanced"
 
 
 def test_hyde_two_value_compat_for_multi_entity():
@@ -437,6 +445,8 @@ def test_hyde_two_value_compat_for_multi_entity():
     assert plan.use_hyde is True
 
     inferred = infer_signals(q, "multi_explicit", [])
-    budget = resolve_budget_profile("balanced", inferred.entity_scope, inferred.needs_synthesis, cfg)
+    budget = resolve_budget_profile(
+        "balanced", inferred.entity_scope, inferred.needs_synthesis, cfg, inferred.needs_discovery
+    )
     decision = derive_routing_decision(inferred, "balanced", cfg, budget_reason=budget.reason)
     assert decision.use_hyde is False

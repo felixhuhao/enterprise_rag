@@ -1,7 +1,6 @@
 # Query-Intent Routing 2D Design
 
-**Status:** Draft after 2C-3 activation. Implementation plan drafted in
-`query_intent_2d_plan.md`.
+**Status:** 2D-B implemented and gated on 2026-06-13.
 **Depends on:** 2C-3 active-mode closeout (`36f1caa`, `4260324`) and the 2C-1 routing golden set.
 
 2D has two different jobs that should not be collapsed into one commit:
@@ -164,11 +163,11 @@ The deprecation trace is for measurement only, not behavior compatibility:
 
 `needs_discovery` becomes a first-class routing signal:
 
-- Prompt: for non-`multi` scopes, `needs_discovery=true` uses the broad prompt. `multi_entity`
-  prompt still wins for `entity_scope=multi`.
-- Budget: `balanced + needs_discovery` should use a discovery-shaped balanced budget. The initial
-  candidate is `balanced_broad` for coverage, but this must be validated because it widens current
-  single/none responsibility queries.
+- Prompt: for non-`multi` scopes, `needs_discovery=true` uses the broad prompt, except `precise`
+  keeps the default prompt. `multi_entity` prompt still wins for `entity_scope=multi`.
+- Budget: `balanced + needs_discovery` uses a discovery-shaped balanced budget. Multi-entity
+  synthesis keeps the synthesis budget so comparison routes do not flip budget solely because the
+  classifier also marks discovery.
 - Multi-hop: `needs_multi_hop` is still derived from `entity_scope in {broad, none}` and
   `needs_discovery`, but `cfg.use_multi_hop` applies. The old `discovery` bypass is removed.
 - Fallback: fallback remains breadth policy. There is no special "discovery disables fallback"
@@ -181,6 +180,7 @@ The deprecation trace is for measurement only, not behavior compatibility:
 Policy still beats intent:
 
 - `precise` suppresses multi-hop even if `needs_discovery=true`.
+- `precise` keeps the default prompt even if `needs_discovery=true`.
 - `strict_evidence` suppresses entity-to-global fallback.
 - `enable_multi_hop=false` suppresses multi-hop after the old `discovery` bypass is removed.
 
@@ -237,6 +237,8 @@ Expected route deltas must be named in the summary:
 - old multi-hop bypass removed
 - fallback now follows breadth
 - HyDE/expansion now follow breadth
+- `precise` no longer inherits broad prompt from `needs_discovery`
+- multi-entity synthesis budget wins over discovery budget
 - context diversification now follows the explicit discovery budget reason rather than
   `retrieval_flavor=discovery`
 
@@ -312,6 +314,54 @@ discovery slice gets full/judge coverage, and any global multi-hop answer-qualit
 post-flip with an immediate `query.use_multi_hop=false` rollback. If that risk feels too large before
 landing Commit C, the heavier alternative is a full `challenge_golden_set_v1 --mode full --judge`
 run under `query.use_multi_hop=true`.
+
+### 2D-B Execution Results (2026-06-13)
+
+Implementation refinements made during gating:
+
+- The classifier prompt was calibrated semantically for escalation/organization/category discovery
+  and "between named entities, who owns..." synthesis+discovery. No deterministic keyword list was
+  expanded.
+- `precise` prompt precedence was tightened after the blast-radius comparator showed an exact-query
+  prompt leak.
+- Multi-entity synthesis budget now wins over discovery budget; this prevents comparison routes from
+  changing budget only because the classifier also marks discovery.
+
+Final gates:
+
+| Gate | Result |
+| --- | --- |
+| Unit suite | `614 passed` |
+| Routing golden scorer | 40 cases; clear expected-route accuracy `0.9667`; clear wrong-route count `0`; ambiguous confident-wrong count `0`; clear-control regressions `0` |
+| Discovery retrieval-only | 5 cases; Hit@5/Hit@10 `5/5`; emitted flavor `balanced` |
+| Discovery full/judge | avg `0.955`; pass rate `80%`; Hit@5/Hit@10 `5/5`; one `judge_uncertain` on `discovery_hop_001`, matching the current-discovery baseline shape |
+| Full challenge retrieval-only | 28 hit-bearing cases; Hit@5/Hit@10 `100%`; no hit regressions |
+| Activation comparator | `no_leak=true`; `no_hit_regression=true` |
+
+Final comparator route changes:
+
+- Expected legacy-discovery retirement deltas:
+  `discovery_multi_001`, `discovery_multi_002`, `discovery_multi_003`,
+  `discovery_hop_001`, `discovery_hop_002`
+- Expected first-class discovery-intent deltas outside the legacy discovery slice:
+  `recall_agg_001`, `strict_002`
+- Activatable LLM improvement:
+  `balanced_synth_003`
+
+The two non-discovery deterministic deltas were separately covered by full/judge slices:
+
+- `aggregation` slice: 2/2 pass, avg `1.000`
+- `strict` slice: 2/2 pass, avg `1.000`
+
+Artifacts (ignored, not committed):
+
+- `data/routing_golden_set_v1_scored_2d.jsonl`
+- `data/routing_golden_set_v1_scored_2d_summary.json`
+- `data/eval_results/2d_discovery_retired_retrieval.jsonl`
+- `data/eval_results/2d_discovery_retired_full_judge.jsonl`
+- `data/eval_results/2d_full_challenge_retired_retrieval.jsonl`
+- `data/eval_results/2d_non_discovery_aggregation_full_judge.jsonl`
+- `data/eval_results/2d_non_discovery_strict_full_judge.jsonl`
 
 ---
 

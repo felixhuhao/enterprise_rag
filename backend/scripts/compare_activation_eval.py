@@ -19,8 +19,14 @@ _DECISION_FIELDS = (
 )
 
 
-def compare_activation_runs(off_rows: dict[str, dict], on_rows: dict[str, dict]) -> dict[str, Any]:
+def compare_activation_runs(
+    off_rows: dict[str, dict],
+    on_rows: dict[str, dict],
+    *,
+    allowed_route_change_ids: set[str] | None = None,
+) -> dict[str, Any]:
     """Compare paired runs keyed by case id."""
+    allowed_route_change_ids = allowed_route_change_ids or set()
     common = [case_id for case_id in off_rows if case_id in on_rows]
     route_changed_ids = [
         case_id for case_id in common
@@ -36,7 +42,14 @@ def compare_activation_runs(off_rows: dict[str, dict], on_rows: dict[str, dict])
     ]
     activatable_ids = [case_id for case_id in common if _activatable(on_rows[case_id])]
     activatable_set = set(activatable_ids)
-    leak_ids = [case_id for case_id in route_changed_ids if case_id not in activatable_set]
+    allowed_changed_ids = [
+        case_id for case_id in route_changed_ids
+        if case_id in allowed_route_change_ids and case_id not in activatable_set
+    ]
+    leak_ids = [
+        case_id for case_id in route_changed_ids
+        if case_id not in activatable_set and case_id not in allowed_route_change_ids
+    ]
     hit_regression_ids = [
         case_id for case_id in common
         if _hit_regressed(_hit_behavior(off_rows[case_id]), _hit_behavior(on_rows[case_id]))
@@ -49,6 +62,7 @@ def compare_activation_runs(off_rows: dict[str, dict], on_rows: dict[str, dict])
         "ranked_key_changed_ids": ranked_key_changed_ids,
         "hit_changed_ids": hit_changed_ids,
         "activatable_ids": activatable_ids,
+        "allowed_route_change_ids": allowed_changed_ids,
         "leak_ids": leak_ids,
         "hit_regression_ids": hit_regression_ids,
         "gates": {
@@ -135,7 +149,11 @@ def _load_rows(path: str) -> dict[str, dict]:
 
 def main() -> None:
     args = _parse_args()
-    summary = compare_activation_runs(_load_rows(args.off), _load_rows(args.on))
+    summary = compare_activation_runs(
+        _load_rows(args.off),
+        _load_rows(args.on),
+        allowed_route_change_ids=set(args.allowed_route_change_id),
+    )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     if not summary["gates"]["no_leak"]:
         print(f"\nLEAK: non-activatable cases changed: {summary['leak_ids']}", file=sys.stderr)
@@ -149,6 +167,12 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Compare paired activation eval runs (2C-3 leak check)")
     parser.add_argument("--off", required=True, help="active-OFF retrieval_only results JSONL")
     parser.add_argument("--on", required=True, help="inline+active-ON retrieval_only results JSONL")
+    parser.add_argument(
+        "--allowed-route-change-id",
+        action="append",
+        default=[],
+        help="Case id whose non-activatable route change is expected by a named migration",
+    )
     return parser.parse_args()
 
 

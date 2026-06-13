@@ -30,7 +30,9 @@ _BREADTH_TO_FLAVOR = {
     "precise": "exact",
     "balanced": "balanced",
     "broad": "recall",
-    "discovery": "discovery",
+    # Historical traces may contain the retired breadth. Replay them through the
+    # new compatibility mapping instead of preserving the old discovery profile.
+    "discovery": "balanced",
 }
 
 
@@ -219,15 +221,17 @@ def replay_case(case: ReplayCase) -> dict[str, Any]:
     llm = classify_intent_llm(case.query, case.deterministic)
     merged = merge_intent(case.deterministic, llm)
     replay_cfg = replay_query_config(case)
+    breadth = _active_breadth(case.breadth)
     budget = resolve_budget_profile(
-        case.breadth,
+        breadth,
         merged.entity_scope,
         merged.needs_synthesis,
         replay_cfg,
+        merged.needs_discovery,
     )
     merged_decision = derive_routing_decision(
         merged,
-        case.breadth,
+        breadth,
         replay_cfg,
         budget_reason=budget.reason,
     )
@@ -265,6 +269,10 @@ def replay_query_config(case: ReplayCase) -> QueryConfig:
         use_query_expansion=_bool(case.infra.get("enable_query_expansion")),
         use_multi_hop=_bool(case.infra.get("enable_multi_hop")),
     )
+
+
+def _active_breadth(breadth: str) -> str:
+    return "balanced" if breadth == "discovery" else breadth
 
 
 def build_summary(results: list[dict[str, Any]], *, total_rows: int, skipped: Counter) -> dict[str, Any]:

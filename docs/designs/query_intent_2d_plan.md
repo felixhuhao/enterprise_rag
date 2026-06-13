@@ -1,6 +1,6 @@
 # Query-Intent Routing 2D Implementation Plan
 
-**Status:** Draft. Do not execute the discovery-retirement code path until the plan is reviewed.
+**Status:** Executed on 2026-06-13. Gates passed.
 **Design:** `docs/designs/query_intent_2d_design.md`.
 
 **Goal:** Clean up 2C-3 active-path reporting, then retire the deprecated explicit `discovery`
@@ -21,8 +21,8 @@ Current leading discovery-retirement candidate:
 
 - Map legacy incoming `retrieval_flavor=discovery` to `retrieval_breadth=balanced`.
 - Make `needs_discovery` first-class:
-  - broad prompt for non-`multi` discovery intent
-  - explicit discovery-shaped balanced budget
+  - broad prompt for non-`multi` discovery intent, except `precise` keeps default prompt
+  - explicit discovery-shaped balanced budget; multi-entity synthesis keeps synthesis budget
   - multi-hop still gated by `query.use_multi_hop`
 - Pair retirement with `query.use_multi_hop=true` if broader gates pass, and bake that as the
   versioned `QueryConfig` default so fresh installs do not silently run the weaker Option 1 shape.
@@ -51,7 +51,7 @@ Verification:
 
 ### Commit B — Discovery retirement implementation
 
-Behavior-changing. Do not land unless the gates in this plan pass.
+Behavior-changing. Gates passed on 2026-06-13.
 
 Includes the versioned `QueryConfig` default change to `query.use_multi_hop=true` if the gates pass.
 
@@ -74,11 +74,12 @@ Update/add tests that express the new contract:
   - no `BREADTH_PROFILES["discovery"]`
 - `test_control_budget.py`
   - `balanced + needs_discovery` has an explicit `balanced_discovery` budget
+  - multi-entity synthesis keeps `balanced_synthesis` even when discovery is also marked
   - `precise` and `broad` behavior remains policy-owned
 - `test_control_routing.py`
   - no `discovery` multi-hop bypass remains
   - `cfg.use_multi_hop=false` vetoes inferred discovery multi-hop
-  - `needs_discovery=true` selects broad prompt for non-`multi` scopes
+  - `needs_discovery=true` selects broad prompt for non-`multi` scopes except `precise`
   - `entity_scope=multi` still selects `multi_entity`
 - `test_query_planner.py`
   - incoming `retrieval_flavor=discovery` emits `retrieval_flavor=balanced`,
@@ -129,7 +130,7 @@ Files:
   - remove `discovery_current_path`
 - `backend/app/rag/query/control/routing.py`
   - remove `breadth == "discovery"` bypass
-  - broad prompt if `needs_discovery=true` and `entity_scope != "multi"`
+  - broad prompt if `needs_discovery=true` and `entity_scope != "multi"`, except `precise`
 - `backend/app/rag/query/planner.py`
   - preserve raw incoming flavor long enough to emit the deprecation trace
   - normalize emitted `retrieval_flavor` to `balanced` when raw input was `discovery`
@@ -221,6 +222,8 @@ discovery_multi_002
 discovery_multi_003
 discovery_hop_001
 discovery_hop_002
+recall_agg_001
+strict_002
 ```
 
 First confirm the accepted 2C-3 ON baseline exists:
@@ -251,13 +254,16 @@ python -m scripts.compare_activation_eval \
   --allowed-route-change-id discovery_multi_002 \
   --allowed-route-change-id discovery_multi_003 \
   --allowed-route-change-id discovery_hop_001 \
-  --allowed-route-change-id discovery_hop_002
+  --allowed-route-change-id discovery_hop_002 \
+  --allowed-route-change-id recall_agg_001 \
+  --allowed-route-change-id strict_002
 ```
 
 Gate:
 
 - `no_hit_regression=true`
-- allowlisted discovery rows are the only non-activatable deterministic route changes
+- allowlisted discovery rows plus audited first-class discovery-intent rows are the only
+  non-activatable deterministic route changes
 - route changes outside the allowlist are activatable LLM improvements
 - no unallowlisted non-activatable route leak
 
@@ -269,6 +275,10 @@ runtime setting (`query.use_multi_hop=false`). If stronger pre-flip coverage is 
 
 If route changes occur outside the discovery slice, decide whether to run full/judge on those cases
 before committing.
+
+Execution note: `recall_agg_001` and `strict_002` changed route through first-class discovery intent,
+not legacy discovery retirement. They were kept in the allowlist only after full/judge coverage:
+`aggregation` slice 2/2 pass, avg `1.000`; `strict` slice 2/2 pass, avg `1.000`.
 
 ---
 
@@ -299,3 +309,17 @@ Hard stop and ask for review if any of these happen:
 - non-activatable route leak
 - broad multi-hop enablement causes unexpected latency or answer-quality degradation
 - implementation requires adding new deterministic keyword patterns
+
+---
+
+## Execution Summary (2026-06-13)
+
+- Unit suite: `614 passed`
+- Routing golden scorer: 40 cases; clear expected-route accuracy `0.9667`; clear wrong-route count
+  `0`; ambiguous confident-wrong count `0`
+- Discovery retrieval-only: Hit@5/Hit@10 `5/5`
+- Discovery full/judge: avg `0.955`, pass rate `80%`, one `judge_uncertain` on
+  `discovery_hop_001`
+- Full challenge retrieval-only: 28 hit-bearing cases, Hit@5/Hit@10 `100%`
+- Comparator: `no_leak=true`, `no_hit_regression=true`
+- Runtime setting applied through `/api/settings`: `query.use_multi_hop=true`

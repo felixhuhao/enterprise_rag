@@ -33,11 +33,14 @@ def test_recall_single():
     assert _budget(p) == (20, 0, 40, 30, 8, 14000, 8)
 
 
-def test_discovery_broad():
+def test_discovery_input_broad_retires_to_balanced_discovery_shape():
     p = build_query_plan("哪些公司提到了报销？", "broad", QueryConfig(retrieval_flavor="discovery"))
+    assert p.retrieval_flavor == "balanced"
+    assert p.retrieval_breadth == "balanced"
     assert p.use_multi_hop is True
-    assert p.fallback_policy.entity_filter_to_global is False
-    assert _budget(p) == (10, 0, 20, 10, 10, 8000, 5)
+    assert p.fallback_policy.entity_filter_to_global is True
+    assert _budget(p) == (20, 10, 32, 20, 8, 12000, 5)
+    assert p.budget.reason == "balanced_discovery"
     assert p.prompt_policy.template == "broad"
 
 

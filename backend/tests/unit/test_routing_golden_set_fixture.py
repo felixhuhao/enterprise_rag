@@ -29,7 +29,7 @@ def test_corpus_size_and_categories():
     for case in cases:
         assert case["category"] in VALID_CATEGORIES, case["category"]
         assert case["case_class"] in {"clear", "ambiguous"}
-        assert case["retrieval_breadth"] in {"precise", "balanced", "broad", "discovery"}
+        assert case["retrieval_breadth"] in {"precise", "balanced", "broad"}
     for category in FUZZY:
         assert 6 <= by_category[category] <= 8, f"{category}: expected 6-8, got {by_category[category]}"
     assert 5 <= by_category["clear_control"] <= 8, (

@@ -74,7 +74,7 @@ class QueryConfig:
     groundedness_context_max_chars: int = 12000
 
     # Multi-hop retrieval
-    use_multi_hop: bool = False
+    use_multi_hop: bool = True
     multi_hop_max_discovered: int = 5
 
     def __post_init__(self):

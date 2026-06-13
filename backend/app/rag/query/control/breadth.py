@@ -5,15 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-RetrievalBreadth = Literal["precise", "balanced", "broad", "discovery"]
+RetrievalBreadth = Literal["precise", "balanced", "broad"]
 
-VALID_BREADTHS = {"precise", "balanced", "broad", "discovery"}
+VALID_BREADTHS = {"precise", "balanced", "broad"}
 
 _FLAVOR_TO_BREADTH = {
     "exact": "precise",
     "balanced": "balanced",
     "recall": "broad",
-    "discovery": "discovery",
+    "discovery": "balanced",
 }
 
 
@@ -36,6 +36,4 @@ BREADTH_PROFILES: dict[str, BreadthProfile] = {
     "precise": BreadthProfile(False, False, False, False),
     "balanced": BreadthProfile(True, False, True, True),
     "broad": BreadthProfile(False, True, True, True),
-    "discovery": BreadthProfile(False, False, False, True),
 }
-

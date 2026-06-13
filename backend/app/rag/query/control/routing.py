@@ -55,15 +55,15 @@ def derive_routing_decision(
     use_entity_fallback = scope == "single" and profile.allows_fallback and not cfg.strict_evidence
 
     permitted = profile.permits_multi_hop
-    available = True if breadth == "discovery" else cfg.use_multi_hop
+    available = cfg.use_multi_hop
     use_multi_hop = inferred.needs_multi_hop and permitted and available
 
     if inferred.needs_multi_hop and not permitted:
         vetoes.append(f"{breadth} breadth suppresses multi-hop")
-    if inferred.needs_multi_hop and permitted and not available and breadth != "discovery":
+    if inferred.needs_multi_hop and permitted and not available:
         vetoes.append("enable_multi_hop infra veto on multi-hop")
 
-    prompt_variant = _prompt_variant(scope, breadth)
+    prompt_variant = _prompt_variant(scope, breadth, inferred.needs_discovery)
     answer_shape = "bullets_or_table" if inferred.needs_synthesis else "prose"
 
     steps: list[str] = []
@@ -142,8 +142,16 @@ def build_routing_trace(
     cfg: QueryConfig,
     decision: RoutingDecision,
     inline_shadow: dict,
+    policy_trace: dict | None = None,
 ) -> dict:
     """Trace the three tiers, emitted decision, and inline-shadow record."""
+    policy = {
+        "retrieval_breadth": breadth,
+        "strict_evidence": bool(cfg.strict_evidence),
+        "vetoes": decision.vetoes,
+    }
+    if policy_trace:
+        policy.update(policy_trace)
     return {
         "intent": {
             "entity_scope": inferred.entity_scope,
@@ -155,11 +163,7 @@ def build_routing_trace(
             "fallback_used": inferred.fallback_used,
             "reasons": inferred.reasons,
         },
-        "policy": {
-            "retrieval_breadth": breadth,
-            "strict_evidence": bool(cfg.strict_evidence),
-            "vetoes": decision.vetoes,
-        },
+        "policy": policy,
         "infra": {
             "enable_hyde": bool(cfg.use_hyde),
             "enable_query_expansion": bool(cfg.use_query_expansion),
@@ -187,9 +191,11 @@ def decision_execution_dict(decision: RoutingDecision | Mapping[str, Any]) -> di
     return {field: getattr(decision, field) for field in _EXECUTION_DECISION_FIELDS}
 
 
-def _prompt_variant(entity_scope: str, breadth: str) -> str:
+def _prompt_variant(entity_scope: str, breadth: str, needs_discovery: bool) -> str:
     if entity_scope == "multi":
         return "multi_entity"
-    if breadth == "discovery" or entity_scope == "broad":
+    if breadth == "precise":
+        return "default"
+    if needs_discovery or entity_scope == "broad":
         return "broad"
     return "default"

@@ -65,7 +65,7 @@ def query_plan_node(state: QueryState, config: RunnableConfig) -> dict:
     query = require_query(state)
     entity_mode = state.get("entity_mode", "none")
     matched = list(state.get("matched_entities") or [])
-    flavor, breadth, det_intent, det_decision, det_budget = _resolve_routing(
+    flavor, breadth, policy_trace, det_intent, det_decision, det_budget = _resolve_routing(
         query, entity_mode, matched, cfg
     )
     det_bundle = (det_intent, det_decision, det_budget)
@@ -84,13 +84,15 @@ def query_plan_node(state: QueryState, config: RunnableConfig) -> dict:
     return {
         "query_plan": asdict(plan),
         "routing_trace": build_routing_trace(
-            emitted_intent, breadth, cfg, emitted_decision, inline_shadow
+            emitted_intent, breadth, cfg, emitted_decision, inline_shadow, policy_trace
         ),
     }
 
 
 def build_query_plan(query: str, entity_mode: str, cfg: QueryConfig) -> QueryPlan:
-    flavor, breadth, _inferred, decision, budget = _resolve_routing(query, entity_mode, [], cfg)
+    flavor, breadth, _policy_trace, _inferred, decision, budget = _resolve_routing(
+        query, entity_mode, [], cfg
+    )
     return _plan_from_routing(flavor, breadth, decision, budget, cfg)
 
 
@@ -99,11 +101,20 @@ def _resolve_routing(query: str, entity_mode: str, matched_entities: list[str], 
     from app.rag.query.control.breadth import resolve_breadth
     from app.rag.query.control.inferred import infer_signals
 
-    flavor = _normalize_flavor(cfg.retrieval_flavor)
-    breadth = resolve_breadth(flavor)
+    raw_flavor = _normalize_flavor(cfg.retrieval_flavor)
+    breadth = resolve_breadth(raw_flavor)
+    flavor = "balanced" if raw_flavor == "discovery" else raw_flavor
+    policy_trace = (
+        {
+            "legacy_retrieval_flavor": raw_flavor,
+            "discovery_retired": True,
+        }
+        if raw_flavor == "discovery"
+        else {}
+    )
     inferred = infer_signals(query, entity_mode, matched_entities)
     det_intent, decision, budget = _route_bundle_for(inferred, breadth, cfg)
-    return flavor, breadth, det_intent, decision, budget
+    return flavor, breadth, policy_trace, det_intent, decision, budget
 
 
 def _route_bundle_for(intent, breadth: str, cfg: QueryConfig):
@@ -111,7 +122,9 @@ def _route_bundle_for(intent, breadth: str, cfg: QueryConfig):
     from app.rag.query.control.budget import resolve_budget_profile
     from app.rag.query.control.routing import derive_routing_decision
 
-    budget = resolve_budget_profile(breadth, intent.entity_scope, intent.needs_synthesis, cfg)
+    budget = resolve_budget_profile(
+        breadth, intent.entity_scope, intent.needs_synthesis, cfg, intent.needs_discovery
+    )
     decision = derive_routing_decision(intent, breadth, cfg, budget_reason=budget.reason)
     return intent, decision, budget
 

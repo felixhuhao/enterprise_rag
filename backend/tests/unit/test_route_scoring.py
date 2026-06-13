@@ -28,9 +28,14 @@ def test_route_for_intent_uses_per_intent_budget():
     cfg = QueryConfig()
     plain = InferredSignals("single", False, False, False)
     synth = InferredSignals("single", True, False, False)
+    discovery = InferredSignals("none", False, True, True)
+    multi_synth_discovery = InferredSignals("multi", True, True, False)
 
     assert route_for_intent(plain, "balanced", cfg).budget_reason == "balanced_current_defaults"
     assert route_for_intent(synth, "balanced", cfg).budget_reason == "balanced_synthesis"
+    assert route_for_intent(discovery, "balanced", cfg).budget_reason == "balanced_discovery"
+    assert route_for_intent(discovery, "balanced", cfg).prompt_variant == "broad"
+    assert route_for_intent(multi_synth_discovery, "balanced", cfg).budget_reason == "balanced_synthesis"
 
 
 def _exec(**over):

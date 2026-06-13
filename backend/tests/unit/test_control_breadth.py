@@ -5,7 +5,7 @@ def test_resolve_renames_legacy_flavors_1to1():
     assert resolve_breadth("exact") == "precise"
     assert resolve_breadth("balanced") == "balanced"
     assert resolve_breadth("recall") == "broad"
-    assert resolve_breadth("discovery") == "discovery"
+    assert resolve_breadth("discovery") == "balanced"
 
 
 def test_resolve_passthrough_and_default():
@@ -14,8 +14,9 @@ def test_resolve_passthrough_and_default():
 
 
 def test_profiles_match_design_3_2():
-    assert VALID_BREADTHS == {"precise", "balanced", "broad", "discovery"}
+    assert VALID_BREADTHS == {"precise", "balanced", "broad"}
     p = BREADTH_PROFILES
+    assert "discovery" not in p
     assert (
         p["precise"].sets_hyde,
         p["precise"].sets_expansion,
@@ -34,10 +35,3 @@ def test_profiles_match_design_3_2():
         p["broad"].allows_fallback,
         p["broad"].permits_multi_hop,
     ) == (False, True, True, True)
-    assert (
-        p["discovery"].sets_hyde,
-        p["discovery"].sets_expansion,
-        p["discovery"].allows_fallback,
-        p["discovery"].permits_multi_hop,
-    ) == (False, False, False, True)
-
