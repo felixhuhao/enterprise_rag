@@ -24,14 +24,6 @@
           <template #icon><icon-storage /></template>
           {{ authStore.isAdmin ? '文档管理' : '知识库文档' }}
         </a-menu-item>
-        <a-menu-item v-if="authStore.isAdmin" key="/entity-aliases">
-          <template #icon><icon-safe /></template>
-          实体别名
-        </a-menu-item>
-        <a-menu-item v-if="authStore.isAdmin" key="/acl-audit">
-          <template #icon><icon-safe /></template>
-          访问管理
-        </a-menu-item>
         <a-menu-item key="/evaluate">
           <template #icon><icon-bar-chart /></template>
           {{ authStore.isAdmin ? '质量中心' : '查询记录' }}
@@ -87,7 +79,6 @@ import {
   IconStorage,
   IconBarChart,
   IconSettings,
-  IconSafe,
   IconSearch,
 } from '@arco-design/web-vue/es/icon'
 
@@ -114,8 +105,7 @@ const pageMeta = computed(() => {
       subtitle: isAdmin ? '查询监控、检索记录、答案反馈和基准测试集回归评测。' : '查看自己的查询记录和反馈。',
     },
     '/evaluation': { title: '回归评测', subtitle: '基准测试集质量验证、通过率、失败用例。' },
-    '/settings': { title: '系统设置', subtitle: '配置模型、检索和运行时行为。' },
-    '/acl-audit': { title: '访问管理', subtitle: '管理用户、实体级权限（read / write）。' },
+    '/settings': { title: '系统设置', subtitle: '配置模型、检索、访问管理和实体别名。' },
     '/entity-aliases': { title: '实体别名', subtitle: '维护企业简称、缩写和英文别名，用于查询路由。' },
     '/feedback': { title: '答案反馈', subtitle: '用户反馈记录和基准测试集草稿管理。' },
   }

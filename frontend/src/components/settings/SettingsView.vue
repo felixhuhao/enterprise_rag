@@ -4,7 +4,7 @@
 <template>
   <div class="settings-page">
     <div class="settings-card">
-      <a-tabs default-active-key="status" class="settings-tabs" animation>
+      <a-tabs :default-active-key="initialTab" class="settings-tabs" animation>
         <template #extra>
           <a-button size="mini" :loading="loading" @click="loadSettings">刷新</a-button>
         </template>
@@ -77,6 +77,14 @@
             @save-editor="saveTagEditor"
           />
         </a-tab-pane>
+
+        <a-tab-pane v-if="authStore.isAdmin" key="access" title="访问管理">
+          <AclAuditView />
+        </a-tab-pane>
+
+        <a-tab-pane v-if="authStore.isAdmin" key="aliases" title="实体别名">
+          <EntityAliasesView />
+        </a-tab-pane>
       </a-tabs>
     </div>
   </div>
@@ -84,6 +92,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { Message } from '@arco-design/web-vue'
 import { listJobs, type JobRecord } from '../../api/adminJobs'
 import { listDocuments, type Document } from '../../api/documents'
@@ -104,6 +113,8 @@ import StrategyTuningPanel from './StrategyTuningPanel.vue'
 import RecentJobsPanel from './RecentJobsPanel.vue'
 import SystemStatusPanel from './SystemStatusPanel.vue'
 import TagGovernancePanel from './TagGovernancePanel.vue'
+import AclAuditView from '../admin/AclAuditView.vue'
+import EntityAliasesView from '../admin/EntityAliasesView.vue'
 import { normalizeFlavor } from '../../utils/labelMaps'
 
 type FlavorKey = 'balanced' | 'exact' | 'recall'
@@ -130,6 +141,8 @@ interface CapabilityStatus {
 }
 
 const authStore = useAuthStore()
+const route = useRoute()
+const initialTab = (route.query.tab as string) || 'status'
 const isTagGovernanceEnabled = import.meta.env.VITE_ENABLE_TAG_GOVERNANCE === 'true'
 const loading = ref(false)
 const saving = ref(false)
