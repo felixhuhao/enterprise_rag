@@ -95,7 +95,7 @@
     <a-modal v-model:visible="showGrant" title="授予实体权限" :footer="false">
       <p>实体: <strong>{{ grantEntity }}</strong></p>
       <a-select v-model="grantForm.userId" placeholder="选择用户" style="width: 100%; margin-bottom: 12px">
-        <a-option v-for="u in users" :key="u.user_id" :value="u.user_id">{{ u.username }}</a-option>
+        <a-option v-for="u in grantableUsers" :key="u.user_id" :value="u.user_id">{{ u.username }}</a-option>
       </a-select>
       <a-select v-model="grantForm.permission" style="width: 100%; margin-bottom: 12px">
         <a-option value="read">查看 (read)</a-option>
@@ -110,7 +110,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive } from 'vue'
+import { ref, onMounted, reactive, computed } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { useAuthStore } from '../../stores/auth'
 import {
@@ -141,6 +141,8 @@ const grantEntity = ref('')
 const createForm = reactive({ username: '', password: '', role: 'user' })
 const resetForm = reactive({ password: '' })
 const grantForm = reactive({ userId: '', permission: 'read' })
+
+const grantableUsers = computed(() => users.value.filter((u) => u.role !== 'admin'))
 
 onMounted(async () => {
   if (!authStore.currentUser) await authStore.fetchMe()
