@@ -421,6 +421,72 @@ def test_no_answer_accepts_common_not_found_refusal_phrase():
     assert result["has_refusal_signal"] is True
 
 
+def test_no_answer_accepts_common_refusal_variants():
+    answers = [
+        "上下文未提供星辰科技年度体检月份。",
+        "资料中未提及星辰科技年度体检安排。",
+        "无法从资料确认星辰科技年度体检具体月份。",
+    ]
+
+    for answer in answers:
+        result = score_no_answer(answer, {"no_answer_type": "missing_actual_value"})
+
+        assert result["verdict"] == "pass"
+        assert result["score"] == 1.0
+        assert result["has_refusal_signal"] is True
+
+
+def test_no_answer_out_of_scope_uses_forbidden_entities_metadata():
+    result = score_no_answer(
+        "知识库未包含长江存储的财务制度，但长江存储收入为100亿元。",
+        {
+            "no_answer_type": "out_of_scope_entity",
+            "forbidden_entities": ["长江存储"],
+        },
+    )
+
+    assert result["verdict"] == "fail"
+    assert result["checked_entities"] == ["长江存储"]
+    assert result["forbidden_hits"] == ["长江存储+100亿元"]
+
+
+def test_no_answer_out_of_scope_entity_hits_are_clause_local():
+    result = score_no_answer(
+        "资料中未提及长江存储的财务制度。台积电收入为200亿元。",
+        {
+            "no_answer_type": "out_of_scope_entity",
+            "forbidden_entities": ["长江存储"],
+        },
+    )
+
+    assert result["verdict"] == "pass"
+    assert result["checked_entities"] == ["长江存储"]
+    assert result["forbidden_hits"] == []
+
+
+def test_no_answer_out_of_scope_without_entity_metadata_is_explicit():
+    result = score_no_answer(
+        "资料中未提及长江存储的财务制度。",
+        {"no_answer_type": "out_of_scope_entity"},
+    )
+
+    assert result["verdict"] == "pass"
+    assert result["score"] == 1.0
+    assert result["checked_entities"] == []
+    assert result["unscored_reason"] == "out_of_scope_entity_missing_forbidden_entities"
+
+
+def test_no_answer_out_of_scope_without_metadata_still_fails_financial_hallucination():
+    result = score_no_answer(
+        "资料中未提及长江存储的财务制度，但长江存储收入为100亿元。",
+        {"no_answer_type": "out_of_scope_entity"},
+    )
+
+    assert result["verdict"] == "fail"
+    assert result["forbidden_hits"] == ["100亿元"]
+    assert result["unscored_reason"] == "out_of_scope_entity_missing_forbidden_entities"
+
+
 def test_retrieval_only_no_answer_without_expected_evidence_is_not_applicable(monkeypatch):
     def fake_query_retrieval_only(*_args, **_kwargs):
         return {

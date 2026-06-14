@@ -2,6 +2,7 @@
 
 import pytest
 from app.rag.query.groundedness import (
+    GROUNDEDNESS_PROMPT,
     _parse_groundedness,
     _validate_claims,
     _compute_score,
@@ -10,6 +11,14 @@ from app.rag.query.groundedness import (
 
 
 class TestParseGroundedness:
+    def test_prompt_uses_compact_contract(self):
+        assert len(GROUNDEDNESS_PROMPT) < 900
+        assert "no_answer 特殊判定规则" not in GROUNDEDNESS_PROMPT
+        assert "factual 关键规则" not in GROUNDEDNESS_PROMPT
+        assert '"claim_type"' in GROUNDEDNESS_PROMPT
+        assert '"contradicted"' in GROUNDEDNESS_PROMPT
+        assert "只输出严格 JSON" in GROUNDEDNESS_PROMPT
+
     def test_direct_json(self):
         parsed = _parse_groundedness('{"claims":[{"claim":"x","verdict":"supported"}]}')
         assert parsed == {"claims": [{"claim": "x", "verdict": "supported"}]}
