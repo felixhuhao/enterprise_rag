@@ -226,19 +226,16 @@ signature compatibility.
 
 | Location | Form |
 |---|---|
-| `planner.py:16` | `VALID_FLAVORS = {"balanced","exact","recall","discovery"}` |
-| `query_stats_service.py:13` | `FLAVORS = ("balanced","exact","recall","discovery")` |
-| `config.py:85` | inline set in `__post_init__` clamp |
-| `admin_eval.py:181` | ad-hoc inline validator |
-| `query_feedback.py:370` | ad-hoc inline validator |
-| `eval_golden/common.py:38` | ad-hoc inline validator |
+| **Status** | Complete — centralized in `config.py` |
+| **Canonical source** | `RETRIEVAL_FLAVORS`, `VALID_RETRIEVAL_FLAVORS`, `normalize_retrieval_flavor` |
 
-Six declarations of the same four-element set. A change to valid flavors
-(e.g., final removal of `discovery` from the accepted set) requires touching all
-six.
+The accepted legacy values are now defined once in `app.rag.query.config` and
+reused by planner, query config clamping, query stats, admin eval, feedback
+drafting, and golden-set eval summary/normalization. `discovery` remains in the
+accepted set intentionally for compatibility.
 
-**Action:** Define a single `VALID_FLAVORS` in one place (likely `config.py`
-or `control/breadth.py`) and import everywhere.
+**Action:** Done. Final removal of `discovery` from the accepted external API
+is still a separate compatibility migration.
 
 ---
 
@@ -390,8 +387,7 @@ replacement active-path reporting / explicit watch retirement
 3.4 active_mode flag ──► operational sign-off, then collapse planner branch
 ```
 
-Completed cleanup: §1.1, §2.1, §2.2, and §2.4. Remaining cleanup with no
-operational sign-off needed: §2.3 flavor-set consolidation. Deleting
+Completed cleanup: §1.1, §2.1, §2.2, §2.3, and §2.4. Deleting
 `proposal_diverged` / `activatable_diverged`, archiving regression tools, and
 collapsing `intent.active_mode` wait for operational sign-off or replacement
 reporting.

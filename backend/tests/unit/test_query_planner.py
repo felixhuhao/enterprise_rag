@@ -14,7 +14,6 @@ from app.rag.query.planner import (
     plan_allows_entity_fallback,
     plan_budget,
     query_plan_node,
-    _normalize_flavor,
 )
 
 
@@ -371,25 +370,6 @@ def test_plan_budget_returns_empty_when_missing():
     assert "search_limit" in budget
 
 
-# ---------------------------------------------------------------------------
-# _normalize_flavor
-# ---------------------------------------------------------------------------
-
-
-def test_normalize_flavor_valid_inputs():
-    assert _normalize_flavor("balanced") == "balanced"
-    assert _normalize_flavor("exact") == "exact"
-    assert _normalize_flavor("recall") == "recall"
-    assert _normalize_flavor("discovery") == "discovery"
-
-
-def test_normalize_flavor_invalid_falls_back_to_balanced():
-    assert _normalize_flavor("strict_evidence") == "balanced"
-    assert _normalize_flavor("unknown") == "balanced"
-    assert _normalize_flavor("") == "balanced"
-
-
-# ---------------------------------------------------------------------------
 # discovery + strict_evidence combination
 # ---------------------------------------------------------------------------
 

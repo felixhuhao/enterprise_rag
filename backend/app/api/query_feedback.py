@@ -17,6 +17,7 @@ from app.api.golden_set_utils import (
 from app.core.auth import CurrentUser
 from app.core.database import get_db
 from app.deps import verify_token
+from app.rag.query.config import normalize_retrieval_flavor as _normalize_flavor
 from app.rag.query.metadata_utils import parse_json_list
 
 router = APIRouter()
@@ -364,10 +365,6 @@ def _build_golden_draft(record: dict) -> dict:
         "created_at": created_at,
         "notes": "发布到正式基准测试集前，请补充 expected_answer 和 expected_points。",
     }
-
-
-def _normalize_flavor(value: str) -> str:
-    return value if value in {"balanced", "exact", "recall", "discovery"} else "balanced"
 
 
 def _boolish(value) -> bool:

@@ -3,16 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Literal
 
 from langgraph.graph.state import RunnableConfig
 
-from app.rag.query.config import QueryConfig, get_query_config
+from app.rag.query.config import QueryConfig, get_query_config, normalize_retrieval_flavor
 from app.rag.query.state import QueryState, require_query
-
-RetrievalFlavor = Literal["balanced", "exact", "recall", "discovery"]
-
-VALID_FLAVORS = {"balanced", "exact", "recall", "discovery"}
 
 @dataclass(frozen=True)
 class FallbackPolicy:
@@ -95,7 +90,7 @@ def _resolve_routing(query: str, entity_mode: str, matched_entities: list[str], 
     from app.rag.query.control.breadth import resolve_breadth
     from app.rag.query.control.inferred import infer_signals
 
-    raw_flavor = _normalize_flavor(cfg.retrieval_flavor)
+    raw_flavor = normalize_retrieval_flavor(cfg.retrieval_flavor)
     breadth = resolve_breadth(raw_flavor)
     flavor = "balanced" if raw_flavor == "discovery" else raw_flavor
     policy_trace = (
@@ -191,12 +186,6 @@ def plan_allows_entity_fallback(state: QueryState, config: RunnableConfig | None
 def plan_budget(state: QueryState, config: RunnableConfig | None = None) -> dict:
     plan = get_query_plan(state, config)
     return plan.get("budget") or {}
-
-
-def _normalize_flavor(value: str) -> RetrievalFlavor:
-    if value in VALID_FLAVORS:
-        return value  # type: ignore[return-value]
-    return "balanced"
 
 
 def _breadth_allows_fallback(breadth: str, cfg: QueryConfig) -> bool:
