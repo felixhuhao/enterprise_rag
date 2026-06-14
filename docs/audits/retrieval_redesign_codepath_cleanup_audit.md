@@ -400,6 +400,26 @@ replacement reporting.
 
 ---
 
+## Retained Operational Scaffolding
+
+The remaining items are intentionally retained operating controls or regression
+tools, not hidden routing authorities. Treat them as named scaffolding with
+explicit retirement triggers.
+
+| Item | Why it stays | Retirement trigger | Do not remove until |
+|---|---|---|---|
+| `intent.inline_enabled` | Hard kill switch for inline classifier cost, latency, and provider failures. `false` skips the LLM call entirely. | A different hard kill switch exists at the same operational layer. | There is an equivalent instant rollback that removes classifier calls, not only route activation. |
+| `intent.active_mode` | Shadow-only mode: classifier runs and writes `inline_shadow`, but deterministic routing still drives `query_plan`. | Shadow-only live validation is no longer needed after future classifier or prompt changes. | Operational sign-off confirms `inline_enabled=false` is sufficient rollback and no dark-launch mode is required. |
+| `report_inline_shadow.py` | Lightweight post-flip watch over live `query_run_stats`: classifier run rate, fallback/error slices, latency, and activatable divergences. | Replacement active-path reporting exists, or the watch is explicitly retired. | Equivalent production visibility exists for inline classifier health and route divergences. |
+| `proposal_diverged` / `activatable_diverged` | Persisted trace inputs for `report_inline_shadow.py` and manual audits. They do not drive live behavior. | `report_inline_shadow.py` is archived or rewritten to use another source. | No retained script, dashboard, or audit path reads these fields. |
+| `route_scoring.py` / `score_routing_golden_set.py` | Routing golden-set regression harness for positive activation correctness. This is separate from answer-quality golden sets. | The routing golden set is moved to another permanent test harness or explicitly retired. | There is another way to score expected-route accuracy and ambiguous-case safety. |
+| `hyde_search.py` multi-entity guard | Defense-in-depth for stale/manual plans that set `use_hyde=true` despite `entity_mode="multi_explicit"`. | `run_direct_search` canonicalizes precomputed plans or stops accepting them. | No HyDE-reachable path can bypass `_plan_from_routing`'s `use_hyde=False` for multi-entity scope. |
+
+This list is the expected residue of the staged rollout. New cleanup PRs should
+either satisfy one of these retirement triggers or leave the item alone.
+
+---
+
 ## Out of Scope (verified clean)
 
 The following were investigated and confirmed **not** to be cleanup candidates:
