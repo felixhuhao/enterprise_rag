@@ -86,15 +86,6 @@ def derive_routing_decision(
     )
 
 
-def trust_gate(
-    intent: InferredSignals,
-    inferred_decision: RoutingDecision,
-    design1_decision: RoutingDecision,
-) -> RoutingDecision:
-    """Trust the inferred route only when the shared activation predicate passes."""
-    return inferred_decision if activatable(intent) else design1_decision
-
-
 def activatable(intent: InferredSignals) -> bool:
     """A route may drive only at high confidence and never on a fallback."""
     return intent.confidence == "high" and not intent.fallback_used

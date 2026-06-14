@@ -37,10 +37,11 @@ Do not treat every Tier 1 item as delete-now. Split them by retention status:
 - **Completed:** `_decide_multi_hop()` (§1.1) was deleted and tests now cover
   `infer_signals(...).needs_multi_hop`; write-only `proposal_execution`
   (§1.2) was deleted from `inline_shadow`; completed `compare_activation_eval.py`
-  gate tooling (§1.4) was archived.
+  gate tooling (§1.4) was archived; single-decision `trust_gate()` (§1.3) was
+  replaced by the canonical bundle gate.
 - **Archive only after operational sign-off:** offline/regression tools
-  (`trust_gate()`, `route_scoring.py`, `score_routing_golden_set.py`) and
-  post-flip watch fields used by `report_inline_shadow.py`.
+  (`route_scoring.py`, `score_routing_golden_set.py`) and post-flip watch
+  fields used by `report_inline_shadow.py`.
 
 ### 1.1 `_decide_multi_hop()` — superseded by the inferred tier
 
@@ -95,18 +96,17 @@ require retiring or replacing their reporting/gate-script consumers first (§1.4
 
 | | |
 |---|---|
-| **Location** | `backend/app/rag/query/control/routing.py:89-95` |
-| **Status** | Not in the active path |
-| **Remaining consumers** | `scripts/score_routing_golden_set.py:21,63` (offline); `test_control_routing.py:13,140,148,155` |
+| **Location** | Formerly `backend/app/rag/query/control/routing.py:89-95` |
+| **Status** | Complete — deleted |
+| **Remaining consumers** | None |
 
 The active inline seam uses `trust_gate_bundle()` (`planner.py:149`), which
 operates on whole `(intent, decision, budget)` tuples. The single-decision
-`trust_gate()` survives only because the offline golden-set scorer reproduces
-the canonical 2C-1 gate through it. It carries zero active-path weight.
+`trust_gate()` survived only because the offline golden-set scorer reproduced
+the canonical 2C-1 gate through it. It carried zero active-path weight.
 
-**Action:** If `route_scoring.py` / `score_routing_golden_set.py` are archived
-(§1.5), this function becomes fully dead. Otherwise, leave for offline
-regression use.
+**Action:** Done. `score_routing_golden_set.py` now uses `trust_gate_bundle()`
+directly, matching the active planner seam.
 
 ---
 
@@ -378,7 +378,9 @@ observation window, per the 2D-A recommendation.
 replacement active-path reporting / explicit watch retirement
          └──► later archive report_inline_shadow.py ──► delete remaining shadow fields ──► delete tests
 
-1.5 archive route_scoring.py ──► 1.3 delete trust_gate()
+1.3 delete trust_gate() ────────────────────────────────────► done
+
+1.5 later archive route_scoring.py / scorer only with regression-tool sign-off
 
 2.1 fix legacy_use_hyde ──► done; 3.3 HyDE guard retained as defense-in-depth
          │
@@ -390,7 +392,7 @@ replacement active-path reporting / explicit watch retirement
 ```
 
 Completed cleanup: §1.1, write-only `proposal_execution` from §1.2, §2.1,
-§2.2, §2.3, §2.4, §3.1, §3.2, §3.3 verification, and the completed
+§1.3, §2.2, §2.3, §2.4, §3.1, §3.2, §3.3 verification, and the completed
 `compare_activation_eval.py` gate comparator from §1.4. Deleting
 `proposal_diverged` / `activatable_diverged`, archiving remaining regression
 tools, and collapsing `intent.active_mode` wait for operational sign-off or

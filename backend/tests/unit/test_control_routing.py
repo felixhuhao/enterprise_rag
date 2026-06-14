@@ -10,7 +10,6 @@ from app.rag.query.control.routing import (
     build_routing_trace,
     derive_routing_decision,
     inactive_inline_shadow,
-    trust_gate,
     trust_gate_bundle,
 )
 
@@ -130,29 +129,6 @@ def test_build_routing_trace_keys_include_inline_shadow():
     assert trace["policy"]["retrieval_breadth"] == "precise"
     assert trace["routing_decision"]["use_multi_hop"] is False
     assert trace["inline_shadow"]["ran"] is False
-
-
-def test_trust_gate_high_confidence_uses_inferred():
-    inferred = RoutingDecision(True, True, True, True, "inferred", "broad", "prose")
-    design1 = RoutingDecision(False, False, False, False, "design1", "default", "prose")
-    intent = infer_signals("所有公司的报销标准", "broad", [])
-
-    assert trust_gate(intent, inferred, design1) is inferred
-
-
-def test_trust_gate_below_high_uses_design1():
-    inferred = RoutingDecision(True, True, True, True, "inferred", "broad", "prose")
-    design1 = RoutingDecision(False, False, False, False, "design1", "default", "prose")
-    intent = infer_signals("报销标准是什么", "single", [])
-
-    assert trust_gate(intent, inferred, design1) is design1
-
-
-def test_trust_gate_uses_shared_activatable_predicate_for_fallback():
-    inferred = _routing_decision(use_query_expansion=True)
-    design1 = _routing_decision(use_query_expansion=False)
-
-    assert trust_gate(_intent("high", fallback_used=True), inferred, design1) is design1
 
 
 def test_activatable_requires_high_and_not_fallback():
