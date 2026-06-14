@@ -151,12 +151,14 @@ def test_run_multi_hop_preserves_hop2_fallback_info(monkeypatch):
     )
 
     out = run_multi_hop_search(
-        {"query": "哪些公司提到了信息安全培训", "matched_entities": []},
+        {"query": "哪些公司提到了信息安全培训", "entity_mode": "broad", "matched_entities": []},
         "哪些公司提到了信息安全培训",
         {"configurable": {"query_config": QueryConfig(retrieval_flavor="discovery")}},
         QueryConfig(retrieval_flavor="discovery"),
         {},
     )
 
+    assert out["entity_mode"] == "broad"
+    assert out["hop_plan"] == "discovery"
     assert out["fallback_info"]["blocked"] is True
     assert out["fallback_info"]["original_filter"] == '(entity_name == "实体A")'

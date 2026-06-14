@@ -266,10 +266,10 @@ they represent unfinished design migrations.
 
 | | |
 |---|---|
-| **Producer** | `multi_hop.py:211` — `"entity_mode": "multi_hop"` |
+| **Producer** | Formerly `multi_hop.py` — `"entity_mode": "multi_hop"` |
 | **Consumer** | Formerly `validate_citations.py` — `state.get("entity_mode") == "multi_hop"` |
 | **Design says** | §4: *"`entity_mode = "multi_hop"` as a field value. Execution path moves to `RoutingDecision.steps`."* |
-| **Status** | Partially complete — citation validation no longer reads `entity_mode="multi_hop"` |
+| **Status** | Complete — multi-hop execution is represented by `hop_plan` / `search_mode`, not `entity_mode` |
 
 These formerly formed a coupled live pair: `multi_hop.py` writes the value into
 state, and `validate_citations.py` read it to gate the context-citation
@@ -279,11 +279,13 @@ none`) does not even list `multi_hop`.
 The same fallback was also triggered by `hop_plan == "discovery"`, which covers
 the current multi-hop execution case through a more explicit signal. Citation
 validation now relies on `hop_plan == "discovery"` only; tests characterize
-that `entity_mode="multi_hop"` alone does not trigger fallback.
+that `entity_mode="multi_hop"` alone does not trigger fallback. Multi-hop
+success now preserves the original entity scope in `entity_mode`; visible
+retrieval-test labeling derives "关联查找" from `hop_plan` / `search_mode`.
 
-**Action:** Consumer coupling is removed. The remaining producer is
-response-visible in chat/retrieval-test payloads and frontend labels, so remove
-or rename it only with an explicit UI/API migration.
+**Action:** Done. `entity_mode` is again scope-only; multi-hop execution remains
+observable through `hop_plan="discovery"`, `search_mode="multi_hop*"`, and
+`hop_trace`.
 
 ---
 
@@ -383,18 +385,16 @@ replacement active-path reporting / explicit watch retirement
          │
          └── (independent of all Tier-1 items)
 
-3.1 entity_mode=multi_hop ──► validate_citations now uses hop_plan only
-         │
-         └── later UI/API migration can remove or rename visible producer
+3.1 entity_mode=multi_hop ─────────────────────────────────► done
 
 3.4 active_mode flag ──► operational sign-off, then collapse planner branch
 ```
 
 Completed cleanup: §1.1, write-only `proposal_execution` from §1.2, §2.1,
-§2.2, §2.3, §2.4, §3.1 consumer decoupling, and §3.2. Deleting
+§2.2, §2.3, §2.4, §3.1, and §3.2. Deleting
 `proposal_diverged` / `activatable_diverged`, archiving regression tools,
-removing the visible `entity_mode="multi_hop"` producer, and collapsing
-`intent.active_mode` wait for operational sign-off or replacement reporting.
+and collapsing `intent.active_mode` wait for operational sign-off or
+replacement reporting.
 
 ---
 

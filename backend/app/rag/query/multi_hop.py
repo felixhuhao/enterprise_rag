@@ -201,7 +201,7 @@ def run_multi_hop_search(
         "search_results": merged or hop1_results,
         "search_mode": search_mode,
         "search_mode_hyde": "",
-        "entity_mode": "multi_hop",
+        "entity_mode": state.get("entity_mode", "none"),
         "matched_entities": seed_entities + discovered,
         "per_entity_counts": per_entity_counts,
         "hop_plan": "discovery",

@@ -76,7 +76,7 @@ def test_retired_discovery_runs_multi_hop_and_returns_trace(monkeypatch):
             }],
             "search_mode": "multi_hop",
             "search_mode_hyde": "",
-            "entity_mode": "multi_hop",
+            "entity_mode": state.get("entity_mode", "none"),
             "matched_entities": ["实体A"],
             "per_entity_counts": {"实体A": 1},
             "hop_plan": "discovery",
@@ -104,7 +104,7 @@ def test_retired_discovery_runs_multi_hop_and_returns_trace(monkeypatch):
         retrieval_flavor="discovery",
     )
 
-    assert payload["entity_mode"] == "multi_hop"
+    assert payload["entity_mode"] == "broad"
     assert payload["hop_plan"] == "discovery"
     assert payload["hop_trace"][1]["discovered_entities"] == ["实体A"]
     assert payload["per_entity_counts"] == {"实体A": 1}
