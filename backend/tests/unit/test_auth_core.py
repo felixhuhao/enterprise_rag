@@ -31,7 +31,7 @@ CREATE TABLE users (
     api_token     TEXT,
     role          TEXT DEFAULT 'user'
 );
-CREATE TABLE sessions (
+CREATE TABLE auth_sessions (
     token_hash  TEXT PRIMARY KEY,
     user_id     TEXT NOT NULL,
     created_at  TEXT NOT NULL,
@@ -187,7 +187,7 @@ class TestSessions:
         token_hash = auth.hash_session_token("old-token")
         past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
         conn.execute(
-            "INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO auth_sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
             (token_hash, "u1", past, past),
         )
         conn.commit()
@@ -223,7 +223,7 @@ class TestSessions:
         future = (now + timedelta(days=5)).isoformat()
         token_hash = auth.hash_session_token("fresh-token")
         conn.execute(
-            "INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO auth_sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
             (token_hash, "u1", now.isoformat(), future),
         )
         conn.commit()
@@ -233,7 +233,7 @@ class TestSessions:
 
         conn = sqlite3.connect(auth_db)
         conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT expires_at FROM sessions WHERE token_hash = ?", (token_hash,)).fetchone()
+        row = conn.execute("SELECT expires_at FROM auth_sessions WHERE token_hash = ?", (token_hash,)).fetchone()
         conn.close()
         # Should NOT have been renewed
         assert row["expires_at"] == future
@@ -250,7 +250,7 @@ class TestSessions:
         near = (now + timedelta(hours=10)).isoformat()
         token_hash = auth.hash_session_token("expiring-token")
         conn.execute(
-            "INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO auth_sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
             (token_hash, "u1", now.isoformat(), near),
         )
         conn.commit()
@@ -260,7 +260,7 @@ class TestSessions:
 
         conn = sqlite3.connect(auth_db)
         conn.row_factory = sqlite3.Row
-        row = conn.execute("SELECT expires_at FROM sessions WHERE token_hash = ?", (token_hash,)).fetchone()
+        row = conn.execute("SELECT expires_at FROM auth_sessions WHERE token_hash = ?", (token_hash,)).fetchone()
         conn.close()
         renewed = datetime.fromisoformat(row["expires_at"])
         # Should have been extended to ~7 days from now
@@ -278,7 +278,7 @@ class TestPurgeExpired:
         past = (now - timedelta(hours=1)).isoformat()
         future = (now + timedelta(days=5)).isoformat()
         conn.executemany(
-            "INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO auth_sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
             [
                 ("h_expired", "u1", past, past),
                 ("h_alive", "u1", now.isoformat(), future),
@@ -291,7 +291,7 @@ class TestPurgeExpired:
         assert deleted == 1
 
         conn = sqlite3.connect(auth_db)
-        remaining = conn.execute("SELECT token_hash FROM sessions").fetchall()
+        remaining = conn.execute("SELECT token_hash FROM auth_sessions").fetchall()
         conn.close()
         assert len(remaining) == 1
         assert remaining[0][0] == "h_alive"

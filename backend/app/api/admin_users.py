@@ -160,7 +160,7 @@ async def reset_password(
             (pw_hash, user_id),
         )
         await db.execute(
-            "DELETE FROM sessions WHERE user_id = ?", (user_id,)
+            "DELETE FROM auth_sessions WHERE user_id = ?", (user_id,)
         )
         await db.commit()
 
@@ -196,7 +196,7 @@ async def delete_user(
             if admin_count <= 1:
                 raise HTTPException(status_code=409, detail="无法删除最后一个管理员")
 
-        await db.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+        await db.execute("DELETE FROM auth_sessions WHERE user_id = ?", (user_id,))
         await db.execute("DELETE FROM entity_acl WHERE user_id = ?", (user_id,))
         await db.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
         await db.commit()

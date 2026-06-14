@@ -79,7 +79,7 @@ async def create_session(user_id: str) -> tuple[str, str]:
     expires_at = now + SESSION_TTL
     async with get_db() as db:
         await db.execute(
-            "INSERT INTO sessions (token_hash, user_id, created_at, expires_at) "
+            "INSERT INTO auth_sessions (token_hash, user_id, created_at, expires_at) "
             "VALUES (?, ?, ?, ?)",
             (token_hash, user_id, now.isoformat(), expires_at.isoformat()),
         )
@@ -91,7 +91,7 @@ async def delete_session(token: str) -> None:
     """Delete the session matching *token* (logout)."""
     token_hash = hash_session_token(token)
     async with get_db() as db:
-        await db.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
+        await db.execute("DELETE FROM auth_sessions WHERE token_hash = ?", (token_hash,))
         await db.commit()
 
 
@@ -102,7 +102,7 @@ async def touch_session(token_hash: str) -> None:
     new_expires = (now + SESSION_TTL).isoformat()
     async with get_db() as db:
         await db.execute(
-            "UPDATE sessions SET expires_at = ? "
+            "UPDATE auth_sessions SET expires_at = ? "
             "WHERE token_hash = ? AND expires_at < ?",
             (new_expires, token_hash, threshold),
         )
@@ -115,12 +115,12 @@ async def purge_expired_sessions(user_id: str | None = None) -> int:
     async with get_db() as db:
         if user_id:
             cursor = await db.execute(
-                "DELETE FROM sessions WHERE expires_at < ? AND user_id = ?",
+                "DELETE FROM auth_sessions WHERE expires_at < ? AND user_id = ?",
                 (now_iso, user_id),
             )
         else:
             cursor = await db.execute(
-                "DELETE FROM sessions WHERE expires_at < ?", (now_iso,)
+                "DELETE FROM auth_sessions WHERE expires_at < ?", (now_iso,)
             )
         await db.commit()
         return cursor.rowcount
@@ -175,7 +175,7 @@ async def lookup_user(token: str) -> CurrentUser | None:
     async with get_db() as db:
         async with db.execute(
             "SELECT s.token_hash, s.user_id, s.expires_at, u.username, u.role "
-            "FROM sessions s JOIN users u ON s.user_id = u.user_id "
+            "FROM auth_sessions s JOIN users u ON s.user_id = u.user_id "
             "WHERE s.token_hash = ?",
             (token_hash,),
         ) as cursor:

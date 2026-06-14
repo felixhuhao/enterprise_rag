@@ -30,7 +30,7 @@ CREATE TABLE users (
     api_token     TEXT,
     role          TEXT DEFAULT 'user'
 );
-CREATE TABLE sessions (
+CREATE TABLE auth_sessions (
     token_hash  TEXT PRIMARY KEY,
     user_id     TEXT NOT NULL,
     created_at  TEXT NOT NULL,
