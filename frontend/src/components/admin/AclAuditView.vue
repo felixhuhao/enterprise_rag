@@ -1,159 +1,285 @@
-<!--
-  权限审计页 — 查看所有文档的 ACL 分配，admin only。
--->
 <template>
-  <div class="acl-page">
-    <div v-if="!authStore.isAdmin" class="acl-forbidden">
-      <a-empty description="仅管理员可查看权限审计" />
-    </div>
+  <div class="acl-view">
+    <a-spin :loading="loading" style="width: 100%">
+      <div v-if="authStore.isAdmin" class="acl-content">
+        <!-- 用户管理 -->
+        <a-card title="用户管理" class="section-card">
+          <div class="card-actions">
+            <a-button type="primary" size="small" @click="showCreateUser = true">新建用户</a-button>
+          </div>
+          <a-table :data="users" :pagination="false" size="small" row-key="user_id">
+            <template #columns>
+              <a-table-column title="用户名" data-index="username" />
+              <a-table-column title="角色" data-index="role" :width="80">
+                <template #cell="{ record }">
+                  <a-tag :color="record.role === 'admin' ? 'red' : 'blue'" size="small">
+                    {{ record.role === 'admin' ? '管理员' : '用户' }}
+                  </a-tag>
+                </template>
+              </a-table-column>
+              <a-table-column title="操作" :width="200">
+                <template #cell="{ record }">
+                  <a-button size="mini" @click="openResetPassword(record)">重置密码</a-button>
+                  <a-popconfirm content="确认删除该用户？" @ok="handleDeleteUser(record.user_id)">
+                    <a-button size="mini" status="danger" :disabled="record.user_id === bootstrapId">删除</a-button>
+                  </a-popconfirm>
+                </template>
+              </a-table-column>
+            </template>
+          </a-table>
+        </a-card>
 
-    <a-spin v-else :loading="loading" style="width: 100%">
-      <div v-if="data" class="acl-users">
-        <span class="users-label">用户：</span>
-        <span v-for="u in data.users" :key="u.user_id" class="user-badge" :class="'role-' + u.role">
-          {{ u.username }}{{ u.role === 'admin' ? ' · 管理员' : '' }}
-        </span>
+        <!-- 实体权限 -->
+        <a-card title="实体权限" class="section-card">
+          <a-table :data="entityData" :pagination="{ pageSize: 10 }" size="small" row-key="entity_name">
+            <template #columns>
+              <a-table-column title="实体名称" data-index="entity_name" />
+              <a-table-column title="文档数" data-index="document_count" :width="80" />
+              <a-table-column title="授权">
+                <template #cell="{ record }">
+                  <div class="grant-list">
+                    <a-tag
+                      v-for="g in record.grants"
+                      :key="g.user_id"
+                      :color="g.permission === 'write' ? 'green' : 'arcoblue'"
+                      size="small"
+                      closable
+                      @close="handleRevoke(record.entity_name, g.user_id)"
+                    >
+                      {{ g.username }} ({{ g.permission === 'write' ? '写' : '读' }})
+                    </a-tag>
+                    <a-button size="mini" @click="openGrant(record.entity_name)">授权</a-button>
+                  </div>
+                </template>
+              </a-table-column>
+            </template>
+          </a-table>
+        </a-card>
       </div>
-      <div v-if="data" :ref="setAclTableContainer" class="acl-table-wrap">
-        <a-table
-          :data="data.documents"
-          :pagination="{ pageSize: 20 }"
-          row-key="document_id"
-          size="small"
-          :bordered="false"
-          column-resizable
-          @column-resize="aclColumns.onColumnResize"
-        >
-          <template #columns>
-            <a-table-column title="文档" data-index="filename" :width="aclColumns.columnWidth('filename')" :ellipsis="true" />
-            <a-table-column title="主体" data-index="entity_name" :width="aclColumns.columnWidth('entity_name')" />
-            <a-table-column title="状态" data-index="status" :width="aclColumns.columnWidth('status')" align="center">
-              <template #cell="{ record }">
-                <a-tag :color="statusColor(record.status)" size="small">
-                  {{ statusLabel(record.status) }}
-                </a-tag>
-	            </template>
-            </a-table-column>
-            <a-table-column title="清理" data-index="cleanup_status" :width="aclColumns.columnWidth('cleanup_status')" align="center">
-              <template #cell="{ record }">
-                <span v-if="record.cleanup_status === 'milvus_delete_failed'" class="cleanup-warn">待清理</span>
-                <span v-else class="cleanup-ok">—</span>
-              </template>
-            </a-table-column>
-            <a-table-column title="权限" data-index="permissions" :width="aclColumns.columnWidth('permissions')">
-              <template #cell="{ record }">
-                <div class="perm-list">
-                  <span v-if="!record.permissions.length" class="perm-empty">未授权</span>
-                  <span v-for="p in record.permissions" :key="p.user_id" class="perm-tag" :class="'perm-' + p.permission">
-                    {{ p.username }}({{ permLabel(p.permission) }})
-                  </span>
-                </div>
-              </template>
-            </a-table-column>
-          </template>
-        </a-table>
-      </div>
+      <a-empty v-else description="仅管理员可访问" />
     </a-spin>
+
+    <!-- 新建用户对话框 -->
+    <a-modal v-model:visible="showCreateUser" title="新建用户" :footer="false">
+      <a-form :model="createForm" layout="vertical">
+        <a-form-item label="用户名" required>
+          <a-input v-model="createForm.username" placeholder="输入用户名" />
+        </a-form-item>
+        <a-form-item label="密码（至少8位）" required>
+          <a-input-password v-model="createForm.password" placeholder="输入密码" />
+        </a-form-item>
+        <a-form-item label="角色">
+          <a-select v-model="createForm.role">
+            <a-option value="user">用户</a-option>
+            <a-option value="admin">管理员</a-option>
+          </a-select>
+        </a-form-item>
+        <div class="modal-actions">
+          <a-button @click="showCreateUser = false">取消</a-button>
+          <a-button type="primary" :loading="actionLoading" @click="handleCreateUser">创建</a-button>
+        </div>
+      </a-form>
+    </a-modal>
+
+    <!-- 重置密码对话框 -->
+    <a-modal v-model:visible="showResetPassword" title="重置密码" :footer="false">
+      <p>正在为 <strong>{{ resetTarget?.username }}</strong> 重置密码</p>
+      <a-input-password v-model="resetForm.password" placeholder="输入新密码（至少8位）" style="margin-bottom: 12px" />
+      <div class="modal-actions">
+        <a-button @click="showResetPassword = false">取消</a-button>
+        <a-button type="primary" :loading="actionLoading" @click="handleResetPassword">确认</a-button>
+      </div>
+    </a-modal>
+
+    <!-- 授权对话框 -->
+    <a-modal v-model:visible="showGrant" title="授予实体权限" :footer="false">
+      <p>实体: <strong>{{ grantEntity }}</strong></p>
+      <a-select v-model="grantForm.userId" placeholder="选择用户" style="width: 100%; margin-bottom: 12px">
+        <a-option v-for="u in users" :key="u.user_id" :value="u.user_id">{{ u.username }}</a-option>
+      </a-select>
+      <a-select v-model="grantForm.permission" style="width: 100%; margin-bottom: 12px">
+        <a-option value="read">读 (read)</a-option>
+        <a-option value="write">写 (write)</a-option>
+      </a-select>
+      <div class="modal-actions">
+        <a-button @click="showGrant = false">取消</a-button>
+        <a-button type="primary" :loading="actionLoading" @click="handleGrant">确认</a-button>
+      </div>
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, type ComponentPublicInstance } from 'vue'
+import { ref, onMounted, reactive } from 'vue'
+import { Message } from '@arco-design/web-vue'
 import { useAuthStore } from '../../stores/auth'
-import { getAclAudit, type AclAuditResponse } from '../../api/adminAcl'
-import { useAutoFitColumns } from '../../composables/useAutoFitColumns'
+import {
+  listUsers,
+  createUser,
+  resetPassword,
+  deleteUser,
+  getEntityAclOverview,
+  grantEntityAccess,
+  revokeEntityAccess,
+  type UserInfo,
+  type EntityAclEntry,
+} from '../../api/adminUsers'
 
 const authStore = useAuthStore()
 const loading = ref(false)
-const data = ref<AclAuditResponse | null>(null)
-const aclColumns = useAutoFitColumns('enterprise-rag:acl-audit:auto-v1', {
-  filename: { width: 300, minWidth: 180, flex: true },
-  entity_name: { width: 120, minWidth: 90, maxWidth: 180 },
-  status: { width: 92, minWidth: 76, maxWidth: 110 },
-  cleanup_status: { width: 72, minWidth: 60, maxWidth: 90 },
-  permissions: { width: 420, minWidth: 240, maxWidth: 520 },
-}, { minWidth: 60 })
+const actionLoading = ref(false)
+const users = ref<UserInfo[]>([])
+const entityData = ref<EntityAclEntry[]>([])
+const bootstrapId = ref('u_admin')
 
-function setAclTableContainer(element: Element | ComponentPublicInstance | null) {
-  aclColumns.containerRef.value = element instanceof HTMLElement ? element : null
-}
+const showCreateUser = ref(false)
+const showResetPassword = ref(false)
+const showGrant = ref(false)
+const resetTarget = ref<UserInfo | null>(null)
+const grantEntity = ref('')
+
+const createForm = reactive({ username: '', password: '', role: 'user' })
+const resetForm = reactive({ password: '' })
+const grantForm = reactive({ userId: '', permission: 'read' })
 
 onMounted(async () => {
   if (!authStore.currentUser) await authStore.fetchMe()
   if (!authStore.isAdmin) return
+  await loadData()
+})
+
+async function loadData() {
   loading.value = true
   try {
-    data.value = await getAclAudit()
+    const [u, e] = await Promise.all([listUsers(), getEntityAclOverview()])
+    users.value = u
+    entityData.value = e.entities
+  } catch (err: any) {
+    Message.error(err?.response?.data?.detail || '加载失败')
   } finally {
     loading.value = false
   }
-})
+}
 
-function statusLabel(s: string) {
-  const map: Record<string, string> = { completed: '已完成', failed: '失败', uploaded: '已上传' }
-  return map[s] ?? s
+async function handleCreateUser() {
+  if (!createForm.username.trim() || createForm.password.length < 8) {
+    Message.warning('用户名不能为空，密码至少8位')
+    return
+  }
+  actionLoading.value = true
+  try {
+    await createUser({ ...createForm })
+    Message.success('用户创建成功')
+    showCreateUser.value = false
+    createForm.username = ''
+    createForm.password = ''
+    await loadData()
+  } catch (err: any) {
+    Message.error(err?.response?.data?.detail || '创建失败')
+  } finally {
+    actionLoading.value = false
+  }
 }
-function statusColor(s: string) {
-  if (s === 'completed') return 'green'
-  if (s === 'failed') return 'red'
-  return 'arcoblue'
+
+function openResetPassword(user: UserInfo) {
+  resetTarget.value = user
+  resetForm.password = ''
+  showResetPassword.value = true
 }
-function permLabel(p: string) { return p === 'owner' ? '管理' : '只读' }
+
+async function handleResetPassword() {
+  if (!resetTarget.value || resetForm.password.length < 8) {
+    Message.warning('密码至少8位')
+    return
+  }
+  actionLoading.value = true
+  try {
+    await resetPassword(resetTarget.value.user_id, resetForm.password)
+    Message.success('密码已重置')
+    showResetPassword.value = false
+  } catch (err: any) {
+    Message.error(err?.response?.data?.detail || '重置失败')
+  } finally {
+    actionLoading.value = false
+  }
+}
+
+async function handleDeleteUser(userId: string) {
+  try {
+    await deleteUser(userId)
+    Message.success('用户已删除')
+    await loadData()
+  } catch (err: any) {
+    Message.error(err?.response?.data?.detail || '删除失败')
+  }
+}
+
+function openGrant(entityName: string) {
+  grantEntity.value = entityName
+  grantForm.userId = ''
+  grantForm.permission = 'read'
+  showGrant.value = true
+}
+
+async function handleGrant() {
+  if (!grantForm.userId) {
+    Message.warning('请选择用户')
+    return
+  }
+  actionLoading.value = true
+  try {
+    await grantEntityAccess(grantEntity.value, grantForm.userId, grantForm.permission)
+    Message.success('授权成功')
+    showGrant.value = false
+    await loadData()
+  } catch (err: any) {
+    Message.error(err?.response?.data?.detail || '授权失败')
+  } finally {
+    actionLoading.value = false
+  }
+}
+
+async function handleRevoke(entityName: string, userId: string) {
+  try {
+    await revokeEntityAccess(entityName, userId)
+    Message.success('已撤销')
+    await loadData()
+  } catch (err: any) {
+    Message.error(err?.response?.data?.detail || '撤销失败')
+  }
+}
 </script>
 
 <style scoped>
-.acl-page {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-  padding: 16px;
+.acl-view {
   height: 100%;
   overflow-y: auto;
-  animation: fadeIn 0.22s var(--ease-out);
 }
 
-.acl-users {
+.acl-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.section-card {
+  width: 100%;
+}
+
+.card-actions {
   margin-bottom: 12px;
+}
+
+.grant-list {
   display: flex;
-  align-items: center;
-  gap: 6px;
   flex-wrap: wrap;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-base);
-}
-.users-label { font-size: 12px; color: var(--text-muted); }
-.user-badge {
-  font-size: 11px; padding: 2px 8px; border-radius: 999px;
-  border: 1px solid var(--border); color: var(--text-secondary);
-}
-.role-admin { color: #92400e; border-color: #fcd34d; background: #fef3c7; }
-
-.acl-forbidden { padding: 60px 0; }
-
-.acl-table-wrap {
-  min-width: 0;
-  overflow-x: hidden;
+  gap: 4px;
+  align-items: center;
 }
 
-.cleanup-warn { color: var(--warning); font-size: 12px; font-weight: 600; }
-.cleanup-ok { color: var(--text-muted); }
-
-.perm-list {
+.modal-actions {
   display: flex;
-  align-items: center;
-  gap: 5px;
-  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
-.perm-empty { color: var(--text-muted); font-size: 12px; }
-.perm-tag {
-  display: inline-block;
-  font-size: 11px;
-  padding: 1px 8px;
-  border-radius: 999px;
-}
-.perm-read { background: var(--accent-subtle); color: var(--text-accent); border: 1px solid var(--border-accent); }
-.perm-owner { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
 </style>

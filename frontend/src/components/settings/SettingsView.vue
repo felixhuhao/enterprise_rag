@@ -49,15 +49,6 @@
           />
         </a-tab-pane>
 
-        <a-tab-pane key="security" title="安全">
-          <TokenSettingsPanel
-            v-model="form.token"
-            :is-admin="authStore.isAdmin"
-            :saving="tokenSaving"
-            @save="saveToken"
-          />
-        </a-tab-pane>
-
         <a-tab-pane v-if="isTagGovernanceEnabled" key="tags" title="标签治理">
           <TagGovernancePanel
             v-model:preview-document-id="previewDocumentId"
@@ -96,7 +87,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import { listJobs, type JobRecord } from '../../api/adminJobs'
 import { listDocuments, type Document } from '../../api/documents'
-import { getSettings, updateSettings, updateToken } from '../../api/settings'
+import { getSettings, updateSettings } from '../../api/settings'
 import { getRuntimeInfo, type RuntimeInfo } from '../../api/system'
 import {
   getStructuredTagMetrics,
@@ -113,7 +104,6 @@ import StrategyTuningPanel from './StrategyTuningPanel.vue'
 import RecentJobsPanel from './RecentJobsPanel.vue'
 import SystemStatusPanel from './SystemStatusPanel.vue'
 import TagGovernancePanel from './TagGovernancePanel.vue'
-import TokenSettingsPanel from './TokenSettingsPanel.vue'
 import { normalizeFlavor } from '../../utils/labelMaps'
 
 type FlavorKey = 'balanced' | 'exact' | 'recall'
@@ -143,7 +133,6 @@ const authStore = useAuthStore()
 const isTagGovernanceEnabled = import.meta.env.VITE_ENABLE_TAG_GOVERNANCE === 'true'
 const loading = ref(false)
 const saving = ref(false)
-const tokenSaving = ref(false)
 const rawSettings = ref<Record<string, string>>({})
 const runtimeInfo = ref<RuntimeInfo | null>(null)
 const loadError = ref('')
@@ -168,7 +157,6 @@ const previewText = ref('')
 const previewResult = ref<StructuredTagPreviewResponse | null>(null)
 
 const form = reactive<Record<string, any>>({
-  token: '',
   retrievalFlavor: 'balanced',
   searchLimit: 10,
   hydeLimit: 10,
@@ -356,7 +344,6 @@ async function loadRecentJobs() {
 }
 
 function applySettings(data: Record<string, string>) {
-  form.token = ''
   form.retrievalFlavor = normalizeFlavor(readString(data, 'query.retrieval_flavor', 'balanced'))
   form.searchLimit = readNumber(data, 'query.search_limit', 10)
   form.hydeLimit = readNumber(data, 'query.hyde_limit', 10)
@@ -408,23 +395,6 @@ async function saveRetrievalSettings() {
     Message.error(e?.response?.data?.detail || '保存失败')
   } finally {
     saving.value = false
-  }
-}
-
-async function saveToken() {
-  if (!authStore.isAdmin) return
-  const token = String(form.token || '').trim()
-  if (!token) return
-  tokenSaving.value = true
-  try {
-    await updateToken(token)
-    localStorage.setItem('api_token', token)
-    form.token = ''
-    Message.success('Token 已更新')
-  } catch (e: any) {
-    Message.error(e?.response?.data?.detail || 'Token 更新失败')
-  } finally {
-    tokenSaving.value = false
   }
 }
 

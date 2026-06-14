@@ -27,7 +27,11 @@ apiClient.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('api_token')
-      Message.error('API Token 无效或已过期，请在侧边栏重新设置')
+      Message.error('登录已过期，请重新登录')
+      // Redirect to login page
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(error)
   },
