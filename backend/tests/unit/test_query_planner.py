@@ -434,7 +434,7 @@ def test_use_multi_hop_is_effective_for_keywordless_configs():
     assert p3.retrieval_breadth == "balanced"
 
 
-def test_hyde_two_value_compat_for_multi_entity():
+def test_multi_entity_plan_suppresses_hyde():
     from app.rag.query.control.budget import resolve_budget_profile
     from app.rag.query.control.inferred import infer_signals
     from app.rag.query.control.routing import derive_routing_decision
@@ -442,7 +442,7 @@ def test_hyde_two_value_compat_for_multi_entity():
     cfg = QueryConfig()
     q = "A公司和B公司的报销"
     plan = build_query_plan(q, "multi_explicit", cfg)
-    assert plan.use_hyde is True
+    assert plan.use_hyde is False
 
     inferred = infer_signals(q, "multi_explicit", [])
     budget = resolve_budget_profile(

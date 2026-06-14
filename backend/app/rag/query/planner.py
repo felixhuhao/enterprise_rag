@@ -152,8 +152,6 @@ def _inline_intent(query: str, det_bundle: tuple, breadth: str, cfg: QueryConfig
 
 
 def _plan_from_routing(flavor: str, breadth: str, decision, budget: RetrievalBudget, cfg: QueryConfig) -> QueryPlan:
-    from app.rag.query.control.breadth import BREADTH_PROFILES
-
     fallback_allowed = _breadth_allows_fallback(breadth, cfg)
     fallback_policy = FallbackPolicy(
         entity_filter_to_global=fallback_allowed,
@@ -163,13 +161,12 @@ def _plan_from_routing(flavor: str, breadth: str, decision, budget: RetrievalBud
         strict_evidence=bool(cfg.strict_evidence),
         template=decision.prompt_variant,
     )
-    legacy_use_hyde = BREADTH_PROFILES[breadth].sets_hyde and cfg.use_hyde
 
     return QueryPlan(
         retrieval_flavor=flavor,
         retrieval_breadth=breadth,
         strict_evidence=bool(cfg.strict_evidence),
-        use_hyde=legacy_use_hyde,
+        use_hyde=decision.use_hyde,
         use_query_expansion=decision.use_query_expansion,
         use_multi_hop=decision.use_multi_hop,
         fallback_policy=fallback_policy,

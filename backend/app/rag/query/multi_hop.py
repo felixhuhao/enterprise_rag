@@ -29,13 +29,6 @@ RESPONSIBILITY_HOP_KEYWORDS = [
 ]
 
 
-def _decide_multi_hop(entity_mode: str, query: str) -> bool:
-    """Rule-based planner: P1 only supports broad/none entity discovery."""
-    if entity_mode not in ("broad", "none"):
-        return False
-    return any(kw in query for kw in DISCOVERY_KEYWORDS + RESPONSIBILITY_HOP_KEYWORDS)
-
-
 def _discover_entities(
     results: list[dict], seed_entities: set[str], max_n: int,
 ) -> list[str]:

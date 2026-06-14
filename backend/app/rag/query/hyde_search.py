@@ -81,7 +81,7 @@ def hyde_search_node(state: QueryState, config: RunnableConfig) -> dict:
     if not plan.get("use_hyde", cfg.use_hyde):
         return {"search_results_hyde": [], "search_mode_hyde": "disabled", "fallback_info": empty_fallback_info()}
 
-    # multi_explicit: HyDE 无法按 entity 分流，跳过
+    # Defense-in-depth: canonical plans suppress HyDE for multi-entity scope.
     if state.get("entity_mode") == "multi_explicit":
         return {"search_results_hyde": [], "search_mode_hyde": "disabled_multi", "fallback_info": empty_fallback_info()}
 
