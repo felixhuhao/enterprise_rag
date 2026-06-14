@@ -36,11 +36,11 @@ Do not treat every Tier 1 item as delete-now. Split them by retention status:
 
 - **Completed:** `_decide_multi_hop()` (§1.1) was deleted and tests now cover
   `infer_signals(...).needs_multi_hop`; write-only `proposal_execution`
-  (§1.2) was deleted from `inline_shadow`.
+  (§1.2) was deleted from `inline_shadow`; completed `compare_activation_eval.py`
+  gate tooling (§1.4) was archived.
 - **Archive only after operational sign-off:** offline/regression tools
-  (`trust_gate()`, `route_scoring.py`, `score_routing_golden_set.py`,
-  `compare_activation_eval.py`) and post-flip watch fields used by
-  `report_inline_shadow.py`.
+  (`trust_gate()`, `route_scoring.py`, `score_routing_golden_set.py`) and
+  post-flip watch fields used by `report_inline_shadow.py`.
 
 ### 1.1 `_decide_multi_hop()` — superseded by the inferred tier
 
@@ -76,7 +76,7 @@ Two comparison fields remain in `routing_trace.inline_shadow`:
 | Field | Produced at | Read by |
 |---|---|---|
 | `proposal_diverged` | `routing.py:114,129` | `report_inline_shadow.py:37,51`; `test_control_routing.py`; `test_inline_shadow_report.py` |
-| `activatable_diverged` | `routing.py:130` | `report_inline_shadow.py:36,52,94,106`; `compare_activation_eval.py:135`; `test_control_routing.py`; `test_query_planner.py:215,288` |
+| `activatable_diverged` | `routing.py:130` | `report_inline_shadow.py:36,52,94,106`; `test_control_routing.py`; `test_query_planner.py:215,288` |
 
 No live query-serving code branches on any of these. The trust gate uses the
 `activatable()` predicate directly via `trust_gate_bundle()`, not these fields.
@@ -114,20 +114,21 @@ regression use.
 
 | | |
 |---|---|
-| **Location** | `backend/scripts/report_inline_shadow.py`, `backend/scripts/compare_activation_eval.py` |
-| **Status** | Mixed: one completed gate tool, one still-useful post-flip watch tool |
-| **Remaining consumers** | Their own unit tests |
+| **Location** | `backend/scripts/report_inline_shadow.py`; formerly `backend/scripts/compare_activation_eval.py` |
+| **Status** | `compare_activation_eval.py` archived; `report_inline_shadow.py` still useful post-flip watch tooling |
+| **Remaining consumers** | `report_inline_shadow.py` unit tests |
 
 Both were built around the 2C-2/2C-3 activation decision, but they no longer
 have the same removal status.
 
-`compare_activation_eval.py` is a completed 2C-3 gate comparator:
+`compare_activation_eval.py` was a completed 2C-3 gate comparator:
 
 > `compare_activation_eval.py` — standalone, archived after the flip like the
 > other gate tools.
 > — `query_intent_2c3_design.md §227`
 
-`report_inline_shadow.py` is different. It is still the lightweight post-flip
+It has been deleted with its dedicated tests. `report_inline_shadow.py` is
+different. It is still the lightweight post-flip
 operational watch tool until replacement active-path reporting exists:
 
 > Archive `scripts/report_inline_shadow.py` only after replacement active-path
@@ -136,7 +137,6 @@ operational watch tool until replacement active-path reporting exists:
 
 The flips shipped (2D complete), but `report_inline_shadow.py` remains the
 reason to keep `proposal_diverged` / `activatable_diverged` (§1.2) for now.
-`compare_activation_eval.py` can be archived independently.
 
 **Note:** `scripts/replay_intent_classifier.py` recomputes its own
 `activatable_diverged` equivalent locally and does **not** read the persisted
@@ -371,7 +371,7 @@ observation window, per the 2D-A recommendation.
 ```
 1.1 _decide_multi_hop ──────────────────────────────────────► done
 
-1.4 archive compare_activation_eval.py ─────────────────────► delete its tests
+1.4 archive compare_activation_eval.py ─────────────────────► done
 
 1.2 delete proposal_execution ──────────────────────────────► done
 
@@ -390,9 +390,10 @@ replacement active-path reporting / explicit watch retirement
 ```
 
 Completed cleanup: §1.1, write-only `proposal_execution` from §1.2, §2.1,
-§2.2, §2.3, §2.4, §3.1, §3.2, and §3.3 verification. Deleting
-`proposal_diverged` / `activatable_diverged`, archiving regression tools,
-and collapsing `intent.active_mode` wait for operational sign-off or
+§2.2, §2.3, §2.4, §3.1, §3.2, §3.3 verification, and the completed
+`compare_activation_eval.py` gate comparator from §1.4. Deleting
+`proposal_diverged` / `activatable_diverged`, archiving remaining regression
+tools, and collapsing `intent.active_mode` wait for operational sign-off or
 replacement reporting.
 
 ---
