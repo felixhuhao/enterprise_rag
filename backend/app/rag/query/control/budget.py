@@ -5,7 +5,11 @@ from __future__ import annotations
 import dataclasses
 
 from app.rag.query.config import QueryConfig
-from app.rag.query.planner import RetrievalBudget, _clamp_budget
+from app.rag.query.planner import RetrievalBudget
+
+MAX_SEARCH_LIMIT = 40
+MAX_RERANK_CANDIDATES = 30
+MAX_CONTEXT_CHARS = 16000
 
 
 def resolve_budget_profile(
@@ -97,3 +101,14 @@ def resolve_budget_profile(
     if entity_scope == "multi":
         budget = dataclasses.replace(budget, per_entity_min_k=8)
     return _clamp_budget(budget)
+
+
+def _clamp_budget(budget: RetrievalBudget) -> RetrievalBudget:
+    return dataclasses.replace(
+        budget,
+        search_limit=min(budget.search_limit, MAX_SEARCH_LIMIT),
+        rrf_top_k=min(budget.rrf_top_k, MAX_SEARCH_LIMIT),
+        rerank_candidate_k=min(budget.rerank_candidate_k, MAX_RERANK_CANDIDATES),
+        final_context_k=min(budget.final_context_k, MAX_RERANK_CANDIDATES),
+        max_context_chars=min(budget.max_context_chars, MAX_CONTEXT_CHARS),
+    )

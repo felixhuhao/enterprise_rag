@@ -34,8 +34,9 @@ nothing at all.
 
 Do not treat every Tier 1 item as delete-now. Split them by retention status:
 
-- **Delete now:** `_decide_multi_hop()` (§1.1) and write-only
-  `proposal_execution` (§1.2).
+- **Completed:** `_decide_multi_hop()` (§1.1) was deleted and tests now cover
+  `infer_signals(...).needs_multi_hop`.
+- **Delete now:** write-only `proposal_execution` (§1.2).
 - **Archive only after operational sign-off:** offline/regression tools
   (`trust_gate()`, `route_scoring.py`, `score_routing_golden_set.py`,
   `compare_activation_eval.py`) and post-flip watch fields used by
@@ -46,19 +47,19 @@ Do not treat every Tier 1 item as delete-now. Split them by retention status:
 | | |
 |---|---|
 | **Location** | `backend/app/rag/query/multi_hop.py:32-36` |
-| **Status** | Dead in production |
-| **Remaining consumers** | `backend/tests/unit/test_multi_hop.py` (import + 10 assertions); test name reference in `test_control_inferred.py:19` |
+| **Status** | Complete — deleted in `82add5a` |
+| **Remaining consumers** | None |
 
 The multi-hop decision rule (`scope in ("broad","none") and discovery keyword`)
 was folded into `control/inferred.py:59` as the `needs_multi_hop` signal. The
-pipeline gate `_should_run_multi_hop` (`search_pipeline.py:88-89`) now reads
-only `plan.get("use_multi_hop")`, which originates from
+pipeline gate `should_run_multi_hop_from_plan` reads only
+`plan.get("use_multi_hop")`, which originates from
 `RoutingDecision.use_multi_hop` (`routing.py:59`). The old two-gate structure
 (plan flag **and** a re-run of `_decide_multi_hop`) collapsed into one
 derivation, exactly as Design 1 §3.1 specified.
 
-**Action:** Delete `_decide_multi_hop`. Migrate `test_multi_hop.py` assertions
-to test `infer_signals(...).needs_multi_hop`.
+**Action:** Done. `test_multi_hop.py` assertions now test
+`infer_signals(...).needs_multi_hop`.
 
 ---
 
@@ -176,8 +177,8 @@ code.
 
 | | |
 |---|---|
-| **Location** | `backend/app/rag/query/planner.py:166` |
-| **Risk** | **Latent correctness bug** |
+| **Location** | Formerly `backend/app/rag/query/planner.py:166` |
+| **Risk** | Complete — fixed in `82add5a` |
 
 ```python
 # planner.py:166 — what the plan carries
@@ -198,11 +199,8 @@ The missing guard is currently patched by a separate runtime check in
 disabled_multi`; currently around lines 85-86). Without that compensating
 control, multi-entity queries would incorrectly run HyDE.
 
-**Action:** Replace `legacy_use_hyde` with `decision.use_hyde` in
-`_plan_from_routing`. After verifying tests pass, keep the `hyde_search.py`
-guard as defense-in-depth unless a follow-up proves every HyDE entry path flows
-through `_plan_from_routing` and `entity_mode == "multi_explicit"` is exactly
-equivalent to inferred `entity_scope == "multi"` (see §3.3).
+**Action:** Done. `_plan_from_routing` now reads `decision.use_hyde`; the
+`hyde_search.py` guard remains as defense-in-depth.
 
 ---
 
@@ -210,16 +208,17 @@ equivalent to inferred `entity_scope == "multi"` (see §3.3).
 
 | | |
 |---|---|
-| **Location** | `search_pipeline.py:88-89` and `retrieval_test_service.py:160-161` |
-| **Status** | Identical copies |
+| **Location** | Formerly `search_pipeline.py:88-89` and `retrieval_test_service.py:160-161` |
+| **Status** | Complete — consolidated into `should_run_multi_hop_from_plan` |
 
-Both bodies are `return bool(plan.get("use_multi_hop"))`. The
-`ShouldRunMultiHopFn` type alias (`search_pipeline.py:31`) still carries a
-`query: str` parameter that neither implementation uses — a leftover from when
-the gate called `_decide_multi_hop(query, ...)`.
+The former duplicated bodies were both `return bool(plan.get("use_multi_hop"))`.
+The `ShouldRunMultiHopFn` type alias still carries a `query: str` parameter
+that the shared implementation does not use — retained for DI signature
+compatibility.
 
-**Action:** Extract a single shared default; drop the unused `query` param from
-the type alias (or keep for DI extensibility but mark unused).
+**Action:** Done. `search_pipeline.py` owns the shared default;
+`retrieval_test_service.py` aliases it. The `query` parameter remains for DI
+signature compatibility.
 
 ---
 
@@ -247,18 +246,18 @@ or `control/breadth.py`) and import everywhere.
 
 | | |
 |---|---|
-| **Location** | `planner.py:18-20` (constants), `planner.py:181-189` (function) |
-| **Sole consumer** | `control/budget.py:8,99` |
+| **Location** | Formerly `planner.py:18-20` (constants), `planner.py:181-189` (function) |
+| **Status** | Complete — moved to `control/budget.py` |
 
 The three infra-cap constants (`MAX_SEARCH_LIMIT = 40`,
 `MAX_RERANK_CANDIDATES = 30`, `MAX_CONTEXT_CHARS = 16000`) and the
-`_clamp_budget` function live in `planner.py` but are consumed exclusively by
-`control/budget.py`. This creates a `planner → budget` back-reference through a
-private symbol (`from app.rag.query.planner import _clamp_budget`).
+`_clamp_budget` function formerly lived in `planner.py` but were consumed
+exclusively by `control/budget.py`. That created a `planner → budget`
+back-reference through a private symbol
+(`from app.rag.query.planner import _clamp_budget`).
 
-**Action:** Relocate `_clamp_budget` and the three constants into
-`control/budget.py`, removing the cross-module private import. Not dead, but
-poorly layered.
+**Action:** Done. `_clamp_budget` and the three cap constants now live in
+`control/budget.py`, removing the cross-module private import.
 
 ---
 
@@ -371,7 +370,7 @@ observation window, per the 2D-A recommendation.
 ## Dependency Graph for Removal
 
 ```
-1.1 _decide_multi_hop ──────────────────────────────────────► delete (independent)
+1.1 _decide_multi_hop ──────────────────────────────────────► done
 
 1.4 archive compare_activation_eval.py ─────────────────────► delete its tests
 
@@ -380,7 +379,7 @@ replacement active-path reporting / explicit watch retirement
 
 1.5 archive route_scoring.py ──► 1.3 delete trust_gate()
 
-2.1 fix legacy_use_hyde ──► 3.3 keep/update hyde guard unless proven redundant
+2.1 fix legacy_use_hyde ──► done; 3.3 keep/update hyde guard unless proven redundant
          │
          └── (independent of all Tier-1 items)
 
@@ -391,9 +390,8 @@ replacement active-path reporting / explicit watch retirement
 3.4 active_mode flag ──► operational sign-off, then collapse planner branch
 ```
 
-The safest order: **§2.1 fix** (correctness) and **§1.1 delete**
-(`_decide_multi_hop`) first; both are low-coupling and high-signal. Then batch
-Tier 2 maintainability work (§2.2-§2.4) when convenient. Deleting
+Completed cleanup: §1.1, §2.1, §2.2, and §2.4. Remaining cleanup with no
+operational sign-off needed: §2.3 flavor-set consolidation. Deleting
 `proposal_diverged` / `activatable_diverged`, archiving regression tools, and
 collapsing `intent.active_mode` wait for operational sign-off or replacement
 reporting.

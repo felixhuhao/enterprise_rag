@@ -5,6 +5,7 @@ from dataclasses import asdict
 from app.core.runtime_settings import runtime_settings
 from app.rag.query.config import QueryConfig
 from app.rag.query.control import llm_classifier
+from app.rag.query.control.budget import _clamp_budget
 from app.rag.query.control.llm_classifier import ClassifyResult, LlmMarkers
 from app.rag.query.planner import (
     RetrievalBudget,
@@ -13,7 +14,6 @@ from app.rag.query.planner import (
     plan_allows_entity_fallback,
     plan_budget,
     query_plan_node,
-    _clamp_budget,
     _normalize_flavor,
 )
 

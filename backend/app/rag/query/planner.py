@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 from dataclasses import asdict, dataclass
 from typing import Literal
 
@@ -14,11 +13,6 @@ from app.rag.query.state import QueryState, require_query
 RetrievalFlavor = Literal["balanced", "exact", "recall", "discovery"]
 
 VALID_FLAVORS = {"balanced", "exact", "recall", "discovery"}
-
-MAX_SEARCH_LIMIT = 40
-MAX_RERANK_CANDIDATES = 30
-MAX_CONTEXT_CHARS = 16000
-
 
 @dataclass(frozen=True)
 class FallbackPolicy:
@@ -172,17 +166,6 @@ def _plan_from_routing(flavor: str, breadth: str, decision, budget: RetrievalBud
         fallback_policy=fallback_policy,
         budget=budget,
         prompt_policy=prompt_policy,
-    )
-
-
-def _clamp_budget(budget: RetrievalBudget) -> RetrievalBudget:
-    return dataclasses.replace(
-        budget,
-        search_limit=min(budget.search_limit, MAX_SEARCH_LIMIT),
-        rrf_top_k=min(budget.rrf_top_k, MAX_SEARCH_LIMIT),
-        rerank_candidate_k=min(budget.rerank_candidate_k, MAX_RERANK_CANDIDATES),
-        final_context_k=min(budget.final_context_k, MAX_RERANK_CANDIDATES),
-        max_context_chars=min(budget.max_context_chars, MAX_CONTEXT_CHARS),
     )
 
 
