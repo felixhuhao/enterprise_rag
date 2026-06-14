@@ -5,9 +5,9 @@
 admin token 兼容旧的 API_TOKEN 配置。
 """
 
-from fastapi import Header, HTTPException
+from fastapi import Depends, Header, HTTPException
 
-from app.core.auth import CurrentUser, lookup_user
+from app.core.auth import CurrentUser, lookup_user, require_admin
 
 
 async def verify_token(authorization: str = Header(...)) -> CurrentUser:
@@ -29,3 +29,11 @@ async def verify_token(authorization: str = Header(...)) -> CurrentUser:
         raise HTTPException(status_code=401, detail="Invalid token")
 
     return user
+
+
+async def require_admin_user(
+    current_user: CurrentUser = Depends(verify_token),
+) -> CurrentUser:
+    """Verify token AND require admin role. Use as Depends on admin routes."""
+    require_admin(current_user)
+    return current_user
