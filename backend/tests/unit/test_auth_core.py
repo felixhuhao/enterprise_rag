@@ -154,6 +154,12 @@ class TestPasswordHashing:
         h = auth.hash_password(pw)
         assert auth.verify_password(pw, h) is True
 
+    def test_verify_rejects_over_72_bytes(self):
+        """A 73-byte password must not match even if first 72 bytes match."""
+        pw = "x" * 72
+        h = auth.hash_password(pw)
+        assert auth.verify_password(pw + "x", h) is False
+
 
 # --------------------------------------------------------------------------- #
 # Sessions

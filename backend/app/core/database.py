@@ -394,9 +394,17 @@ async def init_db():
             )"""
         )
         # migration: users table rebuild (old shape → password-hash shape)
+        # Gate on the actual target shape, not just column presence, so a
+        # partially-migrated DB (password_hash added but api_token still
+        # NOT NULL UNIQUE) is detected and rebuilt.
         async with db.execute("PRAGMA table_info(users)") as _pragma:
-            _user_cols = {row["name"] for row in await _pragma.fetchall()}
-        if "password_hash" not in _user_cols:
+            _user_cols_info = {row["name"]: row for row in await _pragma.fetchall()}
+        _api_token_col = _user_cols_info.get("api_token")
+        _needs_rebuild = (
+            "password_hash" not in _user_cols_info
+            or (_api_token_col is not None and _api_token_col["notnull"] == 1)
+        )
+        if _needs_rebuild:
             async with db.execute(
                 "SELECT username, COUNT(*) as cnt FROM users GROUP BY username HAVING cnt > 1"
             ) as _dupe:
