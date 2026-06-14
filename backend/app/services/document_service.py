@@ -46,6 +46,7 @@ async def create_document_record(
     file_type: str,
     ingestion_mode: str = "text_only",
     entity_name: str = "",
+    uploaded_by: str = "",
 ) -> dict:
     """创建通用文档记录。"""
     now = datetime.now().isoformat()
@@ -53,10 +54,10 @@ async def create_document_record(
         await db.execute(
             """
             INSERT INTO general_documents
-                (document_id, filename, source_path, file_type, ingestion_mode, entity_name, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'uploaded', ?, ?)
+                (document_id, filename, source_path, file_type, ingestion_mode, entity_name, uploaded_by, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'uploaded', ?, ?)
             """,
-            (document_id, filename, source_path, file_type, ingestion_mode, entity_name, now, now),
+            (document_id, filename, source_path, file_type, ingestion_mode, entity_name, uploaded_by, now, now),
         )
         await db.commit()
     doc = await get_document(document_id)

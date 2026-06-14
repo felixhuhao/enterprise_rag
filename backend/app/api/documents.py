@@ -11,7 +11,9 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.config import settings
-from app.core.auth import CurrentUser, get_allowed_document_ids, grant_permission, has_permission
+from app.core.auth import CurrentUser, can_write_entity, get_allowed_document_ids, has_permission
+from app.core.database import get_db
+from app.core.entity import canonicalize_entity_name, normalize_entity_name
 from app.deps import verify_token
 from app.rag.ingestion.service import extract_entity_name
 from app.services import document_service
@@ -50,24 +52,10 @@ class UpdateDocumentRequest(BaseModel):
     entity_name: str = ""
 
 
-class GrantRequest(BaseModel):
-    user_id: str
-    permission: str  # 'read' | 'owner'
-
-
-@router.post("/documents/{document_id}/grant")
-async def grant_document_access(
-    document_id: str,
-    body: GrantRequest,
-    current_user: CurrentUser = Depends(verify_token),
-):
-    """授予文档权限（admin only）。"""
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="仅管理员可授权")
-    ok = await grant_permission(document_id, body.user_id, body.permission)
-    if not ok:
-        raise HTTPException(status_code=400, detail="授权失败，请检查用户 ID 和权限值")
-    return {"ok": True}
+@router.post("/documents/{document_id}/grant", status_code=410)
+async def grant_document_access():
+    """Deprecated: per-document grants retired. Use POST /admin/acl/grant."""
+    raise HTTPException(status_code=410, detail="文档级授权已停用，请使用实体级授权 POST /admin/acl/grant")
 
 
 @router.get("/documents/suggest-metadata")
@@ -127,15 +115,27 @@ async def upload_document(
     # Magic bytes 校验：防止改后缀绕过
     _validate_file_magic(source_path, file_type, upload_dir)
 
+    # Entity validation: normalize → canonicalize → write-permission check
+    normalized_entity = normalize_entity_name(entity_name)
+    if normalized_entity:
+        async with get_db() as db:
+            canonical_entity = await canonicalize_entity_name(normalized_entity, db)
+    else:
+        canonical_entity = ""
+    if not canonical_entity and current_user.role != "admin":
+        raise HTTPException(status_code=400, detail="entity_name 不能为空")
+    if canonical_entity and not await can_write_entity(current_user, canonical_entity):
+        raise HTTPException(status_code=403, detail=f"无权上传到实体 '{canonical_entity}'")
+
     doc = await document_service.create_document_record(
         document_id=document_id,
         filename=file.filename,
         source_path=source_path,
         file_type=file_type,
         ingestion_mode=ingestion_mode,
-        entity_name=entity_name,
+        entity_name=canonical_entity,
+        uploaded_by=current_user.user_id,
     )
-    await grant_permission(document_id, current_user.user_id, "owner")
     return doc
 
 
@@ -202,10 +202,20 @@ async def update_document(
     body: UpdateDocumentRequest,
     current_user: CurrentUser = Depends(verify_token),
 ):
-    """更新文档元数据（需 owner 权限）。"""
-    if not await has_permission(current_user, document_id, "owner"):
+    """更新文档 entity_name（需 write 权限）。"""
+    if not await has_permission(current_user, document_id, "write"):
         raise HTTPException(status_code=404, detail="文档不存在")
-    ok = await document_service.update_entity_name(document_id, body.entity_name)
+
+    # Canonicalize target entity
+    target = normalize_entity_name(body.entity_name)
+    if not target:
+        raise HTTPException(status_code=400, detail="entity_name 不能为空")
+    async with get_db() as db:
+        canonical_target = await canonicalize_entity_name(target, db)
+    if not await can_write_entity(current_user, canonical_target):
+        raise HTTPException(status_code=403, detail=f"无权移动到实体 '{canonical_target}'")
+
+    ok = await document_service.update_entity_name(document_id, canonical_target)
     if not ok:
         doc = await document_service.get_document(document_id)
         if not doc:
@@ -220,8 +230,8 @@ async def process_document(
     background_tasks: BackgroundTasks,
     current_user: CurrentUser = Depends(verify_token),
 ):
-    """启动后台导入任务（需 owner 权限）。"""
-    if not await has_permission(current_user, document_id, "owner"):
+    """启动后台导入任务（需 write 权限）。"""
+    if not await has_permission(current_user, document_id, "write"):
         raise HTTPException(status_code=404, detail="文档不存在")
     claimed = await document_service.claim_document_for_processing(document_id)
     if not claimed:
@@ -256,8 +266,8 @@ async def retry_document(
     background_tasks: BackgroundTasks,
     current_user: CurrentUser = Depends(verify_token),
 ):
-    """重试 failed 状态的通用文档（需 owner 权限）。"""
-    if not await has_permission(current_user, document_id, "owner"):
+    """重试 failed 状态的通用文档（需 write 权限）。"""
+    if not await has_permission(current_user, document_id, "write"):
         raise HTTPException(status_code=404, detail="文档不存在")
     doc = await document_service.get_document(document_id)
     if not doc:
@@ -304,8 +314,8 @@ async def retry_document(
 
 @router.delete("/documents/{document_id}")
 async def delete_document(document_id: str, response: Response, current_user: CurrentUser = Depends(verify_token)):
-    """删除通用文档（需 owner 权限）。级联清理 ACL。"""
-    if not await has_permission(current_user, document_id, "owner"):
+    """删除通用文档（需 write 权限）。"""
+    if not await has_permission(current_user, document_id, "write"):
         raise HTTPException(status_code=404, detail="文档不存在")
     doc = await document_service.get_document(document_id)
     if not doc:
@@ -319,16 +329,14 @@ async def delete_document(document_id: str, response: Response, current_user: Cu
     if result == "partial":
         response.status_code = 202
         return {"ok": True, "status": "partial", "detail": "向量数据清理失败，请稍后使用修复功能"}
-    # 只在完全删除后清理 ACL
-    from app.core.auth import remove_document_acl
-    await remove_document_acl(document_id)
+    # 只在完全删除后确认
     return {"ok": True, "status": "deleted"}
 
 
 @router.post("/documents/{document_id}/repair-delete")
 async def repair_delete(document_id: str, current_user: CurrentUser = Depends(verify_token)):
-    """修复删除（需 owner 权限）。"""
-    if not await has_permission(current_user, document_id, "owner"):
+    """修复删除（需 write 权限）。"""
+    if not await has_permission(current_user, document_id, "write"):
         raise HTTPException(status_code=404, detail="文档不存在")
     try:
         await document_service.repair_delete_document(document_id)
@@ -339,8 +347,6 @@ async def repair_delete(document_id: str, current_user: CurrentUser = Depends(ve
         code = classify_error(exc)
         await document_service.append_error_event(document_id, "repair_delete", code.value, str(exc))
         raise HTTPException(status_code=503, detail="Milvus 清理仍失败，请稍后重试")
-    from app.core.auth import remove_document_acl
-    await remove_document_acl(document_id)
     return {"ok": True}
 
 

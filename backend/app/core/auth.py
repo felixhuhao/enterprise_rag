@@ -130,7 +130,7 @@ async def purge_expired_sessions(user_id: str | None = None) -> int:
 # Token / user lookup
 # --------------------------------------------------------------------------- #
 
-async def _get_bootstrap_admin_id() -> str:
+async def get_bootstrap_admin_id() -> str:
     """Read ``bootstrap_admin_user_id`` from settings (default ``u_admin``)."""
     async with get_db() as db:
         async with db.execute(
@@ -154,7 +154,7 @@ async def lookup_user(token: str) -> CurrentUser | None:
     # Bootstrap bypass
     api_token = settings.API_TOKEN.strip()
     if api_token and token == api_token:
-        admin_id = await _get_bootstrap_admin_id()
+        admin_id = await get_bootstrap_admin_id()
         async with get_db() as db:
             async with db.execute(
                 "SELECT user_id, username, role FROM users WHERE user_id = ?",
@@ -353,17 +353,3 @@ async def revoke_entity(entity_name: str, user_id: str) -> None:
             (normalized, user_id),
         )
         await db.commit()
-
-
-# --------------------------------------------------------------------------- #
-# Deprecated wrappers (removed once callers are updated in Section 3)
-# --------------------------------------------------------------------------- #
-
-async def grant_permission(document_id: str, user_id: str, permission: str) -> bool:
-    """Deprecated: per-document grants retired. Use grant_entity instead."""
-    return False
-
-
-async def remove_document_acl(document_id: str) -> None:
-    """Deprecated: document_acl retired. No-op."""
-    pass
