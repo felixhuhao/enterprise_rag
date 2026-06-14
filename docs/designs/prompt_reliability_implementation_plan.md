@@ -9,7 +9,19 @@ This plan separates prompt reliability work into two lanes:
 1. **Implementation lane:** safe, local improvements that do not redesign query routing.
 2. **Design lane:** query intent, routing, synthesis, broad-scope, and multi-hop behavior.
 
-The implementation lane should continue now. The design lane needs a separate query-intent design before behavior changes.
+## Status (updated 2026-06-14)
+
+| Lane | Status |
+|---|---|
+| **Design lane** (query-intent routing) | **Complete** — all stages 2A–2D shipped. See `query_intent_routing_roadmap.md` and the "Requires Query-Intent Design" section below. |
+| **Implementation lane — item 1** (Answer prompt contracts) | **Complete** — shared `ANSWER_CONTRACT` with contradiction handling and explicit no-answer wording, injected into all three prompt variants. |
+| **Implementation lane — item 2** (Groundedness) | **Complete** — prompt simplified (nested rules removed, compact format); parser, tests, fallback, temp/max-token controls all shipped. |
+| **Implementation lane — item 3** (HyDE) | **Complete** — output contract, 4 few-shot examples, `normalize_hyde_text` preamble stripping, and `test_hyde_search.py` all shipped. |
+| **Implementation lane — item 4** (No-answer/refusal) | **Complete** — `REFUSAL_SIGNALS` expanded; 5-company hardcode removed; `forbidden_entities` metadata drives entity checks with clause-local matching; unknown entities no longer silently exempt (`unscored_reason`). |
+| **Implementation lane — item 5** (Eval coverage) | **Mostly done** — contradiction, near-miss, threshold-boundary, exception-priority, and paraphrase cases added. Optional cleanup remains: no dedicated citation-placement-on-numerics probe; `slices` field still inconsistent (8/31). |
+| **Implementation lane — item 6** (Observability) | **Superseded** — the design lane built a richer tiered trace (`intent`/`policy`/`infra`/`routing_decision`/`inline_shadow`) than this item's flat schema. |
+
+No blocking work remains. Item 5 has minor optional cleanup gaps; item 6 was superseded by the design lane.
 
 ---
 
@@ -33,6 +45,8 @@ Also keep the LLM temperature and max-token settings introduced in commit `9e43b
 ## Safe Fixes Now
 
 ### 1. Answer Prompt Output Contracts
+
+**Status:** Complete. A shared `ANSWER_CONTRACT` (`build_prompt.py:16-25`) is injected into all three prompt variants via `{answer_contract}`. It covers: direct-answer-first, citation on every factual/numeric claim, contradiction handling (state conflict, cite both sides, prefer newer only when evidence says so), and explicit no-answer wording ("资料中未提供该信息，无法从资料确认" + anti-inference + anti-false-absence). Multi-entity and broad variants add their own organization rules on top. Tests assert all three contract surfaces.
 
 **Audit findings:** Prompt reliability findings 1, 2, 3, 6.
 
@@ -73,6 +87,8 @@ Run golden-set `retrieval_only` first, then `full --judge` for release-style val
 ---
 
 ### 2. Groundedness Prompt Simplification And Reliability
+
+**Status:** Complete. The prompt was simplified from ~34 lines of nested rule blocks to ~22 compact lines (`groundedness.py:18-41`). The `no_answer 特殊判定规则` and `factual 关键规则` nested blocks were removed; their logic is enforced in code by `_validate_claims`. The reliability half was already shipped: shared `llm_json.py` parser, comprehensive parser tests, structured `unavailable` fallback, and `GROUNDEDNESS_TEMPERATURE`/`GROUNDEDNESS_MAX_TOKENS` in settings. Test asserts `len(GROUNDEDNESS_PROMPT) < 900` and absence of old nested-rule markers.
 
 **Audit findings:** Prompt reliability findings 5 and 13.
 
@@ -115,6 +131,8 @@ PYTHONPATH=backend .venv/bin/pytest backend/tests/unit/test_groundedness.py -q
 
 ### 3. HyDE Prompt Quality Validation
 
+**Status:** Complete. The prompt (`hyde_search.py:39-77`) now has: an explicit output contract (2-3 sentences, 80-160字, no preamble, preserve entities/dates/numbers/policy names, conservative for exact values), four few-shot examples (exact lookup, vague recall, cross-entity comparison, conservative no-answer), and `normalize_hyde_text` (`hyde_search.py:163-174`) which strips markdown fences and common preambles via `_HYDE_PREAMBLE_RE` before embedding. `test_hyde_search.py` covers prompt contract presence, preamble stripping, nested preamble, fence stripping, and plain content preservation. Temperature/max-token settings (`HYDE_TEMPERATURE=0.3`, `HYDE_MAX_TOKENS=256`) remain unchanged from `9e43b2c`.
+
 **Audit finding:** Prompt reliability finding 4.
 
 **Goal:** Ensure HyDE output improves retrieval instead of polluting embeddings with verbose or generic hypothetical text.
@@ -149,11 +167,11 @@ PYTHONPATH=backend .venv/bin/pytest backend/tests/unit/test_hyde_search.py -q
 docker compose exec -T backend sh -lc 'PYTHONPATH=/app python scripts/eval_golden_set.py --golden-set /app/data/challenge_golden_set_v1.jsonl --api-base http://127.0.0.1:8010/api --mode retrieval_only --concurrency 2 --delay 0 --case-timeout 240 --output /app/data/challenge_golden_set_v1_hyde_check_results.jsonl'
 ```
 
-If `test_hyde_search.py` does not exist yet, add it with prompt-format and normalization tests.
-
 ---
 
 ### 4. No-Answer And Refusal Behavior
+
+**Status:** Complete. `REFUSAL_SIGNALS` (`numeric.py:5-16`) expanded with `上下文未提供`, `资料中未提及`, `无法从资料确认`. The hardcoded five-company list is removed. `score_no_answer` (`scorers.py:208-243`) now reads `forbidden_entities` from case metadata and uses clause-local matching (`_entity_financial_hits` + `_financial_check_clauses`) so a financial number in a different sentence, semicolon-separated clause, or newline does not produce a false hit. Same-sentence comma cases remain conservative: if a forbidden entity appears before a financial number in the same clause/sentence, the scorer still treats it as unsafe. When no `forbidden_entities` metadata exists, generic financial hallucination is still checked and an explicit `unscored_reason` is returned. Tests cover refusal variants, forbidden-entity detection, clause-local isolation, missing-metadata pass, and missing-metadata hallucination fail.
 
 **Audit findings:** Prompt reliability findings 1 and 5; keyword matching audit findings 8 and 9; current evaluator false-negative fixes.
 
@@ -168,10 +186,7 @@ If `test_hyde_search.py` does not exist yet, add it with prompt-format and norma
   - `资料中未提及...`
   - `无法从资料确认...`
 - Remove or replace the hardcoded five-company list in `score_no_answer` for out-of-scope entity checks. This directly addresses keyword matching audit finding 9 (`backend/scripts/eval_golden/scorers.py`).
-- Use case metadata when available for no-answer entity checks:
-  - `expected_entities`
-  - `forbidden_entities`
-  - entity names parsed from the question by the same eval case metadata path
+- Use `forbidden_entities` case metadata when available for no-answer entity checks.
 - If no entity metadata exists, do not silently skip hallucination checks for unknown entities; return an explicit `unscored_reason` or use generic forbidden-pattern checks.
 - Ensure no-answer scoring does not penalize correct refusals that use natural wording.
 - Ensure answer prompts do not instruct the model to answer from adjacent but unsupported facts.
@@ -193,6 +208,8 @@ PYTHONPATH=backend .venv/bin/pytest backend/tests/unit/test_eval_golden_set_conf
 ---
 
 ### 5. Evaluation Coverage
+
+**Status:** Mostly done. The 31-case `challenge_golden_set_v1.jsonl` covers: contradictory evidence (2 `矛盾检测`), near-miss/insufficient evidence (3 `证据不足`/`近邻缺失`), comparison answers (8 `comparison`/`多实体对比`), discovery/multi-hop (4 cases), threshold-boundary, exception-priority, and paraphrase recall. Minor gaps remain: no dedicated citation-placement-on-numerics probe; `slices` field is populated on only 8/31 cases. A dedicated routing golden set (`routing_golden_set_v1.jsonl`, 40 cases) was added separately by the design lane (2C-1).
 
 **Audit findings:** Cross-cutting.
 
@@ -226,67 +243,31 @@ docker compose exec -T backend sh -lc 'PYTHONPATH=/app python scripts/eval_golde
 
 ### 6. Observability For Current Decisions
 
-**Related keyword findings:** broad signals, synthesis markers, multi-hop trigger, query expansion trigger.
+**Status:** Superseded by the design lane. The plan's flat `routing_decision` schema was replaced by a richer tiered trace (`routing_trace` with `intent`/`policy`/`infra`/`routing_decision`/`inline_shadow` sections) built incrementally across 2A–2D. It is persisted into `query_run_stats` via `resolved_settings.routing_trace` and covered by `test_control_routing.py` / `test_query_stats.py`. What remains, if ever needed, is optional trace-detail enrichment: the old plan called for exact trigger text (`synthesis_markers`, `multi_hop_triggers`, `broad_signal_matched`, `query_expansion_reason`, `defaulted`), while `infer_signals` records only coarse reason codes (e.g. `synthesis:marker`). Eval rows (`runner.py`) do not surface `routing_trace` at the top level.
 
-**Goal:** Make current routing decisions inspectable without changing them.
+The old flat-schema proposal below is historical only and should not be implemented:
 
-**Changes:**
+- `routing_decision.source`
+- `routing_decision.selected_flavor`
+- exact marker strings such as `synthesis_markers` / `multi_hop_triggers`
+- `query_expansion_triggered` / `query_expansion_reason`
+- `defaulted`
 
-- Add a stable trace object for the current decision path:
-
-```json
-{
-  "routing_decision": {
-    "source": "current_rules",
-    "selected_flavor": "balanced",
-    "entity_mode": "single",
-    "synthesis_budget_enabled": true,
-    "synthesis_markers": ["比较"],
-    "multi_hop_enabled": false,
-    "multi_hop_triggers": [],
-    "broad_signal_matched": "",
-    "query_expansion_triggered": false,
-    "query_expansion_reason": "",
-    "defaulted": false,
-    "reason_codes": ["synthesis_marker_match"]
-  }
-}
-```
-
-- Surface these fields in eval rows and query stats where useful.
-
-**Acceptance criteria:**
-
-- Existing route decisions are unchanged.
-- Debug traces explain why the current system chose a path.
-- Future query-intent work can compare new decisions against current decisions.
-- Unit tests assert the exact `routing_decision` keys for representative cases:
-  - synthesis marker match
-  - broad entity signal match
-  - multi-hop trigger match
-  - no-rule/default balanced path
-
-**Suggested verification:**
-
-```bash
-PYTHONPATH=backend .venv/bin/pytest backend/tests/unit/test_query_planner.py -q
-PYTHONPATH=backend .venv/bin/pytest backend/tests/unit/test_query_stats.py -q
-PYTHONPATH=backend .venv/bin/pytest backend/tests/unit/test_eval_golden_set_config.py -q
-```
-
-If `test_query_planner.py` does not exist yet, add an equivalent focused test file for the routing trace helper.
+Use the shipped `routing_trace` shape instead.
 
 ---
 
-## Requires Query-Intent Design
+## Requires Query-Intent Design — COMPLETE
+
+All items below were designed and shipped via the staged roadmap in `query_intent_routing_roadmap.md` (stages 2A–2D). Each has its own design + plan doc in `docs/designs/`. See the roadmap for the full status trail.
 
 Do not implement these as standalone keyword patches:
 
 ### Query Intent Object
 
-Needs a design for a single structured object consumed by planner, prompt builder, multi-hop, and tracing.
+Delivered by 2A–2D as a structured intent/routing trace consumed by planner, prompt selection, multi-hop, and observability.
 
-Likely fields:
+Core delivered fields include:
 
 - `entity_scope`
 - `needs_synthesis`
@@ -300,7 +281,7 @@ Likely fields:
 
 ### Hybrid Classifier
 
-Needs a design for deterministic signals plus optional structured LLM classification:
+Delivered by 2B/2C as deterministic signals plus optional structured LLM classification:
 
 - temperature `0`
 - bounded tokens
@@ -310,7 +291,7 @@ Needs a design for deterministic signals plus optional structured LLM classifica
 
 ### Decision Table
 
-Needs a design mapping intent to:
+Delivered by Design 1 + 2A–2D as the mapping from intent to:
 
 - retrieval flavor
 - retrieval budget
@@ -320,7 +301,7 @@ Needs a design mapping intent to:
 
 ### Routing Golden Set
 
-Needs a dedicated set of paraphrase cases that intentionally avoid current trigger words:
+Delivered by 2C-1 as `routing_golden_set_v1.jsonl`, a dedicated set of paraphrase cases that intentionally avoid current trigger words:
 
 - implicit comparisons
 - mixed Chinese/English queries
@@ -330,7 +311,7 @@ Needs a dedicated set of paraphrase cases that intentionally avoid current trigg
 
 ### Shadow Mode Success Metrics
 
-Shadow mode needs objective gates before it can replace current routing.
+Delivered across 2C-1 through 2C-3 as objective gates before replacing current routing.
 
 Minimum comparison set:
 
@@ -351,14 +332,14 @@ Initial success criteria:
 
 ## Recommended Order
 
-1. Finish prompt/no-answer/groundedness fixes that preserve routing.
-2. Validate HyDE prompt quality without changing model settings.
-3. Add observability for current routing decisions.
-4. Add routing-focused golden cases as baseline probes.
-5. Write the query-intent design.
-6. Implement query-intent in shadow mode.
-7. Compare shadow decisions against current traces and golden cases using explicit success metrics.
-8. Only then switch routing/synthesis behavior.
+1. ~~Finish prompt/no-answer/groundedness fixes that preserve routing.~~ — **Done** (items 1, 2, 4).
+2. ~~Validate HyDE prompt quality without changing model settings.~~ — **Done** (item 3).
+3. ~~Add observability for current routing decisions.~~ — **Done** (superseded by design lane; item 6).
+4. ~~Add routing-focused golden cases as baseline probes.~~ — **Done** (2C-1 `routing_golden_set_v1.jsonl`).
+5. ~~Write the query-intent design.~~ — **Done** (2A–2D design docs).
+6. ~~Implement query-intent in shadow mode.~~ — **Done** (2A shadow, 2B offline replay, 2C-2 inline shadow).
+7. ~~Compare shadow decisions against current traces and golden cases using explicit success metrics.~~ — **Done** (2C-1 scorer, 2C-3 paired eval + comparator).
+8. ~~Only then switch routing/synthesis behavior.~~ — **Done** (2C-3 activation, 2D discovery retirement).
 
 ---
 
