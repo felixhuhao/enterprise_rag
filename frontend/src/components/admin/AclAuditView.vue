@@ -46,7 +46,7 @@
                       closable
                       @close="handleRevoke(record.entity_name, g.user_id)"
                     >
-                      {{ g.username }} ({{ g.permission === 'write' ? '写' : '读' }})
+                      {{ g.username }} ({{ g.permission === 'write' ? '编辑' : '查看' }})
                     </a-tag>
                     <a-button size="mini" @click="openGrant(record.entity_name)">授权</a-button>
                   </div>
@@ -98,8 +98,8 @@
         <a-option v-for="u in users" :key="u.user_id" :value="u.user_id">{{ u.username }}</a-option>
       </a-select>
       <a-select v-model="grantForm.permission" style="width: 100%; margin-bottom: 12px">
-        <a-option value="read">读 (read)</a-option>
-        <a-option value="write">写 (write)</a-option>
+        <a-option value="read">查看 (read)</a-option>
+        <a-option value="write">编辑 (write)</a-option>
       </a-select>
       <div class="modal-actions">
         <a-button @click="showGrant = false">取消</a-button>

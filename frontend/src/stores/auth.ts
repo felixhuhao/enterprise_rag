@@ -7,12 +7,21 @@ export interface CurrentUser {
   user_id: string
   username: string
   role: 'user' | 'admin'
+  write_entities?: string[] | null
 }
 
 export const useAuthStore = defineStore('auth', () => {
   const currentUser = ref<CurrentUser | null>(null)
   const isAdmin = computed(() => currentUser.value?.role === 'admin')
   const isAuthenticated = computed(() => currentUser.value !== null)
+  const canUpload = computed(() =>
+    isAdmin.value || (currentUser.value?.write_entities?.length ?? 0) > 0,
+  )
+
+  function canWriteEntity(entityName: string): boolean {
+    if (isAdmin.value) return true
+    return currentUser.value?.write_entities?.includes(entityName) ?? false
+  }
 
   async function fetchMe() {
     const token = localStorage.getItem('api_token')
@@ -45,5 +54,5 @@ export const useAuthStore = defineStore('auth', () => {
     currentUser.value = null
   }
 
-  return { currentUser, isAdmin, isAuthenticated, fetchMe, login, logout }
+  return { currentUser, isAdmin, isAuthenticated, canUpload, canWriteEntity, fetchMe, login, logout }
 })

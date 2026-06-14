@@ -48,6 +48,16 @@ def _validate_file_magic(path: str, file_type: str, upload_dir: str):
         raise HTTPException(status_code=400, detail="文件内容与扩展名不匹配")
 
 
+async def _require_write(user: CurrentUser, document_id: str):
+    """Check write permission: 404 if invisible, 403 if read-only."""
+    if user.role == "admin":
+        return
+    if not await has_permission(user, document_id, "read"):
+        raise HTTPException(status_code=404, detail="文档不存在")
+    if not await has_permission(user, document_id, "write"):
+        raise HTTPException(status_code=403, detail="无权修改该文档（需要写权限）")
+
+
 class UpdateDocumentRequest(BaseModel):
     entity_name: str = ""
 
@@ -203,8 +213,7 @@ async def update_document(
     current_user: CurrentUser = Depends(verify_token),
 ):
     """更新文档 entity_name（需 write 权限）。"""
-    if not await has_permission(current_user, document_id, "write"):
-        raise HTTPException(status_code=404, detail="文档不存在")
+    await _require_write(current_user, document_id)
 
     # Canonicalize target entity
     target = normalize_entity_name(body.entity_name)
@@ -231,8 +240,7 @@ async def process_document(
     current_user: CurrentUser = Depends(verify_token),
 ):
     """启动后台导入任务（需 write 权限）。"""
-    if not await has_permission(current_user, document_id, "write"):
-        raise HTTPException(status_code=404, detail="文档不存在")
+    await _require_write(current_user, document_id)
     claimed = await document_service.claim_document_for_processing(document_id)
     if not claimed:
         doc = await document_service.get_document(document_id)
@@ -267,8 +275,7 @@ async def retry_document(
     current_user: CurrentUser = Depends(verify_token),
 ):
     """重试 failed 状态的通用文档（需 write 权限）。"""
-    if not await has_permission(current_user, document_id, "write"):
-        raise HTTPException(status_code=404, detail="文档不存在")
+    await _require_write(current_user, document_id)
     doc = await document_service.get_document(document_id)
     if not doc:
         raise HTTPException(status_code=404, detail="文档不存在")
@@ -315,8 +322,7 @@ async def retry_document(
 @router.delete("/documents/{document_id}")
 async def delete_document(document_id: str, response: Response, current_user: CurrentUser = Depends(verify_token)):
     """删除通用文档（需 write 权限）。"""
-    if not await has_permission(current_user, document_id, "write"):
-        raise HTTPException(status_code=404, detail="文档不存在")
+    await _require_write(current_user, document_id)
     doc = await document_service.get_document(document_id)
     if not doc:
         raise HTTPException(status_code=404, detail="文档不存在")
@@ -336,8 +342,7 @@ async def delete_document(document_id: str, response: Response, current_user: Cu
 @router.post("/documents/{document_id}/repair-delete")
 async def repair_delete(document_id: str, current_user: CurrentUser = Depends(verify_token)):
     """修复删除（需 write 权限）。"""
-    if not await has_permission(current_user, document_id, "write"):
-        raise HTTPException(status_code=404, detail="文档不存在")
+    await _require_write(current_user, document_id)
     try:
         await document_service.repair_delete_document(document_id)
     except ValueError as e:
