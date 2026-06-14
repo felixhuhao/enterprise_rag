@@ -110,8 +110,7 @@ def build_inline_shadow(result, merged_bundle: tuple, det_bundle: tuple) -> dict
     """Record the raw pre-gate LLM proposal vs the deterministic route."""
     merged_intent, merged_decision, _merged_budget = merged_bundle
     _det_intent, det_decision, _det_budget = det_bundle
-    proposal_execution = decision_execution_dict(merged_decision)
-    proposal_diverged = proposal_execution != decision_execution_dict(det_decision)
+    proposal_diverged = decision_execution_dict(merged_decision) != decision_execution_dict(det_decision)
     return {
         "ran": True,
         "fallback_used": result.markers is None,
@@ -125,7 +124,6 @@ def build_inline_shadow(result, merged_bundle: tuple, det_bundle: tuple) -> dict
         },
         "merged_reasons": list(merged_intent.reasons),
         "merged_source": merged_intent.source,
-        "proposal_execution": proposal_execution,
         "proposal_diverged": proposal_diverged,
         "activatable_diverged": proposal_diverged and activatable(merged_intent),
     }

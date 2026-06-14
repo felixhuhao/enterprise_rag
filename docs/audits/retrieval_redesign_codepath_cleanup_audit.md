@@ -35,8 +35,8 @@ nothing at all.
 Do not treat every Tier 1 item as delete-now. Split them by retention status:
 
 - **Completed:** `_decide_multi_hop()` (§1.1) was deleted and tests now cover
-  `infer_signals(...).needs_multi_hop`.
-- **Delete now:** write-only `proposal_execution` (§1.2).
+  `infer_signals(...).needs_multi_hop`; write-only `proposal_execution`
+  (§1.2) was deleted from `inline_shadow`.
 - **Archive only after operational sign-off:** offline/regression tools
   (`trust_gate()`, `route_scoring.py`, `score_routing_golden_set.py`,
   `compare_activation_eval.py`) and post-flip watch fields used by
@@ -71,11 +71,10 @@ derivation, exactly as Design 1 §3.1 specified.
 | **Status** | No live-query behavioral dependence |
 | **Remaining consumers** | Operational reporting / offline gate scripts + their tests (see 1.4) |
 
-Three fields written into `routing_trace.inline_shadow`:
+Two comparison fields remain in `routing_trace.inline_shadow`:
 
 | Field | Produced at | Read by |
 |---|---|---|
-| `proposal_execution` | `routing.py:113,128` | **Nothing.** Zero readers in entire codebase. |
 | `proposal_diverged` | `routing.py:114,129` | `report_inline_shadow.py:37,51`; `test_control_routing.py`; `test_inline_shadow_report.py` |
 | `activatable_diverged` | `routing.py:130` | `report_inline_shadow.py:36,52,94,106`; `compare_activation_eval.py:135`; `test_control_routing.py`; `test_query_planner.py:215,288` |
 
@@ -87,7 +86,7 @@ The design explicitly schedules their deletion:
 > `proposal_execution`, `proposal_diverged`, `activatable_diverged`.
 > — `query_intent_2d_design.md §2`
 
-`proposal_execution` is safe to delete immediately (write-only). The other two
+`proposal_execution` was deleted because it was write-only. The other two
 require retiring or replacing their reporting/gate-script consumers first (§1.4).
 
 ---
@@ -291,8 +290,9 @@ remove the `entity_mode` write at `multi_hop.py:211`.
 
 | | |
 |---|---|
-| **Location** | `diversify_context.py:16,24,44` |
+| **Location** | Formerly `diversify_context.py:16,24,44` |
 | **Design says** | §3.2: breadth owns retrieval-width behavior |
+| **Status** | Complete — diversification now keys on `retrieval_breadth` |
 
 ```python
 _DIVERSIFY_FLAVORS = {"recall"}                          # line 16
@@ -300,17 +300,17 @@ flavor = plan.get("retrieval_flavor", cfg.retrieval_flavor)  # line 24
 if flavor in _DIVERSIFY_FLAVORS:                          # line 44
 ```
 
-This module bypasses the breadth tier and reads the raw legacy flavor string.
-After 2D retirement, `discovery` maps to `flavor="balanced"` internally
+This module formerly bypassed the breadth tier and read the raw legacy flavor
+string. After 2D retirement, `discovery` maps to `flavor="balanced"` internally
 (`planner.py:106`), so old discovery queries lost their `_DIVERSIFY_FLAVORS`
-match. This is partially compensated by `_DIVERSIFY_BUDGET_REASONS =
+match. This was partially compensated by `_DIVERSIFY_BUDGET_REASONS =
 {"balanced_synthesis", "balanced_discovery"}` (line 17), but the flavor-string
-check is a design-layer violation: the authority chain says breadth (policy)
+check was a design-layer violation: the authority chain says breadth (policy)
 owns retrieval width, not the legacy flavor label.
 
-**Action:** Replace `_DIVERSIFY_FLAVORS = {"recall"}` with a breadth check:
-`breadth in {"broad"}` (since `recall` → `broad`). Read
-`plan.get("retrieval_breadth")` instead of `plan.get("retrieval_flavor")`.
+**Action:** Done. `_DIVERSIFY_BREADTHS = {"broad"}` replaced the legacy
+`recall` flavor check. `balanced_synthesis` and `balanced_discovery` still
+diversify through explicit budget reasons.
 
 ---
 
@@ -371,8 +371,10 @@ observation window, per the 2D-A recommendation.
 
 1.4 archive compare_activation_eval.py ─────────────────────► delete its tests
 
+1.2 delete proposal_execution ──────────────────────────────► done
+
 replacement active-path reporting / explicit watch retirement
-         └──► later archive report_inline_shadow.py ──► 1.2 delete shadow fields ──► delete tests
+         └──► later archive report_inline_shadow.py ──► delete remaining shadow fields ──► delete tests
 
 1.5 archive route_scoring.py ──► 1.3 delete trust_gate()
 
@@ -387,10 +389,10 @@ replacement active-path reporting / explicit watch retirement
 3.4 active_mode flag ──► operational sign-off, then collapse planner branch
 ```
 
-Completed cleanup: §1.1, §2.1, §2.2, §2.3, and §2.4. Deleting
-`proposal_diverged` / `activatable_diverged`, archiving regression tools, and
-collapsing `intent.active_mode` wait for operational sign-off or replacement
-reporting.
+Completed cleanup: §1.1, write-only `proposal_execution` from §1.2, §2.1,
+§2.2, §2.3, §2.4, and §3.2. Deleting `proposal_diverged` /
+`activatable_diverged`, archiving regression tools, and collapsing
+`intent.active_mode` wait for operational sign-off or replacement reporting.
 
 ---
 

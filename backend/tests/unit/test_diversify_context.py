@@ -1,4 +1,5 @@
 from app.rag.query.diversify_context import diversify_context_node
+from app.rag.query.control.breadth import resolve_breadth
 
 
 def _cfg(flavor="recall"):
@@ -10,6 +11,7 @@ def _state(flavor="recall", final_context_k=3, candidates=None):
         "query": "q",
         "query_plan": {
             "retrieval_flavor": flavor,
+            "retrieval_breadth": resolve_breadth(flavor),
             "budget": {"final_context_k": final_context_k},
         },
         "rerank_candidates": candidates or [],
@@ -101,6 +103,21 @@ def test_recall_prioritizes_document_coverage_before_duplicates():
     assert [doc["document_id"] for doc in out["search_results"]] == ["a", "b", "c"]
 
 
+def test_broad_breadth_prioritizes_document_coverage_without_recall_flavor():
+    candidates = [
+        _doc("a", "a1", 1.0, "s1"),
+        _doc("a", "a2", 0.99, "s1"),
+        _doc("b", "b1", 0.6, "s1"),
+        _doc("c", "c1", 0.5, "s1"),
+    ]
+    state = _state("balanced", 3, candidates)
+    state["query_plan"]["retrieval_breadth"] = "broad"
+
+    out = diversify_context_node(state, _cfg("balanced"))
+
+    assert [doc["document_id"] for doc in out["search_results"]] == ["a", "b", "c"]
+
+
 def test_recall_avoids_same_section_until_coverage_is_filled():
     candidates = [
         _doc("a", "a1", 1.0, "s1"),
@@ -134,3 +151,4 @@ def test_updates_debug():
 
     assert out["rerank_debug"][0]["file_title"] == "a.md"
     assert out["context_diversify_debug"]["selected_count"] == 2
+    assert out["context_diversify_debug"]["breadth"] == "broad"
