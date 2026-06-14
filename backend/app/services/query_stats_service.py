@@ -8,9 +8,10 @@ from datetime import datetime
 from typing import Any
 
 from app.core.database import get_db
+from app.rag.query.config import RETRIEVAL_FLAVORS, normalize_retrieval_flavor
 from app.services.query_observability import json_dumps, observability_json_columns
 
-FLAVORS = ("balanced", "exact", "recall", "discovery")
+FLAVORS = RETRIEVAL_FLAVORS
 LATENCY_GROUP_FIELDS = {"retrieval_flavor", "status", "endpoint"}
 
 
@@ -49,7 +50,7 @@ class QueryStatsService:
     ):
         """Save one query run."""
         now = datetime.now().isoformat()
-        flavor = retrieval_flavor if retrieval_flavor in FLAVORS else "balanced"
+        flavor = normalize_retrieval_flavor(retrieval_flavor)
         citations_json = _json_text(citations)
         obs_cols = observability_json_columns(observability)
         if endpoint:

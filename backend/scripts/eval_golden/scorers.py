@@ -206,30 +206,43 @@ def score_no_answer(answer: str, item: dict) -> dict:
 
     # --- Default logic (backward compat) ---
     if na_type == "out_of_scope_entity":
-        question = item.get("question", "")
-        entity_names = ["华虹半导体", "台积电", "三星", "英特尔", "英伟达"]
-        asked_entity = next((en for en in entity_names if en in question), "")
+        forbidden_entities = _string_list(item.get("forbidden_entities"))
+        unscored_reason = "out_of_scope_entity_missing_forbidden_entities" if not forbidden_entities else None
+        forbidden_hits = _entity_financial_hits(answer, forbidden_entities)
+        if forbidden_hits:
+            return {
+                "verdict": "fail", "score": 0.0,
+                "no_answer_type": na_type,
+                "has_refusal_signal": has_refusal,
+                "checked_entities": forbidden_entities,
+                "forbidden_hits": forbidden_hits,
+            }
 
-        if asked_entity:
-            pat = asked_entity + r".*?" + FINANCIAL_UNIT_PATTERN
-            entity_nums = re.findall(pat, answer)
-            if entity_nums:
+        if not forbidden_entities:
+            financial_nums = re.findall(FINANCIAL_UNIT_PATTERN, answer)
+            if financial_nums:
                 return {
                     "verdict": "fail", "score": 0.0,
                     "no_answer_type": na_type,
                     "has_refusal_signal": has_refusal,
-                    "forbidden_hits": [f"{asked_entity}+{n[0]}{n[1]}" for n in entity_nums],
+                    "checked_entities": [],
+                    "forbidden_hits": [f"{n[0]}{n[1]}" for n in financial_nums],
+                    **_optional_unscored_reason(unscored_reason),
                 }
 
         if has_refusal:
             return {"verdict": "pass", "score": 1.0,
                     "no_answer_type": na_type,
                     "has_refusal_signal": has_refusal,
-                    "forbidden_hits": []}
+                    "checked_entities": forbidden_entities,
+                    "forbidden_hits": [],
+                    **_optional_unscored_reason(unscored_reason)}
         return {"verdict": "fail", "score": 0.0,
                 "no_answer_type": na_type,
                 "has_refusal_signal": has_refusal,
-                "forbidden_hits": []}
+                "checked_entities": forbidden_entities,
+                "forbidden_hits": [],
+                **_optional_unscored_reason(unscored_reason)}
 
     else:  # missing_actual_value
         financial_nums = re.findall(FINANCIAL_UNIT_PATTERN, answer)
@@ -252,3 +265,32 @@ def score_no_answer(answer: str, item: dict) -> dict:
             "has_refusal_signal": has_refusal,
             "forbidden_hits": financial_nums if has_financial else [],
         }
+
+
+def _string_list(value) -> list[str]:
+    if not value:
+        return []
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
+
+
+def _entity_financial_hits(answer: str, entities: list[str]) -> list[str]:
+    hits: list[str] = []
+    clauses = _financial_check_clauses(answer)
+    for entity in entities:
+        pat = re.escape(entity) + r"[^。！？；;\n]*?" + FINANCIAL_UNIT_PATTERN
+        for clause in clauses:
+            for amount, unit in re.findall(pat, clause):
+                hits.append(f"{entity}+{amount}{unit}")
+    return hits
+
+
+def _financial_check_clauses(answer: str) -> list[str]:
+    return [part for part in re.split(r"(?<=[。！？；;\n])", answer or "") if part.strip()]
+
+
+def _optional_unscored_reason(reason: str | None) -> dict:
+    return {"unscored_reason": reason} if reason else {}

@@ -1,6 +1,9 @@
 """Unit tests for retrieval-only test runner."""
 
+import pytest
+
 from app.rag.query.config import QueryConfig
+from app.rag.query.search_pipeline import should_run_multi_hop_from_plan
 from app.services import retrieval_test_service as svc
 
 
@@ -14,6 +17,15 @@ def _noop_rewrite(state, config):
 
 def _noop_table_expand(state, config):
     return {"search_results": state.get("search_results", [])}
+
+
+@pytest.fixture(autouse=True)
+def _noop_context_expand(monkeypatch):
+    monkeypatch.setattr(
+        svc,
+        "_context_expand_node",
+        lambda state, config: {"search_results": state.get("search_results", [])},
+    )
 
 
 _SAMPLE_HIT = {
@@ -64,7 +76,7 @@ def test_retired_discovery_runs_multi_hop_and_returns_trace(monkeypatch):
             }],
             "search_mode": "multi_hop",
             "search_mode_hyde": "",
-            "entity_mode": "multi_hop",
+            "entity_mode": state.get("entity_mode", "none"),
             "matched_entities": ["实体A"],
             "per_entity_counts": {"实体A": 1},
             "hop_plan": "discovery",
@@ -92,7 +104,7 @@ def test_retired_discovery_runs_multi_hop_and_returns_trace(monkeypatch):
         retrieval_flavor="discovery",
     )
 
-    assert payload["entity_mode"] == "multi_hop"
+    assert payload["entity_mode"] == "broad"
     assert payload["hop_plan"] == "discovery"
     assert payload["hop_trace"][1]["discovered_entities"] == ["实体A"]
     assert payload["per_entity_counts"] == {"实体A": 1}
@@ -430,5 +442,5 @@ def test_exact_does_not_record_blocked_when_filtered_results_are_adequate(monkey
 
 
 def test_retrieval_test_multi_hop_reads_single_flag():
-    assert svc._should_run_multi_hop({"entity_mode": "single"}, "哪些公司", {"use_multi_hop": True}) is True
-    assert svc._should_run_multi_hop({"entity_mode": "broad"}, "报销标准", {"use_multi_hop": False}) is False
+    assert should_run_multi_hop_from_plan({"entity_mode": "single"}, "哪些公司", {"use_multi_hop": True}) is True
+    assert should_run_multi_hop_from_plan({"entity_mode": "broad"}, "报销标准", {"use_multi_hop": False}) is False

@@ -19,6 +19,7 @@ from app.api.golden_set_utils import (
 )
 from app.core.auth import CurrentUser
 from app.deps import verify_token
+from app.rag.query.config import VALID_RETRIEVAL_FLAVORS
 from app.services import job_service
 from app.utils.schema import ensure_dict
 
@@ -178,7 +179,7 @@ def _normalize_golden_case_update(req: GoldenCaseUpdate) -> dict:
     question = req.question.strip()
     if not question:
         raise ValueError("问题不能为空")
-    if req.preferred_flavor not in {"balanced", "exact", "recall", "discovery"}:
+    if req.preferred_flavor not in VALID_RETRIEVAL_FLAVORS:
         raise ValueError("查找策略无效")
     if req.eval_type not in {"llm_judge", "rule", "no_answer"}:
         raise ValueError("评测方式无效")

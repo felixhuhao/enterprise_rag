@@ -1,6 +1,6 @@
 """Unit tests for QueryConfig: defaults, dict extraction, toggle behavior."""
 
-from app.rag.query.config import QueryConfig, get_query_config
+from app.rag.query.config import QueryConfig, get_query_config, normalize_retrieval_flavor
 
 
 class TestQueryConfigDefaults:
@@ -125,6 +125,21 @@ class TestQueryConfigClamp:
 
     def test_invalid_retrieval_flavor_falls_back(self):
         assert QueryConfig(retrieval_flavor="unknown").retrieval_flavor == "balanced"
+
+
+def test_normalize_retrieval_flavor_valid_inputs():
+    assert normalize_retrieval_flavor("balanced") == "balanced"
+    assert normalize_retrieval_flavor("exact") == "exact"
+    assert normalize_retrieval_flavor("recall") == "recall"
+    assert normalize_retrieval_flavor("discovery") == "discovery"
+
+
+def test_normalize_retrieval_flavor_invalid_falls_back_to_balanced():
+    assert normalize_retrieval_flavor("strict_evidence") == "balanced"
+    assert normalize_retrieval_flavor("unknown") == "balanced"
+    assert normalize_retrieval_flavor("") == "balanced"
+    assert normalize_retrieval_flavor(None) == "balanced"  # type: ignore[arg-type]
+    assert normalize_retrieval_flavor("Balanced") == "balanced"
 
 
 class TestRuntimeSettingsClamp:

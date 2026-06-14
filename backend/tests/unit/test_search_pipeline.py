@@ -103,7 +103,7 @@ def test_run_search_pipeline_post_rerank_fallback_retries_unfiltered():
 
 
 def test_should_run_multi_hop_reads_single_flag():
-    from app.rag.query.search_pipeline import _should_run_multi_hop
+    from app.rag.query.search_pipeline import should_run_multi_hop_from_plan
 
-    assert _should_run_multi_hop({"entity_mode": "single"}, "哪些公司", {"use_multi_hop": True}) is True
-    assert _should_run_multi_hop({"entity_mode": "broad"}, "报销标准", {"use_multi_hop": False}) is False
+    assert should_run_multi_hop_from_plan({"entity_mode": "single"}, "哪些公司", {"use_multi_hop": True}) is True
+    assert should_run_multi_hop_from_plan({"entity_mode": "broad"}, "报销标准", {"use_multi_hop": False}) is False

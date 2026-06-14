@@ -47,13 +47,11 @@ const router = createRouter({
     },
     {
       path: '/acl-audit',
-      name: 'AclAudit',
-      component: () => import('../components/admin/AclAuditView.vue'),
+      redirect: { path: '/settings', query: { tab: 'access' } },
     },
     {
       path: '/entity-aliases',
-      name: 'EntityAliases',
-      component: () => import('../components/admin/EntityAliasesView.vue'),
+      redirect: { path: '/settings', query: { tab: 'aliases' } },
     },
     {
       path: '/feedback',

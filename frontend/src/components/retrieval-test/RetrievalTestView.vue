@@ -450,11 +450,16 @@ const traceEntries = computed<TraceRow[]>(() => {
 
 const entityModeLabel = computed(() => {
   if (!response.value) return '—'
+  if (
+    response.value.hop_plan === 'discovery' ||
+    response.value.strategy?.search_mode?.startsWith('multi_hop')
+  ) {
+    return '关联查找'
+  }
   const map: Record<string, string> = {
     single: '单实体',
     multi_explicit: '多实体',
     broad: '宽泛查询',
-    multi_hop: '关联查找',
     none: '全库',
   }
   return map[response.value.entity_mode] ?? response.value.entity_mode

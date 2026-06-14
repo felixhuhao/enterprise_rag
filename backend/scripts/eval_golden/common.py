@@ -1,5 +1,7 @@
 """Shared constants and tiny helpers for golden-set evaluation."""
 
+from app.rag.query.config import normalize_retrieval_flavor as _normalize_flavor
+
 EVAL_MODES = {"full", "quick", "retrieval_only", "answer_lite"}
 FAILURE_CATEGORIES = (
     "retrieval_miss",
@@ -32,10 +34,6 @@ def _compose_final_score(answer_component: float, citation_score: float) -> floa
         + CITATION_COMPONENT_WEIGHT * citation_score,
         4,
     )
-
-
-def _normalize_flavor(value: str) -> str:
-    return value if value in {"balanced", "exact", "recall", "discovery"} else "balanced"
 
 
 def _boolish(value) -> bool:

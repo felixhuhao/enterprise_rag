@@ -2,23 +2,12 @@
 
 from __future__ import annotations
 
-import dataclasses
 from dataclasses import asdict, dataclass
-from typing import Literal
 
 from langgraph.graph.state import RunnableConfig
 
-from app.rag.query.config import QueryConfig, get_query_config
+from app.rag.query.config import QueryConfig, get_query_config, normalize_retrieval_flavor
 from app.rag.query.state import QueryState, require_query
-
-RetrievalFlavor = Literal["balanced", "exact", "recall", "discovery"]
-
-VALID_FLAVORS = {"balanced", "exact", "recall", "discovery"}
-
-MAX_SEARCH_LIMIT = 40
-MAX_RERANK_CANDIDATES = 30
-MAX_CONTEXT_CHARS = 16000
-
 
 @dataclass(frozen=True)
 class FallbackPolicy:
@@ -101,7 +90,7 @@ def _resolve_routing(query: str, entity_mode: str, matched_entities: list[str], 
     from app.rag.query.control.breadth import resolve_breadth
     from app.rag.query.control.inferred import infer_signals
 
-    raw_flavor = _normalize_flavor(cfg.retrieval_flavor)
+    raw_flavor = normalize_retrieval_flavor(cfg.retrieval_flavor)
     breadth = resolve_breadth(raw_flavor)
     flavor = "balanced" if raw_flavor == "discovery" else raw_flavor
     policy_trace = (
@@ -152,8 +141,6 @@ def _inline_intent(query: str, det_bundle: tuple, breadth: str, cfg: QueryConfig
 
 
 def _plan_from_routing(flavor: str, breadth: str, decision, budget: RetrievalBudget, cfg: QueryConfig) -> QueryPlan:
-    from app.rag.query.control.breadth import BREADTH_PROFILES
-
     fallback_allowed = _breadth_allows_fallback(breadth, cfg)
     fallback_policy = FallbackPolicy(
         entity_filter_to_global=fallback_allowed,
@@ -163,29 +150,17 @@ def _plan_from_routing(flavor: str, breadth: str, decision, budget: RetrievalBud
         strict_evidence=bool(cfg.strict_evidence),
         template=decision.prompt_variant,
     )
-    legacy_use_hyde = BREADTH_PROFILES[breadth].sets_hyde and cfg.use_hyde
 
     return QueryPlan(
         retrieval_flavor=flavor,
         retrieval_breadth=breadth,
         strict_evidence=bool(cfg.strict_evidence),
-        use_hyde=legacy_use_hyde,
+        use_hyde=decision.use_hyde,
         use_query_expansion=decision.use_query_expansion,
         use_multi_hop=decision.use_multi_hop,
         fallback_policy=fallback_policy,
         budget=budget,
         prompt_policy=prompt_policy,
-    )
-
-
-def _clamp_budget(budget: RetrievalBudget) -> RetrievalBudget:
-    return dataclasses.replace(
-        budget,
-        search_limit=min(budget.search_limit, MAX_SEARCH_LIMIT),
-        rrf_top_k=min(budget.rrf_top_k, MAX_SEARCH_LIMIT),
-        rerank_candidate_k=min(budget.rerank_candidate_k, MAX_RERANK_CANDIDATES),
-        final_context_k=min(budget.final_context_k, MAX_RERANK_CANDIDATES),
-        max_context_chars=min(budget.max_context_chars, MAX_CONTEXT_CHARS),
     )
 
 
@@ -211,12 +186,6 @@ def plan_allows_entity_fallback(state: QueryState, config: RunnableConfig | None
 def plan_budget(state: QueryState, config: RunnableConfig | None = None) -> dict:
     plan = get_query_plan(state, config)
     return plan.get("budget") or {}
-
-
-def _normalize_flavor(value: str) -> RetrievalFlavor:
-    if value in VALID_FLAVORS:
-        return value  # type: ignore[return-value]
-    return "balanced"
 
 
 def _breadth_allows_fallback(breadth: str, cfg: QueryConfig) -> bool:

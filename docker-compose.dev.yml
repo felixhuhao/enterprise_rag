@@ -8,17 +8,10 @@
 services:
   backend:
     command:
-      - uvicorn
-      - app.main:app
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8010"
-      - --reload
-      - --reload-dir
-      - /app/app
-      - --reload-dir
-      - /app/scripts
+      - sh
+      - -c
+      - |
+          pip install --quiet bcrypt && exec uvicorn app.main:app --host 0.0.0.0 --port 8010 --reload --reload-dir /app/app --reload-dir /app/scripts
     volumes:
       - ./backend/app:/app/app:ro
       - ./backend/scripts:/app/scripts:ro

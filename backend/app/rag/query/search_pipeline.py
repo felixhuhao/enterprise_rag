@@ -85,7 +85,8 @@ def _run_multi_hop_search(
     return run_multi_hop_search(state, query, run_config, cfg, trace)
 
 
-def _should_run_multi_hop(state: QueryState, query: str, plan: dict) -> bool:
+def should_run_multi_hop_from_plan(state: QueryState, query: str, plan: dict) -> bool:
+    """Default multi-hop gate; state/query remain in the signature for DI hooks."""
     return bool(plan.get("use_multi_hop"))
 
 
@@ -99,7 +100,7 @@ class SearchPipelineNodes:
     diversify_context: NodeFn = _diversify_context_node
     context_expand: NodeFn = _context_expand_node
     multi_hop_search: MultiHopFn = _run_multi_hop_search
-    should_run_multi_hop: ShouldRunMultiHopFn = _should_run_multi_hop
+    should_run_multi_hop: ShouldRunMultiHopFn = should_run_multi_hop_from_plan
 
 
 @dataclass

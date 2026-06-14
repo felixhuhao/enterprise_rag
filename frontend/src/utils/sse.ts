@@ -51,7 +51,7 @@ export function connectSSE<TEvent extends SSEEvent = SSEEvent>(
       if (!response.ok) {
         if (response.status === 401) {
           localStorage.removeItem('api_token')
-          Message.error('API Token 无效或已过期，请在侧边栏重新设置')
+          Message.error('登录已过期，请重新登录')
         }
         throw new Error(`HTTP ${response.status}`)
       }

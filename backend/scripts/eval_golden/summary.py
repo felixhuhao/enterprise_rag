@@ -3,6 +3,7 @@
 import math
 from collections import Counter
 
+from app.rag.query.config import RETRIEVAL_FLAVORS
 from app.utils.schema import ensure_dict
 
 from .common import FAILURE_CATEGORIES, _boolish, _verdict, normalize_eval_mode
@@ -87,7 +88,7 @@ def build_summary(
 
     # Per-flavor breakdown
     per_flavor = {}
-    for flavor in ["balanced", "exact", "recall", "discovery"]:
+    for flavor in RETRIEVAL_FLAVORS:
         fr = [r for r in scored if _actual_or_requested_flavor(r) == flavor]
         if not fr:
             continue

@@ -16,7 +16,7 @@ def test_needs_synthesis_from_markers():
     assert infer_signals("报销标准是什么？", "single", []).needs_synthesis is False
 
 
-def test_needs_multi_hop_folds_decide_multi_hop():
+def test_needs_multi_hop_folds_discovery_and_responsibility_signals():
     assert infer_signals("哪些公司提到了报销？", "broad", []).needs_multi_hop is True
     assert infer_signals("谁负责报销审批？", "none", []).needs_multi_hop is True
     assert infer_signals("哪些公司提到了报销？", "single", []).needs_multi_hop is False

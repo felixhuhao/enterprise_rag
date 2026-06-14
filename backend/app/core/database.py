@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS general_documents (
     file_type      TEXT NOT NULL,
     ingestion_mode TEXT NOT NULL DEFAULT 'text_only',
     entity_name    TEXT DEFAULT '',
+    uploaded_by    TEXT DEFAULT '',
     status         TEXT NOT NULL DEFAULT 'uploaded',
     chunk_count    INTEGER DEFAULT 0,
     image_count    INTEGER DEFAULT 0,
@@ -161,11 +162,29 @@ CREATE TABLE IF NOT EXISTS query_run_stats (
 CREATE INDEX IF NOT EXISTS idx_qrunstats_created ON query_run_stats(created_at);
 
 CREATE TABLE IF NOT EXISTS users (
-    user_id   TEXT PRIMARY KEY,
-    username  TEXT NOT NULL,
-    api_token TEXT NOT NULL UNIQUE,
-    role      TEXT DEFAULT 'user'
+    user_id       TEXT PRIMARY KEY,
+    username      TEXT NOT NULL UNIQUE,
+    password_hash TEXT,
+    created_at    TEXT NOT NULL DEFAULT '',
+    api_token     TEXT,
+    role          TEXT DEFAULT 'user'
 );
+
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    token_hash  TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    expires_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id);
+
+CREATE TABLE IF NOT EXISTS entity_acl (
+    entity_name TEXT NOT NULL,
+    user_id     TEXT NOT NULL,
+    permission  TEXT NOT NULL,
+    PRIMARY KEY (entity_name, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_entity_acl_user ON entity_acl(user_id);
 
 CREATE TABLE IF NOT EXISTS document_acl (
     document_id TEXT NOT NULL,
@@ -251,6 +270,15 @@ async def init_db():
             await db.execute("ALTER TABLE general_documents ADD COLUMN entity_name TEXT DEFAULT ''")
         except aiosqlite.OperationalError:
             pass  # 列已存在
+        # migration: uploaded_by column (audit trail)
+        try:
+            await db.execute("ALTER TABLE general_documents ADD COLUMN uploaded_by TEXT DEFAULT ''")
+        except aiosqlite.OperationalError:
+            pass
+        # index: entity_name (added after ALTER TABLE ensures the column exists)
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_general_documents_entity ON general_documents(entity_name)"
+        )
         # migration: error_code 列
         try:
             await db.execute("ALTER TABLE general_documents ADD COLUMN error_code TEXT DEFAULT ''")
@@ -365,26 +393,137 @@ async def init_db():
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )"""
         )
-        # Seed demo users (idempotent，admin token 同步 .env 配置)
-        from app.config import settings as app_settings
-        admin_token = app_settings.API_TOKEN.strip()
-        if not admin_token:
-            admin_token = secrets.token_urlsafe(32)
-            app_settings.API_TOKEN = admin_token
-            logger.warning("API_TOKEN is not configured; generated an ephemeral admin token for this process")
-        for user_id, username, token, role in (
-            ("u_alice", "Alice", "alice-demo-token", "user"),
-            ("u_bob",   "Bob",   "bob-demo-token",   "user"),
-            ("u_admin", "Admin", admin_token, "admin"),
-        ):
-            try:
-                await db.execute(
-                    "INSERT INTO users (user_id, username, api_token, role) VALUES (?, ?, ?, ?) "
-                    "ON CONFLICT(user_id) DO UPDATE SET api_token = excluded.api_token",
-                    (user_id, username, token, role),
+        # migration: users table rebuild (old shape → password-hash shape)
+        # Gate on the actual target shape, not just column presence, so a
+        # partially-migrated DB (password_hash added but api_token still
+        # NOT NULL UNIQUE) is detected and rebuilt.
+        async with db.execute("PRAGMA table_info(users)") as _pragma:
+            _user_cols_info = {row["name"]: row for row in await _pragma.fetchall()}
+        _api_token_col = _user_cols_info.get("api_token")
+        _needs_rebuild = (
+            "password_hash" not in _user_cols_info
+            or (_api_token_col is not None and _api_token_col["notnull"] == 1)
+        )
+        if _needs_rebuild:
+            async with db.execute(
+                "SELECT username, COUNT(*) as cnt FROM users GROUP BY username HAVING cnt > 1"
+            ) as _dupe:
+                _dupes = await _dupe.fetchall()
+            if _dupes:
+                _names = ", ".join(r["username"] for r in _dupes)
+                raise RuntimeError(
+                    f"Migration aborted: duplicate usernames ({_names}). "
+                    "Resolve duplicates before proceeding."
                 )
-            except Exception:
-                pass
+            # Drop stale temp table from a previous crashed rebuild
+            await db.execute("DROP TABLE IF EXISTS users_new")
+            await db.execute(
+                "CREATE TABLE users_new ("
+                "user_id TEXT PRIMARY KEY, "
+                "username TEXT NOT NULL UNIQUE, "
+                "password_hash TEXT, "
+                "created_at TEXT NOT NULL DEFAULT '', "
+                "api_token TEXT, "
+                "role TEXT DEFAULT 'user')"
+            )
+            await db.execute(
+                "INSERT INTO users_new (user_id, username, password_hash, created_at, api_token, role) "
+                "SELECT user_id, username, NULL, '', api_token, role FROM users"
+            )
+            await db.execute("DROP TABLE users")
+            await db.execute("ALTER TABLE users_new RENAME TO users")
+            logger.info("users table rebuilt for password auth")
+
+        # migration: normalize + canonicalize entity_name
+        from app.core.entity import load_alias_map, canonicalize_with_map
+        _alias_map = await load_alias_map(db)
+        await db.execute(
+            "UPDATE general_documents SET entity_name = TRIM(entity_name) "
+            "WHERE entity_name != TRIM(entity_name)"
+        )
+        async with db.execute(
+            "SELECT DISTINCT entity_name FROM general_documents WHERE entity_name != ''"
+        ) as _ent:
+            _distinct = [r["entity_name"] for r in await _ent.fetchall()]
+        _canon: list[tuple[str, str]] = []
+        for _ent_name in _distinct:
+            _canonical = canonicalize_with_map(_ent_name, _alias_map)
+            if _canonical != _ent_name:
+                await db.execute(
+                    "UPDATE general_documents SET entity_name = ? WHERE entity_name = ?",
+                    (_canonical, _ent_name),
+                )
+                _canon.append((_ent_name, _canonical))
+        if _canon:
+            logger.info("entity_name canonicalized %d names: %s", len(_canon), _canon)
+        _ambiguous: list[tuple[str, list[str], int]] = []
+        for _ent_name in _distinct:
+            _canon_list = _alias_map.get(_ent_name)
+            if _canon_list and len(_canon_list) > 1:
+                async with db.execute(
+                    "SELECT COUNT(*) as cnt FROM general_documents WHERE entity_name = ?",
+                    (_ent_name,),
+                ) as _cnt:
+                    _c = (await _cnt.fetchone())["cnt"]
+                _ambiguous.append((_ent_name, _canon_list, _c))
+        if _ambiguous:
+            logger.warning("ambiguous alias-stored entity_names need admin resolution: %s", _ambiguous)
+        async with db.execute(
+            "SELECT COUNT(*) as cnt FROM general_documents WHERE entity_name = ''"
+        ) as _blank:
+            _blank_count = (await _blank.fetchone())["cnt"]
+        if _blank_count:
+            logger.warning(
+                "%d documents have blank entity_name — admin-only until moved to a non-blank entity",
+                _blank_count,
+            )
+
+        # migration: backfill entity_acl from document_acl (one-time)
+        async with db.execute("SELECT COUNT(*) as cnt FROM entity_acl") as _ea:
+            _ea_count = (await _ea.fetchone())["cnt"]
+        if _ea_count == 0:
+            await db.execute(
+                "INSERT OR REPLACE INTO entity_acl (entity_name, user_id, permission) "
+                "SELECT g.entity_name, d.user_id, "
+                "  MAX(CASE WHEN d.permission = 'owner' THEN 'write' ELSE 'read' END) "
+                "FROM document_acl d "
+                "JOIN general_documents g ON d.document_id = g.document_id "
+                "WHERE g.entity_name != '' "
+                "GROUP BY g.entity_name, d.user_id"
+            )
+            async with db.execute("SELECT COUNT(*) as cnt FROM entity_acl") as _ea2:
+                _backfilled = (await _ea2.fetchone())["cnt"]
+            if _backfilled:
+                logger.info("entity_acl backfilled from document_acl: %d grants", _backfilled)
+
+        # Seed bootstrap_admin_user_id
+        await db.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES ('bootstrap_admin_user_id', 'u_admin')"
+        )
+
+        # Ensure API_TOKEN for bootstrap bypass (lookup_user reads this directly)
+        from app.config import settings as app_settings
+        if not app_settings.API_TOKEN.strip():
+            app_settings.API_TOKEN = secrets.token_urlsafe(32)
+            logger.warning("API_TOKEN is not configured; generated an ephemeral admin token for this process")
+
+        # Seed demo users with passwords (first run; preserves existing passwords on restart)
+        import bcrypt as _bcrypt
+        from datetime import datetime as _dt, timezone as _tz
+        _now = _dt.now(_tz.utc).isoformat()
+        for _uid, _uname, _role, _pw in (
+            ("u_alice", "Alice", "user", "alice-demo-pass"),
+            ("u_bob",   "Bob",   "user", "bob-demo-pass"),
+            ("u_admin", "Admin", "admin", "admin-demo-pass"),
+        ):
+            _pw_hash = _bcrypt.hashpw(_pw.encode(), _bcrypt.gensalt()).decode()
+            await db.execute(
+                "INSERT INTO users (user_id, username, password_hash, created_at, role) "
+                "VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(user_id) DO UPDATE SET "
+                "  password_hash = COALESCE(users.password_hash, excluded.password_hash)",
+                (_uid, _uname, _pw_hash, _now, _role),
+            )
         # migration: QueryConfig 默认值 seed
         from app.core.runtime_settings import _DEFAULTS
         for key, value in _DEFAULTS.items():

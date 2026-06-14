@@ -8,6 +8,7 @@
     <div class="documents-card">
       <div class="summary-strip">
         <a-upload
+          v-if="authStore.canUpload"
           ref="uploadRef"
           class="upload-trigger"
           :auto-upload="false"
@@ -130,13 +131,12 @@
             </template>
             <template #cell="{ record }">
               <a-space>
-                <!-- cleanup_status 优先：待清理状态只显示修复删除 -->
-                <template v-if="record.cleanup_status === 'milvus_delete_failed'">
+                <template v-if="record.cleanup_status === 'milvus_delete_failed' && authStore.canWriteEntity(record.entity_name)">
                   <a-popconfirm content="确认重试清理向量数据并删除记录？" @ok="handleRepairDelete(record.document_id)">
                     <a-button type="primary" size="small" status="warning">修复删除</a-button>
                   </a-popconfirm>
                 </template>
-                <template v-else>
+                <template v-else-if="authStore.canWriteEntity(record.entity_name)">
                   <a-button
                     v-if="record.status === 'uploaded'"
                     type="primary"
@@ -157,6 +157,7 @@
                     <a-button type="text" size="small" status="danger">删除</a-button>
                   </a-popconfirm>
                 </template>
+                <span v-else class="text-muted">只读</span>
               </a-space>
             </template>
           </a-table-column>
@@ -194,6 +195,9 @@ import type { FileItem } from '@arco-design/web-vue'
 import type { Document } from '../../api/documents'
 import { useAutoFitColumns } from '../../composables/useAutoFitColumns'
 import { ERROR_HINTS } from '../../utils/errorHints'
+import { useAuthStore } from '../../stores/auth'
+
+const authStore = useAuthStore()
 import {
   listDocuments,
   uploadDocument,

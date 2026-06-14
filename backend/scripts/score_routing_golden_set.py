@@ -18,7 +18,7 @@ from app.rag.query.control.route_scoring import (
     route_for_intent,
     score_case,
 )
-from app.rag.query.control.routing import decision_execution_dict, trust_gate
+from app.rag.query.control.routing import decision_execution_dict, trust_gate_bundle
 
 
 def _resolve_repo_root() -> Path:
@@ -60,7 +60,10 @@ def score_one(case: dict[str, Any]) -> dict[str, Any]:
     # The canonical trust gate requires high confidence and no classifier fallback.
     # Fallback outputs therefore score as the Design 1 safe-default route, which can
     # shift failure-case metrics compared with the older high-confidence-only gate.
-    actual_route = trust_gate(merged, merged_decision, design1_decision)
+    actual_route = trust_gate_bundle(
+        (merged, merged_decision, None),
+        (det, design1_decision, None),
+    )[1]
 
     outcome = score_case(
         case["case_class"],

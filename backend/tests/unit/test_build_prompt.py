@@ -85,6 +85,46 @@ class TestBuildPromptNode:
         assert result["context_map"] == {}
         assert "test" in result["context_text"]
 
+    def test_prompt_includes_shared_answer_contract(self):
+        state = {"query": "缺少的字段是什么？", "search_results": []}
+        config = {"configurable": {"query_config": QueryConfig()}}
+
+        result = build_prompt_node(state, config)
+
+        assert "通用回答契约" in result["context_text"]
+        assert "直接答案先行" in result["context_text"]
+        assert "上下文证据互相矛盾" in result["context_text"]
+        assert "无法从资料确认" in result["context_text"]
+        assert "不要编造、补全或从相邻事实推断缺失信息" in result["context_text"]
+
+    def test_multi_entity_prompt_uses_shared_contract_and_entity_headings(self):
+        state = {
+            "query": "A 和 B 分别是什么？",
+            "query_plan": {"prompt_policy": {"template": "multi_entity"}},
+            "search_results": [],
+        }
+        config = {"configurable": {"query_config": QueryConfig()}}
+
+        result = build_prompt_node(state, config)
+
+        assert "### 实体名称" in result["context_text"]
+        assert "通用回答契约" in result["context_text"]
+        assert "资料中未提供该实体的相关信息" in result["context_text"]
+
+    def test_broad_prompt_warns_against_low_relevance_inventory(self):
+        state = {
+            "query": "所有公司有什么制度？",
+            "query_plan": {"prompt_policy": {"template": "broad"}},
+            "search_results": [],
+        }
+        config = {"configurable": {"query_config": QueryConfig()}}
+
+        result = build_prompt_node(state, config)
+
+        assert "不要为了覆盖而罗列低相关上下文" in result["context_text"]
+        assert "证据不足的实体不要补写" in result["context_text"]
+        assert "通用回答契约" in result["context_text"]
+
     def test_fallback_used_adds_scope_instruction(self):
         state = {
             "query": "实体A 的制度？",

@@ -8,7 +8,12 @@ from langgraph.graph.state import RunnableConfig
 
 from app.config import settings
 from app.rag.query.config import QueryConfig, get_default_query_config
-from app.rag.query.search_pipeline import SearchPipelineHooks, SearchPipelineNodes, run_search_pipeline
+from app.rag.query.search_pipeline import (
+    SearchPipelineHooks,
+    SearchPipelineNodes,
+    run_search_pipeline,
+    should_run_multi_hop_from_plan,
+)
 from app.rag.query.state import QueryState
 from app.services import retrieval_test_formatting
 from app.services import retrieval_test_search
@@ -56,7 +61,7 @@ def run_retrieval_test(
         diversify_context=_diversify_context_node,
         context_expand=_context_expand_node,
         multi_hop_search=_run_multi_hop_search,
-        should_run_multi_hop=_should_run_multi_hop,
+        should_run_multi_hop=should_run_multi_hop_from_plan,
     )
     state = run_search_pipeline(
         query,
@@ -155,10 +160,6 @@ def _run_primary_search(state: QueryState, run_config: RunnableConfig, cfg: Quer
         embed_query=_embed_query,
         dense_search=_dense_only_search_limited,
     )
-
-
-def _should_run_multi_hop(state: QueryState, query: str, plan: dict) -> bool:
-    return bool(plan.get("use_multi_hop"))
 
 
 def _run_multi_hop_search(

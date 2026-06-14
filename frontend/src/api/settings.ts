@@ -14,8 +14,3 @@ export async function updateSettings(settings: Record<string, string>): Promise<
   const res = await apiClient.put('/settings', { settings })
   return res.data
 }
-
-/** 更新 API Token */
-export async function updateToken(token: string): Promise<void> {
-  await apiClient.post('/settings/token', { token })
-}

@@ -3,8 +3,8 @@
 import sys
 from types import SimpleNamespace
 
+from app.rag.query.control.inferred import infer_signals
 from app.rag.query.multi_hop import (
-    _decide_multi_hop,
     _discover_entities,
     _extract_responsible_people,
     _merge_results,
@@ -12,28 +12,30 @@ from app.rag.query.multi_hop import (
 )
 
 
-class TestDecideMultiHop:
+class TestInferredMultiHop:
     def test_broad_discovery_keyword(self):
-        assert _decide_multi_hop("none", "哪些公司提到了AI投资计划") is True
-        assert _decide_multi_hop("broad", "哪些企业涉及信息安全") is True
-        assert _decide_multi_hop("none", "什么公司有培训计划") is True
+        assert infer_signals("哪些公司提到了AI投资计划", "none", []).needs_multi_hop is True
+        assert infer_signals("哪些企业涉及信息安全", "broad", []).needs_multi_hop is True
+        assert infer_signals("什么公司有培训计划", "none", []).needs_multi_hop is True
 
     def test_responsibility_followup_keyword(self):
-        assert _decide_multi_hop("none", "API v1什么时候下线？迁移指南由谁负责？这个人还负责什么工作？") is True
+        assert infer_signals(
+            "API v1什么时候下线？迁移指南由谁负责？这个人还负责什么工作？", "none", []
+        ).needs_multi_hop is True
 
     def test_single_with_keyword_excluded_in_p1(self):
         """P1 不支持 seed relational query，single mode 即使有发现关键词也返回 False"""
-        assert _decide_multi_hop("single", "远景能源的竞争对手有哪些") is False
-        assert _decide_multi_hop("multi_explicit", "各自") is False
+        assert infer_signals("远景能源的竞争对手有哪些", "single", []).needs_multi_hop is False
+        assert infer_signals("各自", "multi_explicit", []).needs_multi_hop is False
 
     def test_normal_factual_query_false(self):
-        assert _decide_multi_hop("single", "毛利率是多少") is False
-        assert _decide_multi_hop("none", "2026年培训计划内容") is False
-        assert _decide_multi_hop("single", "报销标准是什么") is False
+        assert infer_signals("毛利率是多少", "single", []).needs_multi_hop is False
+        assert infer_signals("2026年培训计划内容", "none", []).needs_multi_hop is False
+        assert infer_signals("报销标准是什么", "single", []).needs_multi_hop is False
 
     def test_generic_keyword_false(self):
         """关键词不在 DISCOVERY_KEYWORDS 中 → False"""
-        assert _decide_multi_hop("none", "介绍一下公司情况") is False
+        assert infer_signals("介绍一下公司情况", "none", []).needs_multi_hop is False
 
 
 class TestDiscoverEntities:
@@ -149,12 +151,14 @@ def test_run_multi_hop_preserves_hop2_fallback_info(monkeypatch):
     )
 
     out = run_multi_hop_search(
-        {"query": "哪些公司提到了信息安全培训", "matched_entities": []},
+        {"query": "哪些公司提到了信息安全培训", "entity_mode": "broad", "matched_entities": []},
         "哪些公司提到了信息安全培训",
         {"configurable": {"query_config": QueryConfig(retrieval_flavor="discovery")}},
         QueryConfig(retrieval_flavor="discovery"),
         {},
     )
 
+    assert out["entity_mode"] == "broad"
+    assert out["hop_plan"] == "discovery"
     assert out["fallback_info"]["blocked"] is True
     assert out["fallback_info"]["original_filter"] == '(entity_name == "实体A")'

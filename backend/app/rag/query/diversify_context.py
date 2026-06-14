@@ -1,6 +1,6 @@
 """Final context diversification after rerank.
 
-Recall and discovery-shaped queries need coverage across documents more than
+Broad and discovery-shaped queries need coverage across documents more than
 repeated near-duplicate chunks from the same section.
 """
 
@@ -9,11 +9,12 @@ from __future__ import annotations
 from langgraph.graph.state import RunnableConfig
 
 from app.rag.query.config import get_query_config
+from app.rag.query.control.breadth import resolve_breadth
 from app.rag.query.planner import get_query_plan, plan_budget
 from app.rag.query.state import QueryState
 
 
-_DIVERSIFY_FLAVORS = {"recall"}
+_DIVERSIFY_BREADTHS = {"broad"}
 _DIVERSIFY_BUDGET_REASONS = {"balanced_synthesis", "balanced_discovery"}
 _MIN_DIVERSE_SCORE = 0.5
 
@@ -21,10 +22,10 @@ _MIN_DIVERSE_SCORE = 0.5
 def diversify_context_node(state: QueryState, config: RunnableConfig) -> dict:
     cfg = get_query_config(config)
     plan = get_query_plan(state, config)
-    flavor = plan.get("retrieval_flavor", cfg.retrieval_flavor)
+    breadth = _plan_breadth(plan, cfg)
     budget = plan_budget(state, config)
     budget_reason = str((budget or {}).get("reason") or "")
-    should_diversify = flavor in _DIVERSIFY_FLAVORS or budget_reason in _DIVERSIFY_BUDGET_REASONS
+    should_diversify = breadth in _DIVERSIFY_BREADTHS or budget_reason in _DIVERSIFY_BUDGET_REASONS
     ranked_results = state.get("search_results", [])
     candidates = state.get("rerank_candidates") or ranked_results
     if should_diversify:
@@ -36,12 +37,12 @@ def diversify_context_node(state: QueryState, config: RunnableConfig) -> dict:
         return {
             "search_results": [],
             "rerank_debug": [],
-            "context_diversify_debug": _diversify_debug([], [], [], flavor),
+            "context_diversify_debug": _diversify_debug([], [], [], breadth),
         }
 
     target_k = max(1, target_k)
     deduped = _dedupe_chunks(candidates)
-    if flavor in _DIVERSIFY_FLAVORS:
+    if breadth in _DIVERSIFY_BREADTHS:
         deduped = _filter_low_confidence(deduped)
         selected = _select_diverse(deduped, target_k)
     elif should_diversify:
@@ -52,8 +53,14 @@ def diversify_context_node(state: QueryState, config: RunnableConfig) -> dict:
     return {
         "search_results": selected,
         "rerank_debug": _rerank_debug(selected),
-        "context_diversify_debug": _diversify_debug(candidates, deduped, selected, flavor),
+        "context_diversify_debug": _diversify_debug(candidates, deduped, selected, breadth),
     }
+
+
+def _plan_breadth(plan: dict, cfg) -> str:
+    if plan.get("retrieval_breadth"):
+        return str(plan["retrieval_breadth"])
+    return resolve_breadth(str(plan.get("retrieval_flavor") or cfg.retrieval_flavor))
 
 
 def _dedupe_chunks(results: list[dict]) -> list[dict]:
@@ -145,9 +152,9 @@ def _rerank_debug(results: list[dict]) -> list[dict]:
     ]
 
 
-def _diversify_debug(candidates: list[dict], deduped: list[dict], selected: list[dict], flavor: str) -> dict:
+def _diversify_debug(candidates: list[dict], deduped: list[dict], selected: list[dict], breadth: str) -> dict:
     return {
-        "flavor": flavor,
+        "breadth": breadth,
         "candidate_count": len(candidates),
         "deduped_count": len(deduped),
         "selected_count": len(selected),

@@ -5,6 +5,7 @@ from dataclasses import asdict
 from app.core.runtime_settings import runtime_settings
 from app.rag.query.config import QueryConfig
 from app.rag.query.control import llm_classifier
+from app.rag.query.control.budget import _clamp_budget
 from app.rag.query.control.llm_classifier import ClassifyResult, LlmMarkers
 from app.rag.query.planner import (
     RetrievalBudget,
@@ -13,8 +14,6 @@ from app.rag.query.planner import (
     plan_allows_entity_fallback,
     plan_budget,
     query_plan_node,
-    _clamp_budget,
-    _normalize_flavor,
 )
 
 
@@ -371,25 +370,6 @@ def test_plan_budget_returns_empty_when_missing():
     assert "search_limit" in budget
 
 
-# ---------------------------------------------------------------------------
-# _normalize_flavor
-# ---------------------------------------------------------------------------
-
-
-def test_normalize_flavor_valid_inputs():
-    assert _normalize_flavor("balanced") == "balanced"
-    assert _normalize_flavor("exact") == "exact"
-    assert _normalize_flavor("recall") == "recall"
-    assert _normalize_flavor("discovery") == "discovery"
-
-
-def test_normalize_flavor_invalid_falls_back_to_balanced():
-    assert _normalize_flavor("strict_evidence") == "balanced"
-    assert _normalize_flavor("unknown") == "balanced"
-    assert _normalize_flavor("") == "balanced"
-
-
-# ---------------------------------------------------------------------------
 # discovery + strict_evidence combination
 # ---------------------------------------------------------------------------
 
@@ -434,7 +414,7 @@ def test_use_multi_hop_is_effective_for_keywordless_configs():
     assert p3.retrieval_breadth == "balanced"
 
 
-def test_hyde_two_value_compat_for_multi_entity():
+def test_multi_entity_plan_suppresses_hyde():
     from app.rag.query.control.budget import resolve_budget_profile
     from app.rag.query.control.inferred import infer_signals
     from app.rag.query.control.routing import derive_routing_decision
@@ -442,7 +422,7 @@ def test_hyde_two_value_compat_for_multi_entity():
     cfg = QueryConfig()
     q = "A公司和B公司的报销"
     plan = build_query_plan(q, "multi_explicit", cfg)
-    assert plan.use_hyde is True
+    assert plan.use_hyde is False
 
     inferred = infer_signals(q, "multi_explicit", [])
     budget = resolve_budget_profile(

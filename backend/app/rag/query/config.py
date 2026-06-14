@@ -4,11 +4,22 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from langgraph.graph.state import RunnableConfig
 
 logger = logging.getLogger(__name__)
+
+RetrievalFlavor = Literal["balanced", "exact", "recall", "discovery"]
+
+RETRIEVAL_FLAVORS: tuple[RetrievalFlavor, ...] = ("balanced", "exact", "recall", "discovery")
+VALID_RETRIEVAL_FLAVORS = set(RETRIEVAL_FLAVORS)
+
+
+def normalize_retrieval_flavor(value: str) -> RetrievalFlavor:
+    if value in VALID_RETRIEVAL_FLAVORS:
+        return value  # type: ignore[return-value]
+    return "balanced"
 
 
 @dataclass
@@ -82,9 +93,10 @@ class QueryConfig:
 
     def clamp(self):
         """Clamp numeric fields to safe ranges. Call after any bulk setattr."""
-        if self.retrieval_flavor not in {"balanced", "exact", "recall", "discovery"}:
+        normalized_flavor = normalize_retrieval_flavor(self.retrieval_flavor)
+        if normalized_flavor != self.retrieval_flavor:
             logger.warning("Invalid retrieval_flavor=%r, falling back to balanced", self.retrieval_flavor)
-            self.retrieval_flavor = "balanced"
+            self.retrieval_flavor = normalized_flavor
         _clamp(self, "search_limit", 1, 50)
         _clamp(self, "hyde_limit", 1, 50)
         _clamp(self, "query_expansion_count", 2, 4)

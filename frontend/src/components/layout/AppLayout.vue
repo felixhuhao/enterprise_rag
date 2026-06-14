@@ -2,7 +2,7 @@
   应用主布局
 
   左侧导航栏（可折叠）+ 顶部标题栏 + 主内容区
-  侧边栏底部提供 Token 输入（不依赖 API，直接写 localStorage）
+  侧边栏底部显示当前用户和退出按钮
 -->
 <template>
   <a-layout class="app-layout">
@@ -24,14 +24,6 @@
           <template #icon><icon-storage /></template>
           {{ authStore.isAdmin ? '文档管理' : '知识库文档' }}
         </a-menu-item>
-        <a-menu-item v-if="authStore.isAdmin" key="/entity-aliases">
-          <template #icon><icon-safe /></template>
-          实体别名
-        </a-menu-item>
-        <a-menu-item v-if="authStore.isAdmin" key="/acl-audit">
-          <template #icon><icon-safe /></template>
-          权限审计
-        </a-menu-item>
         <a-menu-item key="/evaluate">
           <template #icon><icon-bar-chart /></template>
           {{ authStore.isAdmin ? '质量中心' : '查询记录' }}
@@ -45,29 +37,15 @@
           系统设置
         </a-menu-item>
       </a-menu>
-      <!-- Demo 用户切换 -->
+      <!-- 当前用户 + 退出 -->
       <div class="sider-footer">
-        <div class="user-label">Demo 用户</div>
-        <div class="user-switcher">
-          <a-select
-            :model-value="currentUserToken"
-            size="small"
-            @change="onUserSwitch"
-          >
-            <a-option value="alice-demo-token">Alice（星辰科技）</a-option>
-            <a-option value="bob-demo-token">Bob（远景能源）</a-option>
-            <a-option v-if="isCustomToken" :value="currentUserToken">自定义 Token</a-option>
-          </a-select>
-          <div class="custom-token">
-            <a-input-password
-              v-model="customToken"
-              placeholder="自定义 Token"
-              size="small"
-              @keydown.enter="saveCustomToken"
-            />
-            <a-button size="mini" @click="saveCustomToken">保存</a-button>
-          </div>
+        <div class="user-info">
+          <div class="user-name">{{ authStore.currentUser?.username }}</div>
+          <div class="user-role">{{ authStore.isAdmin ? '管理员' : '用户' }}</div>
         </div>
+        <a-button size="small" long @click="handleLogout">
+          退出登录
+        </a-button>
       </div>
     </a-layout-sider>
     <!-- 右侧主区域 -->
@@ -94,19 +72,19 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 import {
   IconStorage,
   IconBarChart,
   IconSettings,
-  IconSafe,
   IconSearch,
 } from '@arco-design/web-vue/es/icon'
 
 const router = useRouter()
 const route = useRoute()
+const authStore = useAuthStore()
 
 const currentRoute = computed(() => {
   if (route.path.startsWith('/documents/')) return '/documents'
@@ -127,8 +105,7 @@ const pageMeta = computed(() => {
       subtitle: isAdmin ? '查询监控、检索记录、答案反馈和基准测试集回归评测。' : '查看自己的查询记录和反馈。',
     },
     '/evaluation': { title: '回归评测', subtitle: '基准测试集质量验证、通过率、失败用例。' },
-    '/settings': { title: '系统设置', subtitle: '配置模型、检索和运行时行为。' },
-    '/acl-audit': { title: '权限审计', subtitle: '查看文档 ACL、owner/read 分配和清理状态。' },
+    '/settings': { title: '系统设置', subtitle: '配置模型、检索、访问管理和实体别名。' },
     '/entity-aliases': { title: '实体别名', subtitle: '维护企业简称、缩写和英文别名，用于查询路由。' },
     '/feedback': { title: '答案反馈', subtitle: '用户反馈记录和基准测试集草稿管理。' },
   }
@@ -136,49 +113,13 @@ const pageMeta = computed(() => {
 })
 const pageTitle = computed(() => pageMeta.value.title)
 const pageSubtitle = computed(() => pageMeta.value.subtitle)
-const DEMO_TOKENS: Record<string, string> = {
-  'Alice（星辰科技）': 'alice-demo-token',
-  'Bob（远景能源）': 'bob-demo-token',
-}
-
-const customToken = ref('')
-const currentUserToken = ref(DEMO_TOKENS['Admin（全部文档）'])
 
 function onMenuClick(key: string) {
   router.push(key)
 }
 
-const authStore = useAuthStore()
-
-onMounted(() => {
-  const stored = localStorage.getItem('api_token')
-  if (stored) {
-    currentUserToken.value = stored
-  } else {
-    localStorage.setItem('api_token', currentUserToken.value)
-  }
-  authStore.fetchMe()
-})
-
-function switchUser(token: string) {
-  localStorage.setItem('api_token', token)
-  currentUserToken.value = token
-  window.location.reload()
-}
-
-const isCustomToken = computed(() =>
-  currentUserToken.value !== '' && !Object.values(DEMO_TOKENS).includes(currentUserToken.value),
-)
-
-function onUserSwitch(value: unknown) {
-  if (typeof value !== 'string') return
-  switchUser(value)
-}
-
-function saveCustomToken() {
-  const trimmed = customToken.value.trim()
-  if (!trimmed) return
-  switchUser(trimmed)
+async function handleLogout() {
+  await authStore.logout()
 }
 </script>
 
@@ -245,27 +186,26 @@ function saveCustomToken() {
   margin-top: auto;
   border-top: 1px solid var(--border);
   padding: 12px 16px;
-}
-
-.user-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
-  margin-bottom: 6px;
-}
-
-.user-switcher {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
-.custom-token {
+.user-info {
   display: flex;
-  gap: 6px;
+  flex-direction: column;
+  gap: 2px;
 }
-.custom-token :deep(.arco-input-password) {
-  flex: 1;
+
+.user-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.user-role {
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 /* ---- Header ---- */
