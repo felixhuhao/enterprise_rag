@@ -1,5 +1,7 @@
 """Unit tests for retrieval-only test runner."""
 
+import pytest
+
 from app.rag.query.config import QueryConfig
 from app.services import retrieval_test_service as svc
 
@@ -14,6 +16,15 @@ def _noop_rewrite(state, config):
 
 def _noop_table_expand(state, config):
     return {"search_results": state.get("search_results", [])}
+
+
+@pytest.fixture(autouse=True)
+def _noop_context_expand(monkeypatch):
+    monkeypatch.setattr(
+        svc,
+        "_context_expand_node",
+        lambda state, config: {"search_results": state.get("search_results", [])},
+    )
 
 
 _SAMPLE_HIT = {
