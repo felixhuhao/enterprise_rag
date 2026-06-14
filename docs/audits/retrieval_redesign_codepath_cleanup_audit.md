@@ -267,22 +267,23 @@ they represent unfinished design migrations.
 | | |
 |---|---|
 | **Producer** | `multi_hop.py:211` — `"entity_mode": "multi_hop"` |
-| **Consumer** | `validate_citations.py:46` — `state.get("entity_mode") == "multi_hop"` |
+| **Consumer** | Formerly `validate_citations.py` — `state.get("entity_mode") == "multi_hop"` |
 | **Design says** | §4: *"`entity_mode = "multi_hop"` as a field value. Execution path moves to `RoutingDecision.steps`."* |
+| **Status** | Partially complete — citation validation no longer reads `entity_mode="multi_hop"` |
 
-These form a coupled live pair: `multi_hop.py` writes the value into state, and
-`validate_citations.py` reads it to gate the context-citation fallback. The
-`state.py:14` type annotation (`single | multi_explicit | broad | none`) does
-not even list `multi_hop` — the emitted value is undocumented in the type yet
-actively read at runtime.
+These formerly formed a coupled live pair: `multi_hop.py` writes the value into
+state, and `validate_citations.py` read it to gate the context-citation
+fallback. The `state.py:14` type annotation (`single | multi_explicit | broad |
+none`) does not even list `multi_hop`.
 
-The same fallback is also triggered by `hop_plan == "discovery"`
-(`validate_citations.py:45`), which covers the same multi-hop-execution case
-through a different signal.
+The same fallback was also triggered by `hop_plan == "discovery"`, which covers
+the current multi-hop execution case through a more explicit signal. Citation
+validation now relies on `hop_plan == "discovery"` only; tests characterize
+that `entity_mode="multi_hop"` alone does not trigger fallback.
 
-**Action:** Switch `validate_citations.py:_should_fallback_to_context_citations`
-to read from the routing trace `steps` (or rely solely on `hop_plan`), then
-remove the `entity_mode` write at `multi_hop.py:211`.
+**Action:** Consumer coupling is removed. The remaining producer is
+response-visible in chat/retrieval-test payloads and frontend labels, so remove
+or rename it only with an explicit UI/API migration.
 
 ---
 
@@ -382,16 +383,17 @@ replacement active-path reporting / explicit watch retirement
          │
          └── (independent of all Tier-1 items)
 
-3.1 entity_mode=multi_hop ──► switch validate_citations to hop_plan/steps
+3.1 entity_mode=multi_hop ──► validate_citations now uses hop_plan only
          │
-         └── (independent)
+         └── later UI/API migration can remove or rename visible producer
 
 3.4 active_mode flag ──► operational sign-off, then collapse planner branch
 ```
 
 Completed cleanup: §1.1, write-only `proposal_execution` from §1.2, §2.1,
-§2.2, §2.3, §2.4, and §3.2. Deleting `proposal_diverged` /
-`activatable_diverged`, archiving regression tools, and collapsing
+§2.2, §2.3, §2.4, §3.1 consumer decoupling, and §3.2. Deleting
+`proposal_diverged` / `activatable_diverged`, archiving regression tools,
+removing the visible `entity_mode="multi_hop"` producer, and collapsing
 `intent.active_mode` wait for operational sign-off or replacement reporting.
 
 ---

@@ -158,3 +158,14 @@ class TestValidateCitations:
         }
         result = validate_citations_node(state)
         assert [c["id"] for c in result["citations"]] == ["C1"]
+
+    def test_multi_hop_entity_mode_alone_does_not_fallback_to_context(self):
+        state = {
+            "answer": "Multi-hop answer without inline citation markers.",
+            "entity_mode": "multi_hop",
+            "context_map": {
+                "C1": {"document_id": "d1", "file_title": "doc-1.md"},
+            },
+        }
+        result = validate_citations_node(state)
+        assert result["citations"] == []
