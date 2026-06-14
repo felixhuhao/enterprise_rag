@@ -317,12 +317,12 @@ diversify through explicit budget reasons.
 
 ---
 
-### 3.3 `hyde_search.py` structural guard — compensating control for §2.1
+### 3.3 `hyde_search.py` structural guard — defense-in-depth
 
 | | |
 |---|---|
 | **Location** | `hyde_search.py` guard for `entity_mode == "multi_explicit"` (currently around lines 85-86) |
-| **Status** | Load-bearing because of the §2.1 bug; likely still useful as defense-in-depth after the fix |
+| **Status** | Keep — verified defense-in-depth for stale/manual plans |
 
 ```python
 if state.get("entity_mode") == "multi_explicit":
@@ -331,20 +331,19 @@ if state.get("entity_mode") == "multi_explicit":
 
 This runtime check is the `disabled_multi` guard from Design 1 §3.2. The same
 semantic is expressed as `entity_scope != "multi"` in the routing decision —
-and it **is**, at `routing.py:53`. But because `_plan_from_routing` recomputes
-HyDE without the guard (§2.1), this separate runtime check currently carries
-the actual safety.
+and it **is**, at `routing.py:53`. `_plan_from_routing` now reads
+`decision.use_hyde`, so the canonical planner path no longer needs this guard
+for correctness.
 
-**Action:** Fix §2.1 first (use `decision.use_hyde`). Do **not** delete this
-guard in the same cleanup unless two follow-up checks pass:
+The guard is still useful because `run_direct_search` trusts an existing
+`query_plan` on state. A stale/manual plan with `use_hyde=true` and
+`entity_mode="multi_explicit"` can still call `hyde_search_node`; the guard
+keeps that edge case from running HyDE. `test_hyde_search.py` now
+characterizes this path.
 
-1. `entity_mode == "multi_explicit"` and inferred `entity_scope == "multi"` are
-   equivalent for every HyDE-reachable path.
-2. `hyde_search_node` is not reachable from a path that lacks a canonical
-   `_plan_from_routing` plan.
-
-If either check is uncertain, keep the guard and update the comment to explain
-that it is defense-in-depth.
+**Action:** Keep the guard. This is not a cleanup candidate unless
+`run_direct_search` stops accepting precomputed plans or validates/canonicalizes
+their `use_hyde` value before dispatch.
 
 ---
 
@@ -381,7 +380,7 @@ replacement active-path reporting / explicit watch retirement
 
 1.5 archive route_scoring.py ──► 1.3 delete trust_gate()
 
-2.1 fix legacy_use_hyde ──► done; 3.3 keep/update hyde guard unless proven redundant
+2.1 fix legacy_use_hyde ──► done; 3.3 HyDE guard retained as defense-in-depth
          │
          └── (independent of all Tier-1 items)
 
@@ -391,7 +390,7 @@ replacement active-path reporting / explicit watch retirement
 ```
 
 Completed cleanup: §1.1, write-only `proposal_execution` from §1.2, §2.1,
-§2.2, §2.3, §2.4, §3.1, and §3.2. Deleting
+§2.2, §2.3, §2.4, §3.1, §3.2, and §3.3 verification. Deleting
 `proposal_diverged` / `activatable_diverged`, archiving regression tools,
 and collapsing `intent.active_mode` wait for operational sign-off or
 replacement reporting.

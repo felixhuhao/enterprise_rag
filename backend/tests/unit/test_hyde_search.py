@@ -6,6 +6,8 @@ import types
 
 import pytest
 
+from app.rag.query.config import QueryConfig
+
 
 @pytest.fixture()
 def hyde_module(monkeypatch):
@@ -53,3 +55,17 @@ def test_normalize_hyde_text_preserves_plain_content(hyde_module):
     text = "远景能源差旅制度规定国内差旅每日补贴150元，海外差旅每日补贴50美元。"
 
     assert hyde_module.normalize_hyde_text(text) == text
+
+
+def test_hyde_search_disables_multi_explicit_even_with_stale_plan(hyde_module):
+    result = hyde_module.hyde_search_node(
+        {
+            "query": "星辰科技和远景能源的差旅标准分别是多少？",
+            "entity_mode": "multi_explicit",
+            "query_plan": {"use_hyde": True},
+        },
+        {"configurable": {"query_config": QueryConfig()}},
+    )
+
+    assert result["search_results_hyde"] == []
+    assert result["search_mode_hyde"] == "disabled_multi"
