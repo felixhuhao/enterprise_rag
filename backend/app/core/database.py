@@ -407,6 +407,8 @@ async def init_db():
                     f"Migration aborted: duplicate usernames ({_names}). "
                     "Resolve duplicates before proceeding."
                 )
+            # Drop stale temp table from a previous crashed rebuild
+            await db.execute("DROP TABLE IF EXISTS users_new")
             await db.execute(
                 "CREATE TABLE users_new ("
                 "user_id TEXT PRIMARY KEY, "

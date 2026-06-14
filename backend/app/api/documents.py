@@ -81,7 +81,7 @@ async def upload_document(
     entity_name: str = Form(""),
     current_user: CurrentUser = Depends(verify_token),
 ):
-    """上传 PDF/Markdown，自动授予上传者 owner 权限。"""
+    """上传 PDF/Markdown。需对目标实体有 write 权限。"""
     if ingestion_mode != "text_only":
         raise HTTPException(status_code=400, detail="当前仅支持 text_only ingestion_mode")
 
@@ -92,6 +92,15 @@ async def upload_document(
     file_type = SUPPORTED_EXTENSIONS.get(ext)
     if not file_type:
         raise HTTPException(status_code=400, detail="仅支持 PDF、MD、Markdown、ZIP 文件")
+
+    # Entity validation BEFORE file write (no cleanup needed on rejection)
+    normalized_entity = normalize_entity_name(entity_name)
+    if not normalized_entity:
+        raise HTTPException(status_code=400, detail="entity_name 不能为空")
+    async with get_db() as db:
+        canonical_entity = await canonicalize_entity_name(normalized_entity, db)
+    if not await can_write_entity(current_user, canonical_entity):
+        raise HTTPException(status_code=403, detail=f"无权上传到实体 '{canonical_entity}'")
 
     document_id = uuid.uuid4().hex
     upload_dir = os.path.join(settings.GENERAL_UPLOAD_DIR, document_id)
@@ -124,18 +133,6 @@ async def upload_document(
 
     # Magic bytes 校验：防止改后缀绕过
     _validate_file_magic(source_path, file_type, upload_dir)
-
-    # Entity validation: normalize → canonicalize → write-permission check
-    normalized_entity = normalize_entity_name(entity_name)
-    if normalized_entity:
-        async with get_db() as db:
-            canonical_entity = await canonicalize_entity_name(normalized_entity, db)
-    else:
-        canonical_entity = ""
-    if not canonical_entity and current_user.role != "admin":
-        raise HTTPException(status_code=400, detail="entity_name 不能为空")
-    if canonical_entity and not await can_write_entity(current_user, canonical_entity):
-        raise HTTPException(status_code=403, detail=f"无权上传到实体 '{canonical_entity}'")
 
     doc = await document_service.create_document_record(
         document_id=document_id,

@@ -1,5 +1,6 @@
 """Admin user management and entity ACL API — admin-only."""
 
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -100,7 +101,7 @@ async def create_user(
     """Create a new user. Returns 409 on duplicate username."""
     pw_hash = hash_password(body.password)
     now = datetime.now(timezone.utc).isoformat()
-    user_id = f"u_{body.username.lower()}"
+    user_id = f"u_{uuid.uuid4().hex[:12]}"
 
     async with get_db() as db:
         # Check username uniqueness
