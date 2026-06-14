@@ -3,6 +3,7 @@
 import pytest
 
 from app.rag.query.config import QueryConfig
+from app.rag.query.search_pipeline import should_run_multi_hop_from_plan
 from app.services import retrieval_test_service as svc
 
 
@@ -441,5 +442,5 @@ def test_exact_does_not_record_blocked_when_filtered_results_are_adequate(monkey
 
 
 def test_retrieval_test_multi_hop_reads_single_flag():
-    assert svc._should_run_multi_hop({"entity_mode": "single"}, "哪些公司", {"use_multi_hop": True}) is True
-    assert svc._should_run_multi_hop({"entity_mode": "broad"}, "报销标准", {"use_multi_hop": False}) is False
+    assert should_run_multi_hop_from_plan({"entity_mode": "single"}, "哪些公司", {"use_multi_hop": True}) is True
+    assert should_run_multi_hop_from_plan({"entity_mode": "broad"}, "报销标准", {"use_multi_hop": False}) is False

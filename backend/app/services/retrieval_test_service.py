@@ -61,7 +61,7 @@ def run_retrieval_test(
         diversify_context=_diversify_context_node,
         context_expand=_context_expand_node,
         multi_hop_search=_run_multi_hop_search,
-        should_run_multi_hop=_should_run_multi_hop,
+        should_run_multi_hop=should_run_multi_hop_from_plan,
     )
     state = run_search_pipeline(
         query,
@@ -160,9 +160,6 @@ def _run_primary_search(state: QueryState, run_config: RunnableConfig, cfg: Quer
         embed_query=_embed_query,
         dense_search=_dense_only_search_limited,
     )
-
-
-_should_run_multi_hop = should_run_multi_hop_from_plan
 
 
 def _run_multi_hop_search(

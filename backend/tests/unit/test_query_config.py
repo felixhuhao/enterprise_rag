@@ -138,6 +138,8 @@ def test_normalize_retrieval_flavor_invalid_falls_back_to_balanced():
     assert normalize_retrieval_flavor("strict_evidence") == "balanced"
     assert normalize_retrieval_flavor("unknown") == "balanced"
     assert normalize_retrieval_flavor("") == "balanced"
+    assert normalize_retrieval_flavor(None) == "balanced"  # type: ignore[arg-type]
+    assert normalize_retrieval_flavor("Balanced") == "balanced"
 
 
 class TestRuntimeSettingsClamp:
