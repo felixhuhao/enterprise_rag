@@ -2,7 +2,14 @@
   <div class="panel">
     <!-- ── Section 1: 访问授权 ── -->
     <div class="section-header">
-      <h3>访问授权</h3>
+      <div class="section-heading">
+        <h3>访问授权</h3>
+        <span class="section-count">{{ entityData.length }} 个实体 · {{ grantCount }} 条授权</span>
+      </div>
+      <div class="perm-legend">
+        <span class="legend-item"><i class="dot dot-read" />查看</span>
+        <span class="legend-item"><i class="dot dot-write" />编辑</span>
+      </div>
     </div>
 
     <a-spin :loading="aclLoading" style="width: 100%">
@@ -24,7 +31,7 @@
                   :color="g.permission === 'write' ? 'green' : 'arcoblue'"
                   size="small"
                   closable
-                  @close="handleRevoke(record.entity_name, g.user_id)"
+                  @close="confirmRevoke(record.entity_name, g)"
                 >
                   {{ g.username }} ({{ g.permission === 'write' ? '编辑' : '查看' }})
                 </a-tag>
@@ -99,10 +106,10 @@
       <a-select v-model="grantForm.userId" placeholder="选择用户" style="width: 100%; margin-bottom: 12px">
         <a-option v-for="u in grantableUsers" :key="u.user_id" :value="u.user_id">{{ u.username }}</a-option>
       </a-select>
-      <a-select v-model="grantForm.permission" style="width: 100%; margin-bottom: 12px">
-        <a-option value="read">查看 (read)</a-option>
-        <a-option value="write">编辑 (write)</a-option>
-      </a-select>
+      <a-radio-group v-model="grantForm.permission" type="button" style="margin-bottom: 12px">
+        <a-radio value="read">查看</a-radio>
+        <a-radio value="write">编辑</a-radio>
+      </a-radio-group>
       <div class="modal-actions">
         <a-button @click="showGrant = false">取消</a-button>
         <a-button type="primary" :loading="actionLoading" @click="handleGrant">确认</a-button>
@@ -113,13 +120,14 @@
 
 <script setup lang="ts">
 import { ref, onMounted, reactive, computed } from 'vue'
-import { Message } from '@arco-design/web-vue'
+import { Message, Modal } from '@arco-design/web-vue'
 import {
   listUsers,
   getEntityAclOverview,
   grantEntityAccess,
   revokeEntityAccess,
   type UserInfo,
+  type EntityGrant,
   type EntityAclEntry,
 } from '../../api/adminUsers'
 import {
@@ -150,6 +158,9 @@ const grantEntity = ref('')
 const grantForm = reactive({ userId: '', permission: 'read' })
 
 const grantableUsers = computed(() => users.value.filter((u) => u.role !== 'admin'))
+const grantCount = computed(() =>
+  entityData.value.reduce((sum, e) => sum + e.grants.length, 0),
+)
 
 onMounted(() => {
   loadAliases()
@@ -270,6 +281,18 @@ async function handleGrant() {
   }
 }
 
+function confirmRevoke(entityName: string, grant: EntityGrant) {
+  const tier = grant.permission === 'write' ? '编辑' : '查看'
+  Modal.confirm({
+    title: '撤销授权',
+    content: `撤销 ${grant.username} 对「${entityName}」的${tier}权限？`,
+    okText: '撤销',
+    cancelText: '取消',
+    okButtonProps: { status: 'danger' },
+    onOk: () => handleRevoke(entityName, grant.user_id),
+  })
+}
+
 async function handleRevoke(entityName: string, userId: string) {
   try {
     await revokeEntityAccess(entityName, userId)
@@ -294,10 +317,48 @@ async function handleRevoke(entityName: string, userId: string) {
   justify-content: space-between;
 }
 
+.section-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
 .section-header h3 {
   margin: 0;
   font-size: 15px;
   font-weight: 700;
+}
+
+.section-count {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.perm-legend {
+  display: flex;
+  gap: 14px;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.dot-read {
+  background: rgb(var(--arcoblue-6));
+}
+
+.dot-write {
+  background: rgb(var(--green-6));
 }
 
 .alias-tools {

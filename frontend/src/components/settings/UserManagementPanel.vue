@@ -1,18 +1,31 @@
 <template>
   <div class="panel">
     <div class="section-header">
-      <h3>用户管理</h3>
+      <div class="section-heading">
+        <h3>用户管理</h3>
+        <span class="section-count">共 {{ users.length }} 个账户 · {{ adminCount }} 管理员</span>
+      </div>
       <a-button type="primary" size="small" @click="showCreateUser = true">新建用户</a-button>
     </div>
     <a-spin :loading="loading" style="width: 100%">
       <a-table :data="users" :pagination="false" size="small" row-key="user_id">
         <template #columns>
-          <a-table-column title="用户名" data-index="username" />
+          <a-table-column title="用户名" data-index="username">
+            <template #cell="{ record }">
+              <span>{{ record.username }}</span>
+              <a-tag v-if="record.user_id === currentUserId" size="small" class="self-tag">当前账户</a-tag>
+            </template>
+          </a-table-column>
           <a-table-column title="角色" data-index="role" :width="80">
             <template #cell="{ record }">
               <a-tag :color="record.role === 'admin' ? 'red' : 'blue'" size="small">
                 {{ record.role === 'admin' ? '管理员' : '用户' }}
               </a-tag>
+            </template>
+          </a-table-column>
+          <a-table-column title="创建时间" :width="150">
+            <template #cell="{ record }">
+              <span class="muted">{{ formatDate(record.created_at) }}</span>
             </template>
           </a-table-column>
           <a-table-column title="操作" :width="200">
@@ -62,7 +75,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive } from 'vue'
+import { ref, onMounted, reactive, computed } from 'vue'
 import { Message } from '@arco-design/web-vue'
 import {
   listUsers,
@@ -71,6 +84,17 @@ import {
   deleteUser,
   type UserInfo,
 } from '../../api/adminUsers'
+import { useAuthStore } from '../../stores/auth'
+
+const authStore = useAuthStore()
+const currentUserId = computed(() => authStore.currentUser?.user_id || '')
+const adminCount = computed(() => users.value.filter((u) => u.role === 'admin').length)
+
+function formatDate(value: string): string {
+  if (!value) return '—'
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString()
+}
 
 const loading = ref(false)
 const actionLoading = ref(false)
@@ -161,10 +185,31 @@ async function handleDeleteUser(userId: string) {
   justify-content: space-between;
 }
 
+.section-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
 .section-header h3 {
   margin: 0;
   font-size: 15px;
   font-weight: 700;
+}
+
+.section-count {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.self-tag {
+  margin-left: 6px;
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+
+.muted {
+  color: var(--text-muted);
 }
 
 .modal-actions {
