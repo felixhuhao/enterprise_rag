@@ -7,7 +7,7 @@
 <template>
   <a-layout class="app-layout">
     <!-- 左侧导航栏 -->
-    <a-layout-sider :width="220" :collapsible="true" class="sider">
+    <a-layout-sider :width="220" class="sider">
       <div class="logo">
         <div class="logo-mark">ER</div>
         <div class="logo-copy">
@@ -37,16 +37,6 @@
           系统设置
         </a-menu-item>
       </a-menu>
-      <!-- 当前用户 + 退出 -->
-      <div class="sider-footer">
-        <div class="user-info">
-          <div class="user-name">{{ authStore.currentUser?.username }}</div>
-          <div class="user-role">{{ authStore.isAdmin ? '管理员' : '用户' }}</div>
-        </div>
-        <a-button size="small" long @click="handleLogout">
-          退出登录
-        </a-button>
-      </div>
     </a-layout-sider>
     <!-- 右侧主区域 -->
     <a-layout>
@@ -55,9 +45,27 @@
           <div class="header-title">{{ pageTitle }}</div>
           <div class="header-subtitle">{{ pageSubtitle }}</div>
         </div>
-        <div class="header-status">
-          <span class="status-dot"></span>
-          <span>就绪</span>
+        <div class="header-right">
+          <div class="header-status">
+            <span class="status-dot"></span>
+            <span>就绪</span>
+          </div>
+          <a-dropdown trigger="click" position="br" @select="onUserMenuSelect">
+            <button class="user-trigger" type="button">
+              <span class="user-avatar">{{ userInitial }}</span>
+              <span class="user-meta">
+                <span class="user-name">{{ authStore.currentUser?.username }}</span>
+                <span class="user-role">{{ roleLabel }}</span>
+              </span>
+              <icon-down class="user-caret" />
+            </button>
+            <template #content>
+              <a-doption value="logout">
+                <template #icon><icon-poweroff /></template>
+                退出登录
+              </a-doption>
+            </template>
+          </a-dropdown>
         </div>
       </a-layout-header>
       <a-layout-content class="content">
@@ -80,6 +88,8 @@ import {
   IconBarChart,
   IconSettings,
   IconSearch,
+  IconDown,
+  IconPoweroff,
 } from '@arco-design/web-vue/es/icon'
 
 const router = useRouter()
@@ -114,8 +124,17 @@ const pageMeta = computed(() => {
 const pageTitle = computed(() => pageMeta.value.title)
 const pageSubtitle = computed(() => pageMeta.value.subtitle)
 
+const roleLabel = computed(() => (authStore.isAdmin ? '管理员' : '用户'))
+const userInitial = computed(() =>
+  (authStore.currentUser?.username || '?').charAt(0).toUpperCase(),
+)
+
 function onMenuClick(key: string) {
   router.push(key)
+}
+
+function onUserMenuSelect(value: string | number | Record<string, any> | undefined) {
+  if (value === 'logout') handleLogout()
 }
 
 async function handleLogout() {
@@ -182,32 +201,6 @@ async function handleLogout() {
   line-height: 1.1;
 }
 
-.sider-footer {
-  margin-top: auto;
-  border-top: 1px solid var(--border);
-  padding: 12px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.user-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.user-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.user-role {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
 /* ---- Header ---- */
 .header {
   background: var(--bg-surface) !important;
@@ -234,6 +227,12 @@ async function handleLogout() {
   color: var(--text-muted);
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
 .header-status {
   display: inline-flex;
   align-items: center;
@@ -246,6 +245,60 @@ async function handleLogout() {
   font-weight: 500;
   background: var(--bg-surface);
   box-shadow: var(--shadow-sm);
+}
+
+.user-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 10px 5px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-surface);
+  cursor: pointer;
+  transition: border-color 0.15s var(--ease-out), background 0.15s var(--ease-out);
+}
+.user-trigger:hover {
+  border-color: var(--border-hover);
+  background: var(--bg-hover);
+}
+
+.user-avatar {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--accent), var(--accent-active));
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.user-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.15;
+}
+
+.user-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.user-role {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.user-caret {
+  color: var(--text-muted);
+  font-size: 12px;
 }
 .status-dot {
   width: 7px;
