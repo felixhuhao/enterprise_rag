@@ -5,6 +5,7 @@ export interface UserInfo {
   username: string
   role: string
   created_at: string
+  is_bootstrap?: boolean
 }
 
 export interface CreateUserParams {

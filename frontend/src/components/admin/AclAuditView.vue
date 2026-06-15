@@ -21,7 +21,7 @@
                 <template #cell="{ record }">
                   <a-button size="mini" @click="openResetPassword(record)">重置密码</a-button>
                   <a-popconfirm content="确认删除该用户？" @ok="handleDeleteUser(record.user_id)">
-                    <a-button size="mini" status="danger" :disabled="record.user_id === bootstrapId">删除</a-button>
+                    <a-button size="mini" status="danger" :disabled="record.is_bootstrap">删除</a-button>
                   </a-popconfirm>
                 </template>
               </a-table-column>
@@ -130,7 +130,6 @@ const loading = ref(false)
 const actionLoading = ref(false)
 const users = ref<UserInfo[]>([])
 const entityData = ref<EntityAclEntry[]>([])
-const bootstrapId = ref('u_admin')
 
 const showCreateUser = ref(false)
 const showResetPassword = ref(false)
@@ -197,7 +196,7 @@ async function handleResetPassword() {
   actionLoading.value = true
   try {
     await resetPassword(resetTarget.value.user_id, resetForm.password)
-    Message.success('密码已重置')
+    Message.success('密码已重置，该用户的所有会话已失效')
     showResetPassword.value = false
   } catch (err: any) {
     Message.error(err?.response?.data?.detail || '重置失败')

@@ -129,13 +129,20 @@ async def list_users(
     current_user: CurrentUser = Depends(require_admin_user),
 ):
     """List all users."""
+    bootstrap_id = await get_bootstrap_admin_id()
     async with get_db() as db:
         async with db.execute(
             "SELECT user_id, username, role, created_at FROM users ORDER BY username"
         ) as cursor:
             rows = await cursor.fetchall()
     return [
-        {"user_id": r["user_id"], "username": r["username"], "role": r["role"], "created_at": r["created_at"]}
+        {
+            "user_id": r["user_id"],
+            "username": r["username"],
+            "role": r["role"],
+            "created_at": r["created_at"],
+            "is_bootstrap": r["user_id"] == bootstrap_id,
+        }
         for r in rows
     ]
 
