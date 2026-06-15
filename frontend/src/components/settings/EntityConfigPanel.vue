@@ -1,9 +1,46 @@
 <template>
   <div class="panel">
-    <!-- ── Section 1: 实体别名 ── -->
+    <!-- ── Section 1: 访问授权 ── -->
+    <div class="section-header">
+      <h3>访问授权</h3>
+    </div>
+
+    <a-spin :loading="aclLoading" style="width: 100%">
+      <a-table
+        :data="entityData"
+        :pagination="{ pageSize: 10 }"
+        size="small"
+        row-key="entity_name"
+      >
+        <template #columns>
+          <a-table-column title="实体名称" data-index="entity_name" />
+          <a-table-column title="文档数" data-index="document_count" :width="80" />
+          <a-table-column title="授权">
+            <template #cell="{ record }">
+              <div class="grant-list">
+                <a-tag
+                  v-for="g in record.grants"
+                  :key="g.user_id"
+                  :color="g.permission === 'write' ? 'green' : 'arcoblue'"
+                  size="small"
+                  closable
+                  @close="handleRevoke(record.entity_name, g.user_id)"
+                >
+                  {{ g.username }} ({{ g.permission === 'write' ? '编辑' : '查看' }})
+                </a-tag>
+                <a-button size="mini" @click="openGrant(record.entity_name)">授权</a-button>
+              </div>
+            </template>
+          </a-table-column>
+        </template>
+      </a-table>
+    </a-spin>
+
+    <a-divider />
+
+    <!-- ── Section 2: 实体别名 ── -->
     <div class="section-header">
       <h3>实体别名</h3>
-      <a-button size="small" :loading="aliasLoading" @click="loadAliases">刷新</a-button>
     </div>
 
     <a-spin :loading="aliasLoading" style="width: 100%">
@@ -50,45 +87,6 @@
               <a-popconfirm content="删除这条别名映射？" @ok="onDeleteAlias(record.id)">
                 <a-button size="mini" status="danger">删除</a-button>
               </a-popconfirm>
-            </template>
-          </a-table-column>
-        </template>
-      </a-table>
-    </a-spin>
-
-    <a-divider />
-
-    <!-- ── Section 2: 访问授权 ── -->
-    <div class="section-header">
-      <h3>访问授权</h3>
-      <a-button size="small" :loading="aclLoading" @click="loadAcl">刷新</a-button>
-    </div>
-
-    <a-spin :loading="aclLoading" style="width: 100%">
-      <a-table
-        :data="entityData"
-        :pagination="{ pageSize: 10 }"
-        size="small"
-        row-key="entity_name"
-      >
-        <template #columns>
-          <a-table-column title="实体名称" data-index="entity_name" />
-          <a-table-column title="文档数" data-index="document_count" :width="80" />
-          <a-table-column title="授权">
-            <template #cell="{ record }">
-              <div class="grant-list">
-                <a-tag
-                  v-for="g in record.grants"
-                  :key="g.user_id"
-                  :color="g.permission === 'write' ? 'green' : 'arcoblue'"
-                  size="small"
-                  closable
-                  @close="handleRevoke(record.entity_name, g.user_id)"
-                >
-                  {{ g.username }} ({{ g.permission === 'write' ? '编辑' : '查看' }})
-                </a-tag>
-                <a-button size="mini" @click="openGrant(record.entity_name)">授权</a-button>
-              </div>
             </template>
           </a-table-column>
         </template>

@@ -4,9 +4,9 @@
 <template>
   <div class="settings-page">
     <div class="settings-card">
-      <a-tabs :default-active-key="initialTab" class="settings-tabs" animation>
+      <a-tabs v-model:active-key="activeTab" class="settings-tabs" animation>
         <template #extra>
-          <a-button size="mini" :loading="loading" @click="loadSettings">刷新</a-button>
+          <a-button size="mini" :loading="loading" @click="handleRefresh">刷新</a-button>
         </template>
         <a-tab-pane key="status" title="运行状态">
           <SystemStatusPanel
@@ -79,11 +79,11 @@
         </a-tab-pane>
 
         <a-tab-pane v-if="authStore.isAdmin" key="users" title="用户管理">
-          <UserManagementPanel />
+          <UserManagementPanel :key="`users-${panelReloadKey}`" />
         </a-tab-pane>
 
         <a-tab-pane v-if="authStore.isAdmin" key="entities" title="实体配置">
-          <EntityConfigPanel />
+          <EntityConfigPanel :key="`entities-${panelReloadKey}`" />
         </a-tab-pane>
       </a-tabs>
     </div>
@@ -142,7 +142,8 @@ interface CapabilityStatus {
 
 const authStore = useAuthStore()
 const route = useRoute()
-const initialTab = (route.query.tab as string) || 'status'
+const activeTab = ref((route.query.tab as string) || 'status')
+const panelReloadKey = ref(0)
 const isTagGovernanceEnabled = import.meta.env.VITE_ENABLE_TAG_GOVERNANCE === 'true'
 const loading = ref(false)
 const saving = ref(false)
@@ -265,6 +266,14 @@ const tokenStatus = computed(() => {
 
 function setFormValue(key: string, value: unknown) {
   form[key] = value
+}
+
+async function handleRefresh() {
+  if (activeTab.value === 'users' || activeTab.value === 'entities') {
+    panelReloadKey.value++
+  } else {
+    await loadSettings()
+  }
 }
 
 async function loadSettings() {
