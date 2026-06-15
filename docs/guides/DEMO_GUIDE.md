@@ -107,7 +107,8 @@ Operations and governance:
 | [`system-status-jobs.png`](../images/system-status-jobs.png) | System status, model configuration, Milvus/SQLite state, and background jobs. |
 | [`settings-strategy-tuning.png`](../images/settings-strategy-tuning.png) | Strategy tuning panel with retrieval budgets and enabled stages. |
 | [`settings-tag-governance.png`](../images/settings-tag-governance.png) | Structured tag governance with hit counts. |
-| [`acl-audit.png`](../images/acl-audit.png) | ACL audit view for owner/read visibility. |
+| [`access-user-management.png`](../images/access-user-management.png) | Admin user management: accounts, roles, password reset, and delete actions. |
+| [`access-entity-management.png`](../images/access-entity-management.png) | Entity-level access management: per-entity `read`/`write` grants. |
 
 ## Demo Queries
 
