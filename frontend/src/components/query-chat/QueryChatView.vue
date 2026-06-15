@@ -102,38 +102,25 @@ onBeforeUnmount(() => {
    Nothing outside the Query view is affected.
    ============================================================ */
 .query-console {
-  /* Signature palette: warm paper · graphite ink · deep cobalt · cyan live */
-  --qc-paper: #f4f2ed;
-  --qc-surface: #fdfcf9;
-  --qc-ink: #1c1a16;
-  --qc-ink-2: #4c4940;
-  --qc-ink-3: #8d887b;
-  --qc-line: #e7e2d8;
-  --qc-line-2: #d6d0c2;
-  --qc-cobalt: #2a43d0;
-  --qc-cobalt-hover: #1f33b0;
-  --qc-cobalt-soft: #eceffc;
-  --qc-cobalt-edge: #cdd4f7;
-  --qc-cobalt-glow: rgba(42, 67, 208, 0.16);
-  --qc-live: #0891b2;
-  --qc-grid: rgba(28, 26, 22, 0.045);
-
-  /* Re-point shared tokens used by descendant components */
-  --accent: var(--qc-cobalt);
-  --accent-hover: var(--qc-cobalt-hover);
-  --accent-active: #16258a;
-  --accent-subtle: var(--qc-cobalt-soft);
-  --accent-glow: var(--qc-cobalt-glow);
-  --accent-dim: #aab6f5;
-  --border-accent: var(--qc-cobalt-edge);
-  --text-accent: var(--qc-cobalt-hover);
-  --bg-surface: var(--qc-surface);
-  --bg-hover: #f0ede5;
-  --border: var(--qc-line);
-  --border-hover: var(--qc-line-2);
-  --text-primary: var(--qc-ink);
-  --text-secondary: var(--qc-ink-2);
-  --text-muted: var(--qc-ink-3);
+  /* Unified palette: the --qc-* tokens now alias the app-wide system so the
+     Query view matches the rest of the console. The accent was already the
+     same cobalt; this drops the warm-paper neutrals for the standard cool
+     surfaces and removes the descendant token re-points (children now inherit
+     the global tokens directly). */
+  --qc-paper: var(--bg-base);
+  --qc-surface: var(--bg-surface);
+  --qc-ink: var(--text-primary);
+  --qc-ink-2: var(--text-secondary);
+  --qc-ink-3: var(--text-muted);
+  --qc-line: var(--border);
+  --qc-line-2: var(--border-hover);
+  --qc-cobalt: var(--accent);
+  --qc-cobalt-hover: var(--accent-hover);
+  --qc-cobalt-soft: var(--accent-subtle);
+  --qc-cobalt-edge: var(--border-accent);
+  --qc-cobalt-glow: var(--accent-glow);
+  --qc-live: var(--info);
+  --qc-grid: rgba(17, 24, 39, 0.04);
 }
 
 .error-bar {
