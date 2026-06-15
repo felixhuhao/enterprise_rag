@@ -47,11 +47,11 @@ const router = createRouter({
     },
     {
       path: '/acl-audit',
-      redirect: { path: '/settings', query: { tab: 'access' } },
+      redirect: { path: '/settings', query: { tab: 'entities' } },
     },
     {
       path: '/entity-aliases',
-      redirect: { path: '/settings', query: { tab: 'aliases' } },
+      redirect: { path: '/settings', query: { tab: 'entities' } },
     },
     {
       path: '/feedback',

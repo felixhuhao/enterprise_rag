@@ -78,12 +78,12 @@
           />
         </a-tab-pane>
 
-        <a-tab-pane v-if="authStore.isAdmin" key="access" title="访问管理">
-          <AclAuditView />
+        <a-tab-pane v-if="authStore.isAdmin" key="users" title="用户管理">
+          <UserManagementPanel />
         </a-tab-pane>
 
-        <a-tab-pane v-if="authStore.isAdmin" key="aliases" title="实体别名">
-          <EntityAliasesView />
+        <a-tab-pane v-if="authStore.isAdmin" key="entities" title="实体配置">
+          <EntityConfigPanel />
         </a-tab-pane>
       </a-tabs>
     </div>
@@ -113,8 +113,8 @@ import StrategyTuningPanel from './StrategyTuningPanel.vue'
 import RecentJobsPanel from './RecentJobsPanel.vue'
 import SystemStatusPanel from './SystemStatusPanel.vue'
 import TagGovernancePanel from './TagGovernancePanel.vue'
-import AclAuditView from '../admin/AclAuditView.vue'
-import EntityAliasesView from '../admin/EntityAliasesView.vue'
+import UserManagementPanel from './UserManagementPanel.vue'
+import EntityConfigPanel from './EntityConfigPanel.vue'
 import { normalizeFlavor } from '../../utils/labelMaps'
 
 type FlavorKey = 'balanced' | 'exact' | 'recall'
