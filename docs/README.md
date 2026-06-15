@@ -13,6 +13,7 @@ Use this page as the entry point for repository docs.
 
 ## Active Design Work
 
+- [Auth + Entity-Level ACL (implemented)](designs/auth_login_entity_acl_design.md) — real password login, expiring sessions, per-entity `read`/`write` grants.
 - [Prompt Reliability Implementation Plan](designs/prompt_reliability_implementation_plan.md)
 - [Retrieval Control Model Design](designs/retrieval_control_model_design.md)
 - [Query-Intent Routing Roadmap](designs/query_intent_routing_roadmap.md)

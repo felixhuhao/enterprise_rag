@@ -22,6 +22,7 @@ Completed product foundation:
 - Phase 13: Document Parsing And Chunk Quality Governance.
 - Phase 14: Background Job Reliability P1.
 - Storage Layer Maturity Phase 1: SQLite hardening, startup guards, and health payload.
+- Real auth + entity-level ACL MVP: password login, expiring sessions, admin-provisioned users, and per-entity `read`/`write` grants gating upload, retrieval, citations, and source assets. Design: [`docs/designs/auth_login_entity_acl_design.md`](docs/designs/auth_login_entity_acl_design.md).
 
 Current closeout focus:
 
@@ -313,6 +314,8 @@ This should not be a free-form agent. Keep the planner constrained, the hop coun
 
 ### 8. Permission-Aware Retrieval
 
+Status: **MVP shipped.** Real password login (bcrypt + expiring DB-backed sessions), admin-provisioned users, and entity-level `read`/`write` ACL now gate upload, retrieval, citation assets, and source previews. See [`docs/designs/auth_login_entity_acl_design.md`](docs/designs/auth_login_entity_acl_design.md). The remainder of this section is retained as the original scope framing; the items still outstanding (groups, chunk-level ACL, full read-path audit, deny-by-default semantics) are tracked under *Tag And ACL Governance Hardening* in Inventory / Deferred Ideas.
+
 Add a lightweight permission model inspired by Glean, but keep it document-centric.
 
 Minimum scope:
@@ -336,6 +339,8 @@ Why this matters:
 - Makes citations and source previews governed objects, not raw file links.
 
 This should only be implemented after the project has a real multi-user model. With only a shared API token, permission-aware retrieval would be mostly simulated.
+
+> Note: the real multi-user model and entity-level ACL MVP have since shipped (see status note above), so this precondition is satisfied. What remains deferred is the *hardening* layer — groups, chunk-level ACL, and full read-path audit — not the core permission loop.
 
 ### 9. Lightweight Enterprise Context Graph
 
@@ -417,6 +422,8 @@ Why:
 
 ### Defer Permission-Aware Retrieval Until There Are Real Users
 
+Status: **moot — the MVP has shipped.** The user model and entity-level ACL are implemented, and the full sequence (user model → entity ACL → retrieval filter → governed citations) is in place. Kept here as historical context for the decision.
+
 Permission-aware retrieval should stay in the plan, but not in the near-term build.
 
 Why:
@@ -484,6 +491,8 @@ Why first:
 - It is the lowest-cost feature in this final batch.
 
 ### 2. Permission Audit Page
+
+Status: **superseded by the shipped entity-ACL design.** The per-document `document_acl` model described below was retired in favor of admin-managed per-entity `read`/`write` grants with real password login. See [`docs/designs/auth_login_entity_acl_design.md`](docs/designs/auth_login_entity_acl_design.md). The body is retained as the original feature-freeze plan; the current UI is **Settings → 实体配置 (Entity Config)** for grants and **Settings → 用户管理 (User Management)** for users, not a per-document owner/read audit view.
 
 Goal: make document permissions visible and explainable for the demo.
 
@@ -1234,9 +1243,14 @@ Current assessment:
 - Tags are not yet a fully stable data contract because tag provenance,
   rule/version history, document-level profile tagging, and eval slices are not
   first-class.
-- ACL is still a minimum document-user permission loop: users, document ACL,
-  retrieval filter, and admin audit view.
+- ACL MVP has shipped: real password login, expiring sessions,
+  admin-provisioned users, and per-entity `read`/`write` grants gating upload,
+  retrieval, citation assets, and source previews, with an admin-managed grant
+  view and bootstrap admin bypass.
 - ACL is the higher-risk area because mistakes can leak restricted content.
+  What remains deferred is the hardening layer: group ACL, deny-by-default
+  semantics, chunk-level ACL, alias expansion at the ACL read side, full
+  read-path enforcement audit, and ACL regression cases.
 
 If resumed, minimum tag-governance scope:
 

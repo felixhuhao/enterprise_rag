@@ -12,7 +12,8 @@ This repository represents a polished local-first Enterprise RAG baseline. It is
 - **Retrieval test bench**: run retrieval without answer generation, inspect Top K chunks, scores, retrieval paths, entity distribution, expansion queries, rerank candidates, and strategy summary.
 - **Evaluation loop**: retrieval-only, answer-lite, and full modes over a curated enterprise golden set, with rule scoring, LLM judge, no-answer cases, smoke subset, baseline deltas, and failure categories.
 - **Operational visibility**: query records, per-stage latency, token usage, fallback details, error classification, durable background jobs, storage health checks, and chunk quality reports.
-- **Admin controls**: runtime settings, entity aliases, optional structured tag visibility, retrieval tuning, golden-set editing, feedback-to-case drafting, and job tracking.
+- **Real auth and entity-level access**: password login with expiring server-side sessions, admin-provisioned users, and per-entity `read`/`write` grants that gate upload, retrieval, citations, and source assets. Non-admin users see only the entities they are granted; admin retains full bypass.
+- **Admin controls**: user management and entity access grants, runtime settings, entity aliases, optional structured tag visibility, retrieval tuning, golden-set editing, feedback-to-case drafting, and job tracking.
 
 ## Architecture
 
@@ -181,6 +182,7 @@ Full screenshot gallery and recording checklist: [docs/guides/DEMO_GUIDE.md](doc
 |---|---|
 | Frontend | Vue 3, TypeScript, Vite, Arco Design Vue |
 | API | FastAPI, SSE |
+| Auth | bcrypt password hashing, opaque DB-backed sessions, entity-level ACL |
 | Workflows | LangGraph-style ingestion and retrieval nodes |
 | State | SQLite with WAL, startup storage guards, query/job/eval records |
 | Vector Store | Milvus dense vectors + sparse/BM25 fields |
@@ -197,7 +199,9 @@ The fastest path is Docker Compose:
 
 ```bash
 cp .env.example .env
-# edit .env: EMBEDDING_MODEL_HOST_PATH, API_TOKEN, LLM keys
+# edit .env: EMBEDDING_MODEL_HOST_PATH, DEEPSEEK/ZHIPU keys.
+# API_TOKEN is only the env-managed bootstrap admin credential (lockout recovery);
+# normal access is via the login screen below.
 docker compose up -d --build
 docker compose exec backend python scripts/seed_demo.py
 ```
@@ -208,6 +212,16 @@ Open:
 Frontend: http://localhost:5173
 Backend:  http://localhost:8010/health
 ```
+
+Sign in with a seeded demo account:
+
+| Username | Password | Role | Access |
+|---|---|---|---|
+| `Admin` | `admin-demo-pass` | admin | full bypass |
+| `Alice` | `alice-demo-pass` | user | granted per entity |
+| `Bob`   | `bob-demo-pass`   | user | granted per entity |
+
+Demo users are seeded on first run; entity grants are configured from **Settings → 实体配置 (Entity Config)**. To exercise entity-level access, log in as Admin and grant `Alice`/`Bob` `read` or `write` on a demo entity (e.g. `星辰科技`, `远景能源`), then sign in as that user.
 
 Detailed setup, local venv notes, reset commands, eval commands, and troubleshooting live in [docs/guides/DEVELOPMENT.md](docs/guides/DEVELOPMENT.md). Full environment variable reference lives in [docs/guides/CONFIGURATION.md](docs/guides/CONFIGURATION.md).
 

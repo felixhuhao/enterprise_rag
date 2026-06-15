@@ -13,6 +13,10 @@ Show that Enterprise RAG is not just a chat UI over documents. The demo should m
 
 ## Recommended Demo Flow
 
+0. **Sign in**
+   - Log in as `Admin` (`admin-demo-pass`) for the full admin tour, then optionally switch to `Alice` or `Bob` to show the entity-restricted user view.
+   - Demo accounts are seeded on first run; entity `read`/`write` grants are managed under **Settings → 实体配置 (Entity Config)**, users under **Settings → 用户管理 (User Management)**.
+
 1. **Documents**
    - Show completed enterprise demo documents.
    - Open one document detail page.

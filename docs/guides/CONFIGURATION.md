@@ -8,7 +8,7 @@ Root `.env` is intended for Docker Compose. `backend/.env` can be used for local
 
 | Variable | Description |
 |---|---|
-| `API_TOKEN` | Bearer token used by frontend and API clients. Use a private value outside local demos. |
+| `API_TOKEN` | Env-managed **bootstrap admin** credential for lockout recovery. Not the normal client auth path — users sign in via the login screen with username/password. Keep a private value outside local demos. |
 | `EMBEDDING_MODEL_HOST_PATH` | Host path to the local embedding model mounted into Docker, e.g. `/home/hao/models/BAAI/bge-m3`. |
 | `EMBEDDING_MODEL_PATH` | Runtime model path. Docker uses `/models/embedding`; local dev can use `/home/hao/models/BAAI/bge-m3`. |
 | `DEEPSEEK_API_KEY` | DeepSeek-compatible API key for chat, HyDE, query expansion, rerank, and judge evaluation. |
@@ -26,7 +26,7 @@ PDF parsing additionally requires:
 
 | Variable | Default | Description |
 |---|---|---|
-| `API_TOKEN` | `enterprise-rag-dev-token` in examples | Bearer token. Keep private for any shared deployment. |
+| `API_TOKEN` | `enterprise-rag-dev-token` in examples | Env-managed bootstrap admin credential. Accepted directly by `lookup_user` (bypassing the `sessions` table) and resolved to the pinned bootstrap admin row, so an operator is never locked out. Not a session: logout does not invalidate it, and it should not be rotated through the app UI. Normal access is via login. |
 | `RATE_LIMIT_PER_MINUTE` | `60` | Per-token API rate limit. |
 | `CORS_ORIGINS` | `["http://localhost:5173","http://localhost:4173"]` | Allowed frontend origins. |
 

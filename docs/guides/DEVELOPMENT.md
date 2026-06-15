@@ -44,8 +44,9 @@ Open:
 ```text
 Frontend: http://localhost:5173
 Backend health: http://localhost:8010/health
-Default local token: enterprise-rag-dev-token
 ```
+
+Sign in at the login screen with a seeded demo account (`Admin` / `admin-demo-pass`, `Alice` / `alice-demo-pass`, `Bob` / `bob-demo-pass`). The `.env` `API_TOKEN` (default `enterprise-rag-dev-token`) is an env-only **bootstrap admin** credential for lockout recovery, not the normal access path.
 
 Milvus data persists in Docker named volumes (`milvus-data`, `milvus-etcd`), not in the project directory. Re-run `seed_demo.py` anytime; it skips already-completed documents.
 

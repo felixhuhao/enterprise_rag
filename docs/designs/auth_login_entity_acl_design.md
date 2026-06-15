@@ -1,7 +1,7 @@
 # Design: Real-auth login + entity-level ACL (MVP)
 
 Date: 2026-06-14
-Status: Approved (pending spec review)
+Status: Implemented (MVP shipped). See FUTURE_PLAN.md §8 for the shipped-vs-deferred split; deferred hardening (group ACL, chunk-level ACL, full read-path audit, deny-by-default) is tracked under *Tag And ACL Governance Hardening*.
 
 ## Goal & context
 
