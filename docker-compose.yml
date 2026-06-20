@@ -3,8 +3,8 @@ services:
     image: milvusdb/milvus:v2.5.4
     command: ["milvus", "run", "standalone"]
     ports:
-      - "19530:19530"
-      - "9091:9091"
+      - "127.0.0.1:19530:19530"
+      - "127.0.0.1:9091:9091"
     environment:
       ETCD_USE_EMBED: "true"
       COMMON_STORAGETYPE: local
@@ -23,7 +23,7 @@ services:
       args:
         INSTALL_LOCAL_EMBEDDING: "false"
     ports:
-      - "8010:8010"
+      - "127.0.0.1:8010:8010"
     depends_on:
       milvus-standalone:
         condition: service_healthy

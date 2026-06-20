@@ -147,11 +147,14 @@ PDF parsing additionally requires:
 
 ```env
 API_TOKEN=enterprise-rag-dev-token
-EMBEDDING_MODEL_HOST_PATH=/home/hao/models/BAAI/bge-m3
-EMBEDDING_MODEL_NAME=bge-m3
-EMBEDDING_MODEL_PATH=/models/embedding
 DEEPSEEK_API_KEY=sk-your-deepseek-api-key
-ZHIPU_API_KEY=your-zhipu-api-key
+EMBEDDING_PROVIDER=qwen
+EMBEDDING_MODEL_NAME=text-embedding-v4
+EMBEDDING_DIM=1024
+EMBEDDING_BATCH_SIZE=10
+QWEN_API_KEY=your-qwen-api-key
+IMAGE_DESCRIPTION_PROVIDER=qwen
+IMAGE_DESCRIPTION_MODEL=qwen3-vl-flash
 MINERU_API_TOKEN=
 MILVUS_URI=http://localhost:19530
 VITE_ENABLE_TAG_GOVERNANCE=false
@@ -163,7 +166,9 @@ VITE_ENABLE_TAG_GOVERNANCE=false
 API_TOKEN=enterprise-rag-dev-token
 EMBEDDING_MODEL_PATH=/home/hao/models/BAAI/bge-m3
 DEEPSEEK_API_KEY=sk-your-deepseek-api-key
-ZHIPU_API_KEY=your-zhipu-api-key
+QWEN_API_KEY=your-qwen-api-key
+IMAGE_DESCRIPTION_PROVIDER=qwen
+IMAGE_DESCRIPTION_MODEL=qwen3-vl-flash
 MILVUS_URI=http://localhost:19530
 ```
 
