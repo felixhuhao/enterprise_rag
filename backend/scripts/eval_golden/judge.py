@@ -80,7 +80,7 @@ def _call_llm_judge(question: str, expected_answer: str, expected_points: list,
                 model=chat_model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
-                max_tokens=500,
+                max_tokens=1024,
             )
             raw = (resp.choices[0].message.content or "").strip()
             last_result = _parse_judge_response(raw)

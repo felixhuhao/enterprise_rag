@@ -47,6 +47,15 @@ class HeadingState:
         return " > ".join(v for _, v in sorted(self.levels.items()) if v)
 
 
+_HEADING_LINE_RE = re.compile(r"^#{1,6}\s+\S")
+
+
+def _is_heading_only(text: str) -> bool:
+    """True when every non-blank line is a Markdown heading with no body."""
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    return bool(lines) and all(_HEADING_LINE_RE.match(ln) for ln in lines)
+
+
 def split_markdown_document(
     markdown: str,
     *,
@@ -77,6 +86,11 @@ def split_markdown_document(
         text = "\n".join(text_lines).strip()
         text_lines = []
         if not text:
+            return
+        if _is_heading_only(text):
+            # Consecutive headings: this buffer carries only a bare heading with
+            # no body. Its section context is already captured in HeadingState
+            # (section_title), so emitting it would create a content-less chunk.
             return
         enriched_text, image_paths = _enrich_images_in_text(text, image_descriptions)
         for part, chunk_text in enumerate(_split_text(enriched_text, cfg), start=1):

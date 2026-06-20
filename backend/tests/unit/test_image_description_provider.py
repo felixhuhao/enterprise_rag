@@ -87,6 +87,14 @@ class TestProviderSelection:
         assert ctor["api_key"] == "qwen-key"
         assert ctor["base_url"] == "https://qwen.example/v1"
 
+    def test_unknown_provider_fails_clearly(self, monkeypatch):
+        monkeypatch.setattr(settings, "IMAGE_DESCRIPTION_PROVIDER", "qwne")
+
+        from app.rag.parsing.image_describer import _vl_credentials
+
+        with pytest.raises(RuntimeError, match="IMAGE_DESCRIPTION_PROVIDER"):
+            _vl_credentials()
+
     def test_keeps_existing_image_message_shape(self, monkeypatch, fake_async_openai, image_file):
         monkeypatch.setattr(settings, "IMAGE_DESCRIPTION_PROVIDER", "qwen")
         monkeypatch.setattr(settings, "QWEN_API_KEY", "qwen-key")

@@ -149,7 +149,11 @@ def test_run_multi_hop_preserves_hop2_fallback_info(monkeypatch):
         "app.rag.query.search",
         SimpleNamespace(_single_search=fake_single_search, search_node=fake_search_node),
     )
-
+    monkeypatch.setitem(
+        sys.modules,
+        "app.rag.vectorstores.general_milvus",
+        SimpleNamespace(verify_embedding_fingerprint=lambda: None),
+    )
     out = run_multi_hop_search(
         {"query": "哪些公司提到了信息安全培训", "entity_mode": "broad", "matched_entities": []},
         "哪些公司提到了信息安全培训",

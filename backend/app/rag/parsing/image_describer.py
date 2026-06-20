@@ -50,7 +50,12 @@ def _vl_credentials() -> tuple[str, str]:
     provider = settings.IMAGE_DESCRIPTION_PROVIDER.strip().lower()
     if provider == "qwen":
         return settings.QWEN_API_KEY, settings.QWEN_BASE_URL
-    return settings.ZHIPU_API_KEY, settings.ZHIPU_BASE_URL
+    if provider == "zhipu":
+        return settings.ZHIPU_API_KEY, settings.ZHIPU_BASE_URL
+    raise RuntimeError(
+        f"Image description config error: unknown IMAGE_DESCRIPTION_PROVIDER={provider!r} "
+        f"(expected 'qwen' or 'zhipu')."
+    )
 
 
 async def describe_image(image_path: str) -> dict:
