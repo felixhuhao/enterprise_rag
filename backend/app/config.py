@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     LOCAL_MODEL_NAME: str = ""
 
     # ---- Embedding 配置 ----
+    # local: 本地 BGE-M3 / FlagEmbedding；qwen: 远程 OpenAI 兼容 Qwen embedding API
+    EMBEDDING_PROVIDER: str = "local"
     EMBEDDING_MODEL_NAME: str = "bge-m3"
     EMBEDDING_MODEL_PATH: str = "/models/embedding"
     EMBEDDING_DIM: int = 1024
@@ -55,6 +57,12 @@ class Settings(BaseSettings):
     EMBEDDING_MAX_LENGTH: int = 8192
     EMBEDDING_DEVICE: str = "auto"  # auto | cuda | cpu
     EMBEDDING_USE_FP16: bool = True
+    # 远程 embedding 可靠性（仅 EMBEDDING_PROVIDER=qwen 时生效）
+    EMBEDDING_TIMEOUT: int = 30
+    EMBEDDING_MAX_RETRIES: int = 2
+    # Qwen / DashScope OpenAI 兼容端点
+    QWEN_API_KEY: str = ""
+    QWEN_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     MINERU_BASE_URL: str = "https://mineru.net/api/v4"
     MINERU_API_TOKEN: str = ""
     MINERU_MODEL_VERSION: str = "vlm"
@@ -78,11 +86,13 @@ class Settings(BaseSettings):
     CHUNK_ENRICHMENT_ENABLED: bool = False
     CHUNK_ENRICHMENT_PROFILE: str = "none"
 
-    # ---- 图片描述配置 (智谱 GLM-4.6V) ----
+    # ---- 图片描述配置 ----
+    # qwen: Qwen-VL OpenAI 兼容；zhipu: 智谱 GLM-4.6V 兼容
+    IMAGE_DESCRIPTION_PROVIDER: str = "qwen"
     ZHIPU_API_KEY: str = ""
     ZHIPU_BASE_URL: str = "https://open.bigmodel.cn/api/paas/v4"
     IMAGE_DESCRIPTION_ENABLED: bool = True
-    IMAGE_DESCRIPTION_MODEL: str = "glm-4.6v-flash"
+    IMAGE_DESCRIPTION_MODEL: str = "qwen3-vl-flash"
     IMAGE_DESCRIPTION_CONCURRENCY: int = 3
     IMAGE_DESCRIPTION_TIMEOUT: int = 30
     IMAGE_DESCRIPTION_MAX_TOKENS: int = 800

@@ -9,6 +9,8 @@ from app.config import settings
 
 
 def main():
+    print(f"embedding_provider={settings.EMBEDDING_PROVIDER}")
+    print(f"embedding_model_name={settings.EMBEDDING_MODEL_NAME}")
     print(f"embedding_model_path={settings.EMBEDDING_MODEL_PATH}")
     print(f"dim={settings.EMBEDDING_DIM}")
     print(f"device={settings.EMBEDDING_DEVICE}")

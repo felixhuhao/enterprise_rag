@@ -18,7 +18,10 @@ services:
       start_period: 240s
 
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      args:
+        INSTALL_LOCAL_EMBEDDING: "false"
     ports:
       - "8010:8010"
     depends_on:
@@ -31,7 +34,6 @@ services:
       MILVUS_URI: http://milvus-standalone:19530
     volumes:
       - ./data:/app/data
-      - ${EMBEDDING_MODEL_HOST_PATH:?Set EMBEDDING_MODEL_HOST_PATH in .env}:/models/embedding:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health')"]
       interval: 5s

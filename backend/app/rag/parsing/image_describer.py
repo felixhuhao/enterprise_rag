@@ -12,6 +12,8 @@ import os
 import base64
 from pathlib import Path
 
+from openai import AsyncOpenAI
+
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -43,19 +45,24 @@ def _get_image_mime_type(path: str) -> str:
     }.get(ext, "image/jpeg")
 
 
+def _vl_credentials() -> tuple[str, str]:
+    """Return (api_key, base_url) for the configured image-description provider."""
+    provider = settings.IMAGE_DESCRIPTION_PROVIDER.strip().lower()
+    if provider == "qwen":
+        return settings.QWEN_API_KEY, settings.QWEN_BASE_URL
+    return settings.ZHIPU_API_KEY, settings.ZHIPU_BASE_URL
+
+
 async def describe_image(image_path: str) -> dict:
     """Describe a single image using VL model.
 
     Returns {"description": str, "status": "ok"} or {"status": "failed", "error": str}.
     """
     model = settings.IMAGE_DESCRIPTION_MODEL
-    api_key = settings.ZHIPU_API_KEY
-    base_url = settings.ZHIPU_BASE_URL
+    api_key, base_url = _vl_credentials()
     timeout = settings.IMAGE_DESCRIPTION_TIMEOUT
 
     try:
-        from openai import AsyncOpenAI
-
         client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
         b64 = _encode_image_base64(image_path)

@@ -32,6 +32,10 @@ def search_node(state: QueryState, config: RunnableConfig) -> dict:
     Entity filter fallback: filtered → unfiltered if results are scarce.
     Multi-entity: per-entity parallel search + merge.
     """
+    from app.rag.vectorstores.general_milvus import verify_embedding_fingerprint
+
+    verify_embedding_fingerprint()
+
     cfg = get_query_config(config)
     query = effective_query(state)
     entity_mode = state.get("entity_mode", "none")

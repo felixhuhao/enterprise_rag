@@ -7,6 +7,10 @@ from pymilvus import DataType, Function, FunctionType, MilvusClient
 
 from app.config import settings
 from app.rag.query.filter_utils import escape_milvus_string
+from app.rag.vectorstores.embedding_fingerprint import (
+    assert_fingerprint_ok,
+    record_fingerprint,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -123,8 +127,18 @@ def ensure_collection():
         schema=schema,
         index_params=index_params,
     )
+    record_fingerprint()
     _FIELD_NAMES_CACHE = set(SCHEMA_FIELD_NAMES)
     logger.info("创建 collection '%s' 成功 (dim=%d)", COLLECTION_NAME, settings.EMBEDDING_DIM)
+
+
+def verify_embedding_fingerprint() -> None:
+    """Fail fast if the live collection's embedding fingerprint is missing or stale.
+
+    No-op when the collection does not exist (nothing to protect). Callers:
+    search_node (query path) and upsert_document_chunks (write path).
+    """
+    assert_fingerprint_ok(client.has_collection(collection_name=COLLECTION_NAME))
 
 
 def collection_field_names() -> set[str]:
@@ -231,6 +245,7 @@ def query_chunk_by_key(document_id: str, chunk_key: str) -> dict | None:
 def upsert_document_chunks(document_id: str, chunks: list[dict]):
     """Idempotently write embedded chunks to Milvus."""
     ensure_collection()
+    verify_embedding_fingerprint()
     delete_by_document_id(document_id)
     if not chunks:
         return {"insert_count": 0}

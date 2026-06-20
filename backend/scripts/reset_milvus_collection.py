@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.config import settings
 from app.core.database import get_db
+from app.rag.vectorstores.embedding_fingerprint import clear_fingerprint
 
 COLLECTION_NAME = "general_documents"
 
@@ -59,8 +60,9 @@ def main():
     args = parser.parse_args()
 
     drop_collection()
+    clear_fingerprint()
     if args.drop_only:
-        print("Document statuses were not changed.")
+        print("Document statuses were not changed; embedding fingerprint cleared.")
         return
 
     count = asyncio.run(reset_document_statuses())

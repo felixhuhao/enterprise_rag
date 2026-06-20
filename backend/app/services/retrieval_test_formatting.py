@@ -70,9 +70,12 @@ def strategy_summary(
 
 
 def embedding_model_label(settings_obj: Any) -> str:
+    provider = settings_obj.EMBEDDING_PROVIDER.strip().lower()
     name = settings_obj.EMBEDDING_MODEL_NAME.strip()
     if name:
-        return name
+        return f"{provider}/{name}"
+    if provider == "qwen":
+        return f"{provider}/text-embedding-v4"
     return Path(settings_obj.EMBEDDING_MODEL_PATH).name or settings_obj.EMBEDDING_MODEL_PATH
 
 

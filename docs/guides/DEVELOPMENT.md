@@ -7,29 +7,52 @@ This guide keeps operational setup out of the project README. Use it when you ne
 Prerequisites:
 
 - Docker Engine or Docker Desktop.
-- Local dense embedding model files, tested with `BAAI/bge-m3`.
+- An embedding backend: either the local BGE-M3 model files (`BAAI/bge-m3`, `EMBEDDING_PROVIDER=local`) or a Qwen/DashScope key (`EMBEDDING_PROVIDER=qwen`, recommended for small servers).
 - DeepSeek-compatible chat API key.
-- Zhipu image-description API key.
+- An image-description key: Qwen (`IMAGE_DESCRIPTION_PROVIDER=qwen`, default) or Zhipu (`IMAGE_DESCRIPTION_PROVIDER=zhipu`).
 - Optional MinerU token for PDF parsing.
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env`:
+Edit `.env` — local BGE-M3 profile:
 
 ```env
+EMBEDDING_PROVIDER=local
 EMBEDDING_MODEL_HOST_PATH=/home/hao/models/BAAI/bge-m3
+IMAGE_DESCRIPTION_PROVIDER=zhipu
 DEEPSEEK_API_KEY=sk-your-key
 ZHIPU_API_KEY=your-zhipu-key
 MINERU_API_TOKEN=
 API_TOKEN=enterprise-rag-dev-token
 ```
 
-Start the stack:
+Or the Qwen small-server profile (no model download):
+
+```env
+EMBEDDING_PROVIDER=qwen
+EMBEDDING_MODEL_NAME=text-embedding-v4
+EMBEDDING_DIM=1024
+EMBEDDING_BATCH_SIZE=10
+QWEN_API_KEY=your-qwen-key
+IMAGE_DESCRIPTION_PROVIDER=qwen
+IMAGE_DESCRIPTION_MODEL=qwen3-vl-flash
+DEEPSEEK_API_KEY=sk-your-key
+API_TOKEN=enterprise-rag-dev-token
+```
+
+Start the stack — Qwen embedding (no local model files):
 
 ```bash
 docker compose up -d --build
+docker compose ps
+```
+
+Start the stack — local BGE-M3 embedding (mounts `EMBEDDING_MODEL_HOST_PATH`):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local-embedding.yml up -d --build
 docker compose ps
 ```
 
