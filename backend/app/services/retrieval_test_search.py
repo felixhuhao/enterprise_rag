@@ -27,9 +27,12 @@ def run_primary_search(
     combine_acl: CombineAclFn,
     embed_query: EmbedQueryFn,
     dense_search: DenseSearchFn,
+    verify_fingerprint: Callable[[], None],
 ) -> dict:
     from app.rag.query.scoring_utils import need_fallback
     from app.rag.query.planner import plan_allows_entity_fallback, plan_budget
+
+    verify_fingerprint()
 
     acl_expr, allowed_ids = acl_filter(run_config)
     if allowed_ids is not None and not allowed_ids:
@@ -46,6 +49,7 @@ def run_primary_search(
             combine_acl=combine_acl,
             embed_query=embed_query,
             dense_search=dense_search,
+            verify_fingerprint=verify_fingerprint,
         )
 
     query = effective_query(state)
@@ -79,8 +83,10 @@ def run_multi_entity_dense_search(
     combine_acl: CombineAclFn,
     embed_query: EmbedQueryFn,
     dense_search: DenseSearchFn,
+    verify_fingerprint: Callable[[], None],
 ) -> dict:
     """Dense-only variant of multi-entity retrieval for the retrieval test page."""
+    verify_fingerprint()
     query = effective_query(state)
     matched = state.get("matched_entities", [])
     n = max(len(matched), 1)

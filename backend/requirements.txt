@@ -15,8 +15,6 @@ langgraph>=0.3.0
 
 # AI service integrations
 openai>=1.0.0
-FlagEmbedding>=1.4.0
-torch>=2.2.0
 
 # Vector database
 pymilvus>=2.5.0

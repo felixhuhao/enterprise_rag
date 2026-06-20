@@ -186,23 +186,33 @@ Full screenshot gallery and recording checklist: [docs/guides/DEMO_GUIDE.md](doc
 | Workflows | LangGraph-style ingestion and retrieval nodes |
 | State | SQLite with WAL, startup storage guards, query/job/eval records |
 | Vector Store | Milvus dense vectors + sparse/BM25 fields |
-| Embeddings | Local dense embedding model, tested with BAAI/bge-m3 |
+| Embeddings | Local BGE-M3 or remote Qwen `text-embedding-v4` (OpenAI-compatible) |
 | LLM | DeepSeek-compatible chat API |
 | PDF Parsing | MinerU Online API |
-| Image-to-Text | Zhipu GLM-4.6V-compatible API |
+| Image-to-Text | Zhipu GLM-4.6V or Qwen-VL (OpenAI-compatible) |
 | Evaluation | Golden-set runner, rule scoring, LLM judge, accepted baselines |
 | Packaging | Docker Compose |
 
 ## Quick Start
 
-The fastest path is Docker Compose:
+The fastest path is Docker Compose. The root `.env.example` is Qwen-first for
+small servers: `EMBEDDING_PROVIDER=qwen` and `IMAGE_DESCRIPTION_PROVIDER=qwen`
+avoid the BGE-M3 model download and `torch`/`FlagEmbedding`.
 
 ```bash
 cp .env.example .env
-# edit .env: EMBEDDING_MODEL_HOST_PATH, DEEPSEEK/ZHIPU keys.
+# edit .env: set DEEPSEEK_API_KEY and QWEN_API_KEY.
 # API_TOKEN is only the env-managed bootstrap admin credential (lockout recovery);
 # normal access is via the login screen below.
 docker compose up -d --build
+docker compose exec backend python scripts/seed_demo.py
+```
+
+For local BGE-M3 instead of Qwen, set `EMBEDDING_PROVIDER=local`,
+`EMBEDDING_MODEL_NAME=bge-m3`, and use the local embedding override:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local-embedding.yml up -d --build
 docker compose exec backend python scripts/seed_demo.py
 ```
 

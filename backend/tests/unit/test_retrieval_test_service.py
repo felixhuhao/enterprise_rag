@@ -28,6 +28,12 @@ def _noop_context_expand(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def _noop_fingerprint(monkeypatch):
+    """The fingerprint guard reads a live Milvus collection; no-op in unit tests."""
+    monkeypatch.setattr(svc, "_verify_embedding_fingerprint", lambda: None)
+
+
 _SAMPLE_HIT = {
     "chunk_id": 1,
     "document_id": "doc-1",
@@ -44,10 +50,11 @@ _SAMPLE_HIT = {
 
 
 def test_embedding_model_label_prefers_display_name(monkeypatch):
+    monkeypatch.setattr(svc.settings, "EMBEDDING_PROVIDER", "local")
     monkeypatch.setattr(svc.settings, "EMBEDDING_MODEL_NAME", "bge-m3")
     monkeypatch.setattr(svc.settings, "EMBEDDING_MODEL_PATH", "/models/embedding")
 
-    assert svc._embedding_model_label() == "bge-m3"
+    assert svc._embedding_model_label() == "local/bge-m3"
 
 
 def test_retired_discovery_runs_multi_hop_and_returns_trace(monkeypatch):

@@ -1,0 +1,18 @@
+# Local embedding override: mounts the BGE-M3 model files for EMBEDDING_PROVIDER=local.
+#
+# Usage (layer on top of the base file):
+#   docker compose -f docker-compose.yml -f docker-compose.local-embedding.yml up -d --build
+#
+# Not needed for EMBEDDING_PROVIDER=qwen (remote Qwen embedding, no model files).
+services:
+  backend:
+    build:
+      context: ./backend
+      args:
+        INSTALL_LOCAL_EMBEDDING: "true"
+    environment:
+      EMBEDDING_PROVIDER: local
+      EMBEDDING_MODEL_NAME: bge-m3
+      EMBEDDING_BATCH_SIZE: 4
+    volumes:
+      - ${EMBEDDING_MODEL_HOST_PATH:?Set EMBEDDING_MODEL_HOST_PATH in .env}:/models/embedding:ro

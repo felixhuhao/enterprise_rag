@@ -1,7 +1,10 @@
 # Development override: run app code from the working tree.
 #
-# Usage:
-#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# Usage (local BGE-M3 embedding):
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml \
+#     -f docker-compose.local-embedding.yml up -d
+#
+# For Qwen embedding (no local model), drop docker-compose.local-embedding.yml.
 #
 # Do not use `--build` for normal source edits. Rebuild only when Dockerfiles,
 # requirements.txt, package.json, or package-lock.json change.
@@ -16,7 +19,6 @@ services:
       - ./backend/app:/app/app:ro
       - ./backend/scripts:/app/scripts:ro
       - ./data:/app/data
-      - ${EMBEDDING_MODEL_HOST_PATH:?Set EMBEDDING_MODEL_HOST_PATH in .env}:/models/embedding:ro
 
   frontend:
     volumes:

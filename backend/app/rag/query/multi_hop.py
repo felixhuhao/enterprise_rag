@@ -94,6 +94,9 @@ def run_multi_hop_search(
     """Broad entity discovery + per-entity hop2. Returns state update dict."""
     from app.rag.query.filter_utils import build_acl_expr, get_allowed_ids
     from app.rag.query.search import _single_search, search_node
+    from app.rag.vectorstores.general_milvus import verify_embedding_fingerprint
+
+    verify_embedding_fingerprint()
 
     seed_entities = list(state.get("matched_entities", []))
     seed_entity_set = set(seed_entities)

@@ -1,0 +1,6 @@
+# Optional local BGE-M3 embedding dependencies.
+#
+# The default production image omits these so Qwen embedding deployments do not
+# download PyTorch/FlagEmbedding on small servers.
+FlagEmbedding>=1.4.0
+torch>=2.2.0

@@ -7,29 +7,52 @@ This guide keeps operational setup out of the project README. Use it when you ne
 Prerequisites:
 
 - Docker Engine or Docker Desktop.
-- Local dense embedding model files, tested with `BAAI/bge-m3`.
+- An embedding backend: either the local BGE-M3 model files (`BAAI/bge-m3`, `EMBEDDING_PROVIDER=local`) or a Qwen/DashScope key (`EMBEDDING_PROVIDER=qwen`, recommended for small servers).
 - DeepSeek-compatible chat API key.
-- Zhipu image-description API key.
+- An image-description key: Qwen (`IMAGE_DESCRIPTION_PROVIDER=qwen`, default) or Zhipu (`IMAGE_DESCRIPTION_PROVIDER=zhipu`).
 - Optional MinerU token for PDF parsing.
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env`:
+Edit `.env` — local BGE-M3 profile:
 
 ```env
+EMBEDDING_PROVIDER=local
 EMBEDDING_MODEL_HOST_PATH=/home/hao/models/BAAI/bge-m3
+IMAGE_DESCRIPTION_PROVIDER=zhipu
 DEEPSEEK_API_KEY=sk-your-key
 ZHIPU_API_KEY=your-zhipu-key
 MINERU_API_TOKEN=
 API_TOKEN=enterprise-rag-dev-token
 ```
 
-Start the stack:
+Or the Qwen small-server profile (no model download):
+
+```env
+EMBEDDING_PROVIDER=qwen
+EMBEDDING_MODEL_NAME=text-embedding-v4
+EMBEDDING_DIM=1024
+EMBEDDING_BATCH_SIZE=10
+QWEN_API_KEY=your-qwen-key
+IMAGE_DESCRIPTION_PROVIDER=qwen
+IMAGE_DESCRIPTION_MODEL=qwen3-vl-flash
+DEEPSEEK_API_KEY=sk-your-key
+API_TOKEN=enterprise-rag-dev-token
+```
+
+Start the stack — Qwen embedding (no local model files):
 
 ```bash
 docker compose up -d --build
+docker compose ps
+```
+
+Start the stack — local BGE-M3 embedding (mounts `EMBEDDING_MODEL_HOST_PATH`):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local-embedding.yml up -d --build
 docker compose ps
 ```
 
@@ -50,15 +73,61 @@ Sign in at the login screen with a seeded demo account (`Admin` / `admin-demo-pa
 
 Milvus data persists in Docker named volumes (`milvus-data`, `milvus-etcd`), not in the project directory. Re-run `seed_demo.py` anytime; it skips already-completed documents.
 
+## Remote Docker Deployment
+
+Use the same base Compose profile on a remote server as on local Qwen Docker:
+
+```bash
+cp .env.example .env
+# edit .env:
+#   API_TOKEN=<private-bootstrap-token>
+#   DEEPSEEK_API_KEY=<deepseek-key>
+#   QWEN_API_KEY=<qwen-key>
+# keep EMBEDDING_PROVIDER=qwen and IMAGE_DESCRIPTION_PROVIDER=qwen
+# keep MILVUS_URI=http://localhost:19530; Compose overrides backend to milvus-standalone.
+docker compose --env-file .env -f docker-compose.yml config --quiet
+docker compose up -d --build
+docker compose ps
+docker compose exec backend python scripts/seed_demo.py
+```
+
+Open the frontend at:
+
+```text
+http://<server-ip-or-domain>:5173
+```
+
+The frontend calls `/api` on the same origin and the Vite container proxies to
+the backend service inside Docker, so remote browser traffic does not need to
+call port `8010` directly. The default compose file binds backend `8010` and
+Milvus `19530`/`9091` to `127.0.0.1` on the host; expose only frontend `5173`
+through the firewall unless you intentionally add a reverse proxy.
+
+Do not include `docker-compose.local-embedding.yml` on the 4c4g Qwen server.
+That override intentionally installs `torch`/`FlagEmbedding` and mounts BGE-M3
+for local embedding deployments.
+
+If the remote server already has a Milvus collection:
+
+```bash
+# unchanged provider/model/dim only
+docker compose exec backend python scripts/pin_embedding_fingerprint.py --yes
+
+# provider/model/dim changed
+docker compose exec backend python scripts/reset_milvus_collection.py
+docker compose exec backend python scripts/seed_demo.py
+```
+
 ## Docker Build Cache
 
-The backend image contains large ML dependencies. Its Dockerfile uses a BuildKit
-pip cache mount so that if the dependency layer is invalidated, downloaded
-wheels can be reused instead of pulling several GB again.
+The default backend image is Qwen-first and omits local BGE-M3 dependencies. Its
+Dockerfile uses a BuildKit pip cache mount so that if the dependency layer is
+invalidated, downloaded wheels can be reused.
 
-The first backend dependency build after a cache reset can still be slow. Future
-builds should reuse the cache unless Docker builder cache is pruned or the
-requirements change substantially.
+The local embedding override installs `torch` and `FlagEmbedding`; the first
+build of that optional profile can still be slow. Future builds should reuse the
+cache unless Docker builder cache is pruned or the requirements change
+substantially.
 
 For normal code changes, prefer the development override. It bind-mounts source
 files into the existing containers and enables backend auto-reload:

@@ -4,15 +4,23 @@ The application uses `pydantic-settings` and reads environment variables from `.
 
 Root `.env` is intended for Docker Compose. `backend/.env` can be used for local backend runs.
 
+The root `.env.example` is optimized for Docker deployment on small servers and
+therefore defaults to Qwen remote embeddings and Qwen-VL image descriptions.
+The Python `Settings` class keeps the backward-compatible local embedding
+default for bare backend runs without an env file, but image description also
+defaults to Qwen-VL.
+
 ## Required For A Useful Demo
 
 | Variable | Description |
 |---|---|
 | `API_TOKEN` | Env-managed **bootstrap admin** credential for lockout recovery. Not the normal client auth path — users sign in via the login screen with username/password. Keep a private value outside local demos. |
-| `EMBEDDING_MODEL_HOST_PATH` | Host path to the local embedding model mounted into Docker, e.g. `/home/hao/models/BAAI/bge-m3`. |
-| `EMBEDDING_MODEL_PATH` | Runtime model path. Docker uses `/models/embedding`; local dev can use `/home/hao/models/BAAI/bge-m3`. |
+| `EMBEDDING_PROVIDER` | `local` (BGE-M3/FlagEmbedding) or `qwen` (remote Qwen `text-embedding-v4`). `qwen` is recommended for small servers; `local` is the backward-compatible default. |
+| `EMBEDDING_MODEL_HOST_PATH` | Required only when `EMBEDDING_PROVIDER=local`. Host path to the local embedding model mounted into Docker, e.g. `/home/hao/models/BAAI/bge-m3`. |
+| `EMBEDDING_MODEL_PATH` | Runtime model path (local provider only). Docker uses `/models/embedding`; local dev can use `/home/hao/models/BAAI/bge-m3`. |
 | `DEEPSEEK_API_KEY` | DeepSeek-compatible API key for chat, HyDE, query expansion, rerank, and judge evaluation. |
-| `ZHIPU_API_KEY` | Zhipu-compatible API key for image descriptions. |
+| `QWEN_API_KEY` | Required when `EMBEDDING_PROVIDER=qwen` and/or `IMAGE_DESCRIPTION_PROVIDER=qwen`. Qwen/DashScope OpenAI-compatible API key. |
+| `ZHIPU_API_KEY` | Required only when `IMAGE_DESCRIPTION_PROVIDER=zhipu`. Zhipu-compatible API key for image descriptions. |
 
 PDF parsing additionally requires:
 
@@ -69,14 +77,21 @@ PDF parsing additionally requires:
 
 | Variable | Default | Description |
 |---|---|---|
-| `EMBEDDING_MODEL_HOST_PATH` | `/home/hao/models/BAAI/bge-m3` in examples | Host path mounted into Docker. |
-| `EMBEDDING_MODEL_NAME` | `bge-m3` | Display name in diagnostics and UI summaries. |
-| `EMBEDDING_MODEL_PATH` | `/models/embedding` | Runtime model path inside backend process. |
+| `EMBEDDING_PROVIDER` | `local` in code, `qwen` in root Docker example | `local` (BGE-M3/FlagEmbedding) or `qwen` (remote Qwen `text-embedding-v4` via OpenAI-compatible API). `qwen` avoids `torch`/`FlagEmbedding` and the BGE-M3 model download. |
+| `EMBEDDING_MODEL_HOST_PATH` | `/home/hao/models/BAAI/bge-m3` in examples | Host path mounted into Docker (local provider only). |
+| `EMBEDDING_MODEL_NAME` | `bge-m3` | Model name (`text-embedding-v4` for Qwen). Shown in diagnostics as `<provider>/<model>`. |
+| `EMBEDDING_MODEL_PATH` | `/models/embedding` | Runtime model path inside backend process (local provider only). |
 | `EMBEDDING_DIM` | `1024` | Expected dense vector dimension. |
-| `EMBEDDING_BATCH_SIZE` | `4` | Batch size for document embeddings. |
-| `EMBEDDING_MAX_LENGTH` | `8192` | Max token length passed to embedding model. |
-| `EMBEDDING_DEVICE` | `auto` | `auto`, `cuda`, or `cpu`. |
-| `EMBEDDING_USE_FP16` | `true` | Uses fp16 only when CUDA is active. |
+| `EMBEDDING_BATCH_SIZE` | `4` | Batch size for document embeddings. Capped at 10 for the Qwen provider. |
+| `EMBEDDING_MAX_LENGTH` | `8192` | Max token length passed to the local model; used as a name only for the Qwen provider (API rejects oversized input). |
+| `EMBEDDING_DEVICE` | `auto` | `auto`, `cuda`, or `cpu`. Local provider only; reported as `remote` for Qwen. |
+| `EMBEDDING_USE_FP16` | `true` | Uses fp16 only when CUDA is active (local provider only). |
+| `EMBEDDING_TIMEOUT` | `30` | Remote embedding request timeout in seconds (Qwen only). |
+| `EMBEDDING_MAX_RETRIES` | `2` | OpenAI SDK retry count for transient (408/409/429/5xx) failures (Qwen only). |
+| `QWEN_API_KEY` | empty | Qwen/DashScope API key. Required when `EMBEDDING_PROVIDER=qwen`. |
+| `QWEN_BASE_URL` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | Qwen OpenAI-compatible base URL. |
+
+> **Vector-space safety:** changing `EMBEDDING_PROVIDER`, `EMBEDDING_MODEL_NAME`, or `EMBEDDING_DIM` changes the vector space even when the dimension stays 1024. The collection records an embedding fingerprint and query/upsert are blocked on mismatch or a missing fingerprint. After switching: reset and reindex (`scripts/reset_milvus_collection.py`); to adopt an unchanged-provider collection, pin the fingerprint (`scripts/pin_embedding_fingerprint.py --yes`).
 
 ### MinerU PDF Parsing
 
@@ -118,10 +133,11 @@ PDF parsing additionally requires:
 
 | Variable | Default | Description |
 |---|---|---|
-| `ZHIPU_API_KEY` | empty | API key for image descriptions. |
+| `IMAGE_DESCRIPTION_PROVIDER` | `qwen` | `qwen` (Qwen-VL) or `zhipu` (GLM-4.6V). Selects the API key/base URL pair. |
+| `ZHIPU_API_KEY` | empty | API key for image descriptions (provider=zhipu). |
 | `ZHIPU_BASE_URL` | `https://open.bigmodel.cn/api/paas/v4` | Zhipu-compatible API base URL. |
 | `IMAGE_DESCRIPTION_ENABLED` | `true` | Enable image-to-text description during ingestion. |
-| `IMAGE_DESCRIPTION_MODEL` | `glm-4.6v-flash` | Image description model name. |
+| `IMAGE_DESCRIPTION_MODEL` | `qwen3-vl-flash` | Image description model name. Use `glm-4.6v-flash` for Zhipu. |
 | `IMAGE_DESCRIPTION_CONCURRENCY` | `3` | Concurrent image description requests. |
 | `IMAGE_DESCRIPTION_TIMEOUT` | `30` | Per-request timeout in seconds. |
 | `IMAGE_DESCRIPTION_MAX_TOKENS` | `800` | Maximum tokens for each image description response. |
@@ -131,11 +147,14 @@ PDF parsing additionally requires:
 
 ```env
 API_TOKEN=enterprise-rag-dev-token
-EMBEDDING_MODEL_HOST_PATH=/home/hao/models/BAAI/bge-m3
-EMBEDDING_MODEL_NAME=bge-m3
-EMBEDDING_MODEL_PATH=/models/embedding
 DEEPSEEK_API_KEY=sk-your-deepseek-api-key
-ZHIPU_API_KEY=your-zhipu-api-key
+EMBEDDING_PROVIDER=qwen
+EMBEDDING_MODEL_NAME=text-embedding-v4
+EMBEDDING_DIM=1024
+EMBEDDING_BATCH_SIZE=10
+QWEN_API_KEY=your-qwen-api-key
+IMAGE_DESCRIPTION_PROVIDER=qwen
+IMAGE_DESCRIPTION_MODEL=qwen3-vl-flash
 MINERU_API_TOKEN=
 MILVUS_URI=http://localhost:19530
 VITE_ENABLE_TAG_GOVERNANCE=false
@@ -147,6 +166,40 @@ VITE_ENABLE_TAG_GOVERNANCE=false
 API_TOKEN=enterprise-rag-dev-token
 EMBEDDING_MODEL_PATH=/home/hao/models/BAAI/bge-m3
 DEEPSEEK_API_KEY=sk-your-deepseek-api-key
-ZHIPU_API_KEY=your-zhipu-api-key
+QWEN_API_KEY=your-qwen-api-key
+IMAGE_DESCRIPTION_PROVIDER=qwen
+IMAGE_DESCRIPTION_MODEL=qwen3-vl-flash
 MILVUS_URI=http://localhost:19530
+```
+
+## Example Qwen (Small-Server) `.env`
+
+No local model download, no `torch`/`FlagEmbedding` in the process:
+
+```env
+EMBEDDING_PROVIDER=qwen
+EMBEDDING_MODEL_NAME=text-embedding-v4
+EMBEDDING_DIM=1024
+EMBEDDING_BATCH_SIZE=10
+EMBEDDING_TIMEOUT=30
+EMBEDDING_MAX_RETRIES=2
+QWEN_API_KEY=your-qwen-api-key
+QWEN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+
+IMAGE_DESCRIPTION_PROVIDER=qwen
+IMAGE_DESCRIPTION_MODEL=qwen3-vl-flash
+IMAGE_DESCRIPTION_ENABLED=true
+```
+
+After switching providers, reset and reindex:
+
+```bash
+docker compose exec backend python scripts/reset_milvus_collection.py
+docker compose exec backend python scripts/seed_demo.py
+```
+
+To adopt an existing collection on an unchanged provider (non-destructive):
+
+```bash
+docker compose exec backend python scripts/pin_embedding_fingerprint.py --yes
 ```

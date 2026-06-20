@@ -43,6 +43,30 @@ class TestTextChunks:
         assert len(text_chunks) >= 2
 
 
+class TestHeadingOnlyFragments:
+    def test_consecutive_headings_do_not_yield_heading_only_chunks(self, tmp_parsed_dir):
+        """A heading immediately followed by a subheading must not become a
+        standalone text chunk containing only the heading line."""
+        md = "# 文档\n\n## 第二章 差旅标准\n\n### 2.1 国内差旅\n\n差旅标准如下。\n"
+        chunks, _ = split_markdown_document(
+            md, document_id="test", filename="test.md",
+            source_path="/tmp/test.md", parsed_dir=tmp_parsed_dir,
+        )
+        text_chunks = [c for c in chunks if c["source_type"] == "text"]
+
+        def is_heading_only(content: str) -> bool:
+            lines = [ln for ln in content.splitlines() if ln.strip()]
+            return bool(lines) and all(ln.lstrip().startswith("#") for ln in lines)
+
+        heading_only = [c for c in text_chunks if is_heading_only(c["content"])]
+        assert not heading_only, f"heading-only chunks emitted: {[c['content'] for c in heading_only]}"
+
+        # section context must still be preserved on the body chunk
+        body = next(c for c in text_chunks if "差旅标准如下" in c["content"])
+        assert "第二章 差旅标准" in body["section_title"]
+        assert "2.1 国内差旅" in body["section_title"]
+
+
 class TestMarkdownTable:
     def test_small_table_generates_summary_and_full(self, tmp_parsed_dir):
         md = "## 财务\n\n| 指标 | 值 |\n|------|-----|\n| 营收 | 100亿 |\n"

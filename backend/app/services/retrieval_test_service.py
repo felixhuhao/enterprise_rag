@@ -148,6 +148,12 @@ def _combine_acl(entity_filter: str | None, acl_filter: str | None) -> str | Non
     return combine_filters(entity_filter, acl_filter)
 
 
+def _verify_embedding_fingerprint() -> None:
+    from app.rag.vectorstores.general_milvus import verify_embedding_fingerprint
+
+    verify_embedding_fingerprint()
+
+
 def _run_primary_search(state: QueryState, run_config: RunnableConfig, cfg: QueryConfig, *, use_hybrid: bool) -> dict:
     return retrieval_test_search.run_primary_search(
         state,
@@ -159,6 +165,7 @@ def _run_primary_search(state: QueryState, run_config: RunnableConfig, cfg: Quer
         combine_acl=_combine_acl,
         embed_query=_embed_query,
         dense_search=_dense_only_search_limited,
+        verify_fingerprint=_verify_embedding_fingerprint,
     )
 
 
@@ -182,6 +189,7 @@ def _run_multi_entity_dense_search(state: QueryState, cfg: QueryConfig, acl_filt
         combine_acl=_combine_acl,
         embed_query=_embed_query,
         dense_search=_dense_only_search_limited,
+        verify_fingerprint=_verify_embedding_fingerprint,
     )
 
 

@@ -17,6 +17,7 @@ except ImportError:
 general_milvus_stub = types.ModuleType("app.rag.vectorstores.general_milvus")
 general_milvus_stub.COLLECTION_NAME = "test_collection"
 general_milvus_stub.available_output_fields = lambda fields: fields
+general_milvus_stub.verify_embedding_fingerprint = lambda: None
 
 
 class _FakeMilvusClient:
